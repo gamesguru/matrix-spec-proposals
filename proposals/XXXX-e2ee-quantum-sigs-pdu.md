@@ -257,7 +257,7 @@ This MSC requires a **new room version** for the final phase of migration. The n
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. **However, for historical events received via backfill, this step is bypassed if the event's SHA-256 reference hash (Event ID) securely matches the `prev_events` hash of an already-verified forward event in the DAG.** If no FN-DSA signature is present and the event is not anchored by a known valid hash, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
-- **Historical signature pruning (Optional):** Leveraging the backfill exception in the updated auth rules, servers MAY drop the `signatures` object from locally stored events once they reach a sufficient DAG depth, relying on the quantum-resistant SHA-256 reference hashes of subsequent events to prove historical integrity during federation.
+- **Historical signature pruning (Optional):** Leveraging the backfill exception in the updated auth rules, servers MAY prune **legacy Ed25519 signatures** from locally stored events once they reach a sufficient DAG depth, relying on the quantum-resistant SHA-256 reference hashes of subsequent events to prove historical integrity during federation. Servers MUST retain the canonical FN-DSA signature(s) for each event, as these are required inputs to downstream proof workflows (e.g., `h_auth` computation in MSCYYYY) and for any future re-verification.
 
 The new room version does **not** change:
 
@@ -268,7 +268,7 @@ The new room version does **not** change:
 
 ## Potential Issues
 
-- **Signature size increase.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, Matrix events are typically 1–5 KB, so a ~600 byte increase is modest. Furthermore, this MSC introduces **Historical Signature Pruning** (see Performance Opportunities below) to ensure this size increase translates to an ephemeral bandwidth cost rather than permanent database bloat.
+- **Signature size increase.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, Matrix events are typically 1–5 KB, so a ~600 byte increase is modest. Furthermore, this MSC introduces **Historical Signature Pruning** (see Performance Opportunities below) to allow servers to prune redundant legacy Ed25519 signatures from deeply historical events, partially offsetting the FN-DSA size increase.
 
 - **FIPS 206 not yet finalized.** As of May 2026, NIST FIPS 206 (FN-DSA) is in the final stages of standardization but has not been published. This MSC uses unstable prefixes during the pre-finalization period. If FIPS 206 is substantively changed before publication, the unstable prefix allows the algorithm parameters to be updated without breaking stable identifiers. The three other NIST PQC standards (FIPS 203/204/205) were finalized in August 2024, and FIPS 206 is expected to follow the same trajectory.
 
@@ -302,9 +302,9 @@ It is a common misconception that PQC is universally slower. FN-DSA uses Fast-Fo
 
 ### Storage Optimization: Historical Signature Pruning
 
-Matrix currently stores the `signatures` object for every event indefinitely, contributing heavily to database bloat. FN-DSA signatures (encoded to ~888 bytes in Base64) would normally accelerate this. However, Matrix events are linked in a Directed Acyclic Graph (DAG) using SHA-256 reference hashes. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by hundreds of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
+Matrix currently stores the `signatures` object for every event indefinitely, contributing to database bloat. In Phase 3 room versions where FN-DSA is authoritative, the legacy Ed25519 signatures carried during Phase 2 become redundant for deeply historical events. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by hundreds of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
 
-In Phase 3 room versions, servers MAY securely drop the `signatures` object from disk for deeply historical events. This turns the PQC signature size into a purely ephemeral bandwidth cost, ultimately resulting in long-term room storage being significantly smaller than it is today.
+In Phase 3 room versions, servers MAY securely prune **legacy Ed25519 signatures** from disk for deeply historical events. Servers MUST NOT prune the canonical FN-DSA signature(s), as these are required inputs to `h_auth` computation in the ZK proof framework (MSCYYYY — `h_auth = Keccak-256(event_id || signature)`) and for any downstream re-verification or audit workflow. This selective pruning recovers the 64-byte-per-event Ed25519 overhead while preserving the cryptographic material needed for proof generation.
 
 ### Payload Optimization: Binary Encodings (Informational)
 
