@@ -254,10 +254,10 @@ New room versions are created that require FN-DSA signatures. Rooms upgraded to 
 This MSC requires a **new room version** for the final phase of migration. The new room version makes the following changes:
 
 - **PDU signing:** `fn-dsa-512` signature REQUIRED. `fn-dsa-1024` signature OPTIONAL (additional, not a substitute). Ed25519 signature OPTIONAL.
-- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. If no FN-DSA signature is present, the event is rejected.
+- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. **However, for historical events received via backfill, this step is bypassed if the event's SHA-256 reference hash (Event ID) securely matches the `prev_events` hash of an already-verified forward event in the DAG.** If no FN-DSA signature is present and the event is not anchored by a known valid hash, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
-- **Historical signature pruning (Optional):** Servers may drop the `signatures` object from locally stored events once they reach a sufficient DAG depth, relying on SHA-256 reference hashes of subsequent events to prove historical integrity.
+- **Historical signature pruning (Optional):** Leveraging the backfill exception in the updated auth rules, servers MAY drop the `signatures` object from locally stored events once they reach a sufficient DAG depth, relying on the quantum-resistant SHA-256 reference hashes of subsequent events to prove historical integrity during federation.
 
 The new room version does **not** change:
 
