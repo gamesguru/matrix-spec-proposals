@@ -176,6 +176,32 @@ When cross-signing a device key, the signing client SHOULD produce both an Ed255
 
 This MSC does **not** change the key agreement algorithm used by Olm/Megolm sessions (currently Curve25519 via X25519). Migration of key agreement to a post-quantum Key Encapsulation Mechanism (e.g., ML-KEM / FIPS 203) is deferred to a separate MSC, as it requires changes to the Olm/Megolm ratchet protocol and is independent of signature migration.
 
+### Client Implementation Requirements
+
+Clients and homeservers have distinct responsibilities in the PQC migration:
+
+**Key Generation.** Clients that support this MSC MUST generate FN-DSA keypairs locally for:
+
+- Device signing keys (`fn-dsa-512`) — uploaded via `/keys/upload`
+- Cross-signing keys (`fn-dsa-1024` RECOMMENDED) — uploaded via `/keys/device_signing/upload`
+
+FN-DSA key generation requires constant-time discrete Gaussian sampling. Client implementations MUST use a side-channel-resistant FN-DSA library (see [Falcon's implementation complexity](#potential-issues)). WASM and mobile environments require particular care, as JIT compilation and garbage collection can introduce timing variability.
+
+**Signing.** Clients MUST sign their own device keys with both their Ed25519 and FN-DSA device signing keys (self-signatures). When cross-signing another device or user, the signing client SHOULD produce both an Ed25519 and an FN-DSA cross-signature.
+
+**Verification.** Clients MUST verify FN-DSA signatures in the E2EE trust chain:
+
+- Device key self-signatures (when evaluating a device's authenticity)
+- Cross-signing signatures (master → self-signing → device key chain)
+
+Clients do **not** verify PDU signatures or federation HTTP authentication — these are exclusively homeserver responsibilities.
+
+**What clients do NOT need to do:**
+
+- Verify or inspect the `signatures` object on timeline events (homeserver-only)
+- Process `X-Matrix-PQC` headers (server-to-server transport)
+- Implement FN-DSA for Olm/Megolm key agreement (deferred to a separate MSC)
+
 ### Interaction Sequence
 
 The following diagram illustrates the hybrid signing flow during the transition period:
@@ -231,6 +257,7 @@ This MSC requires a **new room version** for the final phase of migration. The n
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. If no FN-DSA signature is present, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
+- **Historical signature pruning (Optional):** Servers may drop the `signatures` object from locally stored events once they reach a sufficient DAG depth, relying on SHA-256 reference hashes of subsequent events to prove historical integrity.
 
 The new room version does **not** change:
 
@@ -241,7 +268,7 @@ The new room version does **not** change:
 
 ## Potential Issues
 
-- **Signature size increase.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, Matrix events are typically 1–5 KB, so a ~600 byte increase is modest. For rooms using ZK proofs (MSCYYYY), the auth chain is never transferred anyway, so signature size in historical events is irrelevant.
+- **Signature size increase.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, Matrix events are typically 1–5 KB, so a ~600 byte increase is modest. Furthermore, this MSC introduces **Historical Signature Pruning** (see Performance Opportunities below) to ensure this size increase translates to an ephemeral bandwidth cost rather than permanent database bloat.
 
 - **FIPS 206 not yet finalized.** As of May 2026, NIST FIPS 206 (FN-DSA) is in the final stages of standardization but has not been published. This MSC uses unstable prefixes during the pre-finalization period. If FIPS 206 is substantively changed before publication, the unstable prefix allows the algorithm parameters to be updated without breaking stable identifiers. The three other NIST PQC standards (FIPS 203/204/205) were finalized in August 2024, and FIPS 206 is expected to follow the same trajectory.
 
@@ -251,7 +278,7 @@ The new room version does **not** change:
 
 - **Public key size impact on key server responses.** An FN-DSA-512 public key is 897 bytes (vs 32 bytes for Ed25519), increasing `/_matrix/key/v2/server` response size by ~1.2 KB per active key. This is negligible for modern networks.
 
-- **Dual-signing bandwidth during transition.** During Phase 2, every PDU carries both Ed25519 and FN-DSA signatures, adding ~600 bytes per event. For a server processing 1,000 events/second, this is ~600 KB/s of additional bandwidth — well within typical federation capacity.
+- **Dual-signing bandwidth during transition.** During Phase 2, every PDU carries both Ed25519 and FN-DSA signatures, adding ~888 bytes (Base64 encoded) per event. For a server processing 1,000 events/second, this is ~888 KB/s of additional bandwidth — well within typical federation capacity. Long-term HTTP overhead can be heavily optimized via symmetric federation auth (see Performance Opportunities).
 
 ## Alternatives
 
@@ -264,6 +291,28 @@ The new room version does **not** change:
 - **Waiting for FIPS 206 finalization.** Delaying PQC migration until FIPS 206 is published risks extending the window during which servers are vulnerable to quantum key derivation and real-time impersonation. The unstable prefix mechanism allows early adoption without committing to final identifiers. Servers can begin PQC key distribution immediately with zero risk.
 
 - **Extending Olm/Megolm to PQC in this MSC.** Key agreement (Curve25519 → ML-KEM) and the Olm ratchet protocol are orthogonal to signature migration and significantly more complex. Bundling them would delay the entire MSC. Signature migration can proceed independently and provides immediate protection against server impersonation, while key agreement migration protects message confidentiality (the actual HNDL concern) and is addressed separately.
+
+## Performance & Lightweighting Opportunities
+
+Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. However, because Phase 3 of this MSC requires a new room version, it provides a rare architectural window to introduce optimizations that can actually make Matrix **lighter, faster, and cheaper to host** than its current baseline:
+
+### CPU Optimization: Lattice Verification Speed
+
+It is a common misconception that PQC is universally slower. FN-DSA uses Fast-Fourier Transforms (FFT) over lattices, making its signature verification mathematically faster than Ed25519's elliptic-curve scalar multiplication. For homeservers processing thousands of federated events per second, this migration will result in a measurable reduction in CPU utilization.
+
+### Storage Optimization: Historical Signature Pruning
+
+Matrix currently stores the `signatures` object for every event indefinitely, contributing heavily to database bloat. FN-DSA signatures (encoded to ~888 bytes in Base64) would normally accelerate this. However, Matrix events are linked in a Directed Acyclic Graph (DAG) using SHA-256 reference hashes. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by hundreds of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
+
+In Phase 3 room versions, servers MAY securely drop the `signatures` object from disk for deeply historical events. This turns the PQC signature size into a purely ephemeral bandwidth cost, ultimately resulting in long-term room storage being significantly smaller than it is today.
+
+### Payload Optimization: Binary Encodings (Informational)
+
+Matrix currently encodes all cryptographic material as Base64 within JSON, mathematically inflating payload sizes by 33%. For Ed25519, this wastes 22 bytes per signature; for FN-DSA, it wastes over 220 bytes. While outside the strict scope of this MSC, the Phase 3 room version provides the ideal catalyst to adopt a binary encoding format like CBOR (e.g., MSC2432) to natively support byte arrays and reclaim this bandwidth.
+
+### HTTP Overhead: Symmetric Federation Auth (Informational)
+
+Attaching an ~888-byte `X-Matrix-PQC` header to every single HTTP request (including tiny payloads like typing notifications or read receipts) is inefficient. This MSC recommends a fast-follow proposal to upgrade federation authentication: servers could use a PQC Key Encapsulation Mechanism (e.g., ML-KEM / FIPS 203) to negotiate a shared symmetric session key between homeservers, replacing per-request asymmetric signatures with a highly compact 32-byte HMAC.
 
 ## Security Considerations
 
