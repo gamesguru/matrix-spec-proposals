@@ -29,7 +29,7 @@ Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed2
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>`  |
 | `fn-dsa-1024` | FN-DSA at NIST Level V       | `fn-dsa-1024:<key_id>` |
 
-Key IDs MUST be unique within each algorithm namespace on a given server and MUST consist of characters from the set `[a-zA-Z0-9_]`.
+Key IDs MUST be unique within each algorithm namespace on a given server.
 
 ### Server Signing Keys
 
@@ -77,21 +77,21 @@ During the transition period, servers MUST sign outgoing PDUs with **both** thei
 }
 ```
 
-Receiving servers that support this MSC MUST verify the FN-DSA signature if present. Receiving servers that do not support this MSC will ignore the `fn-dsa-512:*` signature entry (as required by the existing spec: "Servers should ignore keys they do not understand").
+Receiving servers that support this MSC MUST attempt to verify the FN-DSA signature if present. However, the consequence of verification failure depends on the room version — see [Signature Verification Order](#signature-verification-order) for details. Receiving servers that do not support this MSC will ignore the `fn-dsa-512:*` signature entry (as required by the existing spec: "Servers should ignore keys they do not understand").
 
 #### PQC-Required Room Versions
 
 In room versions that require PQC signatures (see [Room Version Requirements](#room-version-requirements)):
 
-- All PDUs MUST carry an `fn-dsa-512` (or `fn-dsa-1024`) signature from the originating server.
+- All PDUs MUST carry an `fn-dsa-512` signature from the originating server. Servers MAY additionally include an `fn-dsa-1024` signature, but it does not substitute for the `fn-dsa-512` signature.
 - Ed25519 signatures are OPTIONAL and MAY be included for backwards compatibility during the transition, but MUST NOT be the sole signature.
-- Receiving servers MUST reject PDUs that lack a valid FN-DSA signature.
+- Receiving servers MUST reject PDUs that lack a valid `fn-dsa-512` signature.
 
 #### Signature Verification Order
 
 To prevent consensus divergence between PQC-capable and legacy servers, signature verification MUST follow these rules:
 
-1. If the room version requires PQC (Phase 3): verify the FN-DSA signature. If invalid or absent, reject the event. Ed25519 verification is OPTIONAL.
+1. If the room version requires PQC (Phase 3): verify the `fn-dsa-512` signature. If invalid or absent, reject the event. If an `fn-dsa-1024` signature is also present, verify it as well — reject if invalid. Ed25519 verification is OPTIONAL.
 2. If the room version does not require PQC (Phase 2 hybrid): verify the Ed25519 signature first. If invalid, reject the event (consistent with legacy server behavior). Then, if an FN-DSA signature is present, verify it as well. If the FN-DSA signature is invalid, the server SHOULD log a warning but MUST NOT reject the event solely on that basis, as the Ed25519 signature remains authoritative in legacy room versions.
 3. If no FN-DSA signature is present and the room version does not require PQC, verify Ed25519 only (existing behavior).
 
@@ -103,16 +103,16 @@ The `X-Matrix` authorization header currently supports Ed25519 signatures for re
 
 RFC 9110 (HTTP Semantics) prohibits sending multiple `Authorization` headers in a single request, and many reverse proxies (Nginx, Envoy, HAProxy) will drop or corrupt duplicate headers. Therefore, during the transition period, servers MUST transmit the PQC signature in a **dedicated secondary header** `X-Matrix-PQC`, while continuing to send the existing Ed25519 `Authorization` header for backwards compatibility:
 
-```
+```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
 X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
-Receiving servers that support this MSC MUST verify the `X-Matrix-PQC` header if present, in addition to the standard `Authorization` header. Legacy servers will ignore the `X-Matrix-PQC` header entirely.
+Receiving servers that support this MSC MUST attempt to verify the `X-Matrix-PQC` header if present, in addition to the standard `Authorization` header. During the hybrid transition (Phase 2), if `X-Matrix-PQC` verification fails, the server SHOULD log a warning but MUST NOT reject the request if the `Authorization` header carries a valid Ed25519 signature. In PQC-required contexts (Phase 3), a missing or invalid PQC signature is grounds for rejection. Legacy servers will ignore the `X-Matrix-PQC` header entirely.
 
 In PQC-required contexts (Phase 3), servers MAY send the FN-DSA signature directly in the `Authorization` header using the `X-Matrix` scheme, replacing Ed25519:
 
-```
+```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
@@ -227,7 +227,7 @@ New room versions are created that require FN-DSA signatures. Rooms upgraded to 
 
 This MSC requires a **new room version** for the final phase of migration. The new room version makes the following changes:
 
-- **PDU signing:** FN-DSA signature REQUIRED. Ed25519 signature OPTIONAL.
+- **PDU signing:** `fn-dsa-512` signature REQUIRED. `fn-dsa-1024` signature OPTIONAL (additional, not a substitute). Ed25519 signature OPTIONAL.
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. If no FN-DSA signature is present, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
@@ -318,13 +318,13 @@ This proposal is fully backwards-compatible:
 - **Phase 2 (Hybrid Signing)** adds FN-DSA signatures alongside Ed25519. The Matrix specification already requires servers to ignore unknown signature algorithms, so legacy servers continue to function by verifying only Ed25519.
 - **Phase 3 (PQC Room Versions)** requires a room upgrade. Rooms that are not upgraded continue to use Ed25519 indefinitely. There is no forced migration.
 - **No changes to existing endpoints.** All existing federation and client-server API endpoints continue to function identically. The changes are purely additive — new key types, new signature entries, and a new room version.
-- **E2EE backwards compatibility.** Clients that do not support FN-DSA device keys will not upload them, and will not see them in `/keys/query` responses (servers filter by supported algorithms). Cross-signing continues to work with Ed25519 keys. FN-DSA cross-signatures are additive.
+- **E2EE backwards compatibility.** Clients that do not support FN-DSA device keys will not upload them. The `/keys/query` response includes all uploaded key types, but clients that do not recognize FN-DSA algorithm prefixes will simply ignore those entries. Cross-signing continues to work with Ed25519 keys. FN-DSA cross-signatures are additive.
 
 ---
 
 ## MSC Checklist
 
-- [x] Are [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal) specified in the MSC's PR description?
+- [ ] Are [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal) specified in the MSC's PR description?
 - [ ] Are all MSCs that this MSC depends on already accepted?
 - [x] For each endpoint that is introduced or modified:
   - [x] Have authentication requirements been specified?
