@@ -108,6 +108,8 @@ Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed255
 X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
+The FN-DSA signature in the `X-Matrix-PQC` header MUST be computed over the exact same canonical JSON representation of the HTTP request elements (Method, URI, Destination, and body hash) as the standard Ed25519 signature.
+
 Receiving servers that support this MSC MUST attempt to verify the `X-Matrix-PQC` header if present, in addition to the standard `Authorization` header. During the hybrid transition (Phase 2), if `X-Matrix-PQC` verification fails, the server SHOULD log a warning but MUST NOT reject the request if the `Authorization` header carries a valid Ed25519 signature. In PQC-required contexts (Phase 3), a missing or invalid PQC signature is grounds for rejection. Legacy servers will ignore the `X-Matrix-PQC` header entirely.
 
 In PQC-required contexts (Phase 3), servers MAY send the FN-DSA signature directly in the `Authorization` header using the `X-Matrix` scheme, replacing Ed25519:
@@ -118,7 +120,7 @@ Authorization: X-Matrix origin="example.com",destination="matrix.org",key="fn-ds
 
 ### Event ID and Content Hash Computation
 
-Event IDs in room versions ≥3 are computed as the reference hash of the event. The reference hash is calculated over a subset of the event fields, **excluding signatures**. Therefore, the introduction of FN-DSA signatures does **not** change event ID computation. Event IDs remain stable across the PQC migration.
+Event IDs in room versions 3 and later are computed as the reference hash of the event. The reference hash is calculated over a subset of the event fields, **excluding signatures**. Therefore, the introduction of FN-DSA signatures does **not** change event ID computation. Event IDs remain stable across the PQC migration.
 
 Similarly, the content hash (`hashes.sha256`) is computed over the canonical JSON of the event **after** the `signatures` and `unsigned` keys are stripped. Adding FN-DSA signatures to the `signatures` object therefore does **not** alter the content hash. Both event IDs and content hashes are fully stable across the PQC migration — no changes to hashing behavior are introduced by this MSC.
 
@@ -172,6 +174,8 @@ Cross-signing keys SHOULD use `fn-dsa-1024` for stronger long-term security, as 
 
 When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor.
 
+**Downgrade Protection:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could strip a user's PQC keys to force a legacy fallback. To prevent this, clients MUST treat an `fn-dsa-1024` Master Key as a strict protocol assertion. If a user's published trust anchor includes an FN-DSA key, verifying clients MUST hard-reject any device keys or self-signing keys for that user that lack a valid FN-DSA signature.
+
 #### Key Agreement (Informational)
 
 This MSC does **not** change the key agreement algorithm used by Olm/Megolm sessions (currently Curve25519 via X25519). Migration of key agreement to a post-quantum Key Encapsulation Mechanism (e.g., ML-KEM / FIPS 203) is deferred to a separate MSC, as it requires changes to the Olm/Megolm ratchet protocol and is independent of signature migration.
@@ -187,7 +191,7 @@ Clients and homeservers have distinct responsibilities in the PQC migration:
 
 FN-DSA key generation requires constant-time discrete Gaussian sampling. Client implementations MUST use a side-channel-resistant FN-DSA library (see [Falcon's implementation complexity](#potential-issues)). WASM and mobile environments require particular care, as JIT compilation and garbage collection can introduce timing variability.
 
-**Signing.** Clients MUST sign their own device keys with both their Ed25519 and FN-DSA device signing keys (self-signatures). When cross-signing another device or user, the signing client SHOULD produce both an Ed25519 and an FN-DSA cross-signature.
+**Signing.** Clients MUST sign their own device keys with both their Ed25519 and FN-DSA device signing keys (self-signatures). When cross-signing another device or user, the signing client SHOULD produce both an Ed25519 and an FN-DSA cross-signature. **All FN-DSA signatures MUST be computed over the exact same Matrix Canonical JSON representation of the object as the legacy Ed25519 signatures** (i.e., after stripping the `signatures` and `unsigned` fields).
 
 **Verification.** Clients MUST verify FN-DSA signatures in the E2EE trust chain:
 
@@ -257,7 +261,7 @@ This MSC requires a **new room version** for the final phase of migration. The n
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. **However, for historical events received via backfill, this step is bypassed if the event's SHA-256 reference hash (Event ID) securely matches the `prev_events` hash of an already-verified forward event in the DAG.** If no FN-DSA signature is present and the event is not anchored by a known valid hash, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
-- **Historical signature pruning (Optional):** Leveraging the backfill exception in the updated auth rules, servers MAY prune **legacy Ed25519 signatures** from locally stored events once they reach a sufficient DAG depth, relying on the quantum-resistant SHA-256 reference hashes of subsequent events to prove historical integrity during federation. Servers MUST retain the canonical FN-DSA signature(s) for each event, as these are required inputs to downstream proof workflows (e.g., `h_auth` computation in MSCYYYY) and for any future re-verification.
+- **Historical signature pruning and condensation (Optional):** Leveraging the backfill exception in the updated auth rules, servers MAY safely prune **legacy Ed25519 signatures** from locally stored events once they reach a sufficient DAG depth. Furthermore, to mitigate the storage cost of the PQC signature, servers MAY perform **Signature Condensation**. Because downstream workflows like ZK proofs (MSCYYYY) only require the signature to compute a cryptographic commitment (`h_auth = Keccak-256(event_id || signature)`), a server can compute and store this 32-byte hash in place of the full FN-DSA signature, securely discarding the ~888-byte Base64 string from disk while preserving mathematical provability.
 
 The new room version does **not** change:
 
@@ -268,7 +272,7 @@ The new room version does **not** change:
 
 ## Potential Issues
 
-- **Signature size increase.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, Matrix events are typically 1–5 KB, so a ~600 byte increase is modest. Furthermore, this MSC introduces **Historical Signature Pruning** (see Performance Opportunities below) to allow servers to prune redundant legacy Ed25519 signatures from deeply historical events, partially offsetting the FN-DSA size increase.
+- **Signature size increase & protocol limits.** FN-DSA-512 signatures are ~666 bytes vs Ed25519's 64 bytes — a 10× increase per signature. For events co-signed by multiple servers (e.g., during room joins), this increases event payload size. However, the Matrix specification limits PDUs to a maximum of 65,536 bytes (65 KB). Even a heavily authenticated event carrying 10 distinct server signatures would only dedicate ~8.8 KB (Base64 encoded) to signatures, remaining safely below the protocol limit. Furthermore, this MSC introduces **Signature Condensation** (see Performance Opportunities) to eventually compress these signatures down to 32 bytes on disk.
 
 - **FIPS 206 not yet finalized.** As of May 2026, NIST FIPS 206 (FN-DSA) is in the final stages of standardization but has not been published. This MSC uses unstable prefixes during the pre-finalization period. If FIPS 206 is substantively changed before publication, the unstable prefix allows the algorithm parameters to be updated without breaking stable identifiers. The three other NIST PQC standards (FIPS 203/204/205) were finalized in August 2024, and FIPS 206 is expected to follow the same trajectory.
 
@@ -300,11 +304,11 @@ Transitioning to Post-Quantum Cryptography inherently introduces larger key and 
 
 It is a common misconception that PQC is universally slower. FN-DSA uses Fast-Fourier Transforms (FFT) over lattices, making its signature verification mathematically faster than Ed25519's elliptic-curve scalar multiplication. For homeservers processing thousands of federated events per second, this migration will result in a measurable reduction in CPU utilization.
 
-### Storage Optimization: Historical Signature Pruning
+### Storage Optimization: Signature Pruning & Condensation
 
 Matrix currently stores the `signatures` object for every event indefinitely, contributing to database bloat. In Phase 3 room versions where FN-DSA is authoritative, the legacy Ed25519 signatures carried during Phase 2 become redundant for deeply historical events. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by hundreds of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
 
-In Phase 3 room versions, servers MAY securely prune **legacy Ed25519 signatures** from disk for deeply historical events. Servers MUST NOT prune the canonical FN-DSA signature(s), as these are required inputs to `h_auth` computation in the ZK proof framework (MSCYYYY — `h_auth = Keccak-256(event_id || signature)`) and for any downstream re-verification or audit workflow. This selective pruning recovers the 64-byte-per-event Ed25519 overhead while preserving the cryptographic material needed for proof generation.
+In Phase 3 room versions, servers MAY securely prune **legacy Ed25519 signatures** from disk for deeply historical events. Furthermore, servers MAY perform **Signature Condensation** on the FN-DSA signature itself: because the ZK proof framework (MSCYYYY) only requires the cryptographic commitment `h_auth = Keccak-256(event_id || signature)`, a server can pre-compute and store this 32-byte hash, then discard the full ~888-byte Base64 FN-DSA signature string. This achieves a ~27× compression ratio on the PQC signature while preserving all mathematical provability for downstream workflows.
 
 ### Payload Optimization: Binary Encodings (Informational)
 
