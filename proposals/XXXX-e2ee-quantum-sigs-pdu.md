@@ -292,14 +292,15 @@ Attaching an ~888-byte `X-Matrix-PQC` header to every HTTP request (including ti
 **Key Derivation.** Both sides derive a symmetric session key using HKDF-SHA-256:
 
 ```python
+#!/usr/bin/env python3
 # Build a salt that uniquely identifies this server pair + KEM exchange.
 # Each string is preceded by its 2-byte big-endian length to prevent
 # ambiguity (e.g., "ab"+"cde" vs "abc"+"de" would otherwise be identical).
 origin_bytes      = b'\x00\x0b' + b'example.com'        # 2-byte length prefix + UTF-8
 destination_bytes = b'\x00\x0a' + b'matrix.org'         # 2-byte length prefix + UTF-8
-salt = SHA-256(origin_bytes + destination_bytes + ct)   # ct = raw KEM ciphertext bytes
+salt = SHA_256(origin_bytes + destination_bytes + ct)   # ct = raw KEM ciphertext bytes
 
-session_key = HKDF-SHA-256(
+session_key = HKDF_SHA_256(
   ikm  = ss,        # shared secret from ML-KEM decapsulation
   salt = salt,
   info = b'matrix-federation-hmac-v1',
