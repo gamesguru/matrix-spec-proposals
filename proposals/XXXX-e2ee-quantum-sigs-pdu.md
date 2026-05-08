@@ -35,7 +35,7 @@ Key IDs MUST be unique within each algorithm namespace on a given server.
 
 ### Server Signing Keys
 
-The `GET /_matrix/key/v2/server` response is extended to include FN-DSA public keys alongside Ed25519 keys. The `verify_keys` and `old_verify_keys` objects already support multiple algorithm prefixes, so no structural changes are needed:
+The `GET /_matrix/key/v2/server` response must include both types of public keys. We leverage the schema's support of multiple algorithm prefixes:
 
 ```json
 {
@@ -58,15 +58,15 @@ The `GET /_matrix/key/v2/server` response is extended to include FN-DSA public k
 }
 ```
 
-FN-DSA public keys are encoded as unpadded base64, consistent with existing Ed25519 key encoding. The `key` field for `fn-dsa-512` contains the 897-byte public key (1,196 characters in base64). For `fn-dsa-1024`, the `key` field contains the 1,793-byte public key.
+FN-DSA public keys are encoded as unpadded base64, just like existing Ed25519 keys. The `key` field for `fn-dsa-512` contains the 897-byte public key (1196 characters base64). For `fn-dsa-1024`, similar, if supplied.
 
-Servers SHOULD begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys during the transition period.
+Servers SHOULD begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys in the transition period.
 
 ### PDU Signing
 
 #### Hybrid Signing (Transition Period)
 
-During the transition period, servers MUST sign outgoing PDUs with **both** their Ed25519 key and their FN-DSA key. The `signatures` object in the event naturally supports this:
+During the transition period, servers MUST sign outgoing PDUs with **both** Ed25519 & FN-DSA.
 
 ```json
 {
@@ -79,7 +79,7 @@ During the transition period, servers MUST sign outgoing PDUs with **both** thei
 }
 ```
 
-Receiving servers that support this MSC MUST attempt to verify the FN-DSA signature if present. However, the consequence of verification failure depends on the room version — see [Signature Verification Order](#signature-verification-order) for details. Receiving servers that do not support this MSC will ignore the `fn-dsa-512:*` signature entry (as required by the existing spec: "Servers should ignore keys they do not understand").
+Receiving servers that support this spec MUST attempt verification of an FN-DSA signature if present. The consequence of failure depends on room version — see [Signature Verification Order](#signature-verification-order). Receiving servers that do not support this MSC will ignore the `fn-dsa-512:*` signature entries.
 
 #### PQC-Required Room Versions
 
