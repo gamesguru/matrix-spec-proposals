@@ -276,15 +276,11 @@ The new room version does **not** change:
 
 ## Performance & Lightweighting Opportunities
 
-Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. However, because this MSC requires a new room version, it provides a rare architectural window to introduce optimizations that can actually make Matrix **lighter, faster, and cheaper to host** than its current baseline:
-
-### CPU Optimization: Lattice Verification Speed
-
-It is a common misconception that PQC is universally slower. FN-DSA uses Fast-Fourier Transforms (FFT) over lattices, making its signature verification mathematically faster than Ed25519's elliptic-curve scalar multiplication. For homeservers processing thousands of federated events per second, this migration will result in a measurable reduction in CPU utilization.
+Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. Optimizations are therefore required in this room version.
 
 ### Storage Optimization: Signature Condensation
 
-Matrix currently stores the `signatures` object for every event indefinitely, contributing to database bloat. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by hundreds of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
+Matrix currently stores the `signatures` object for every event indefinitely. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by thousands of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
 
 In PQC room versions, servers MAY perform **Signature Condensation** on the FN-DSA signature: because the ZK proof framework (MSCYYYY) only requires the cryptographic commitment `h_auth = Keccak-256(event_id || signature)`, a server can pre-compute and store this 32-byte hash locally, then safely discard the full ~888-byte Base64 FN-DSA signature string from disk. This achieves a ~27× compression ratio on the PQC signature while preserving all mathematical provability for downstream workflows and historical integrity.
 
