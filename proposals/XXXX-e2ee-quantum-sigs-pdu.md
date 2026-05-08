@@ -296,6 +296,22 @@ Matrix currently encodes all cryptographic material as Base64 within JSON, mathe
 
 Attaching an ~888-byte `X-Matrix-PQC` header to every single HTTP request (including tiny payloads like typing notifications or read receipts) is inefficient. This MSC recommends a fast-follow proposal to upgrade federation authentication: servers could use a PQC Key Encapsulation Mechanism (e.g., ML-KEM / FIPS 203) to negotiate a shared symmetric session key between homeservers, replacing per-request asymmetric signatures with a highly compact 32-byte HMAC.
 
+## Implementation Guidance
+
+FN-DSA is not yet as widely deployed as Ed25519, but mature, audited implementations exist across the languages relevant to the Matrix ecosystem:
+
+| Library                                                                                       | Language        | FFI Required                                        | Notes                                                                                                                                                            |
+| --------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [liboqs](https://github.com/open-quantum-safe/liboqs)                                         | C               | Yes (FFI bindings for Python, Rust, Go, Java, .NET) | Reference PQC library from the Open Quantum Safe project. Includes Falcon alongside all NIST PQC finalists. Compiles to WASM via Emscripten for browser targets. |
+| [oqs-rs](https://github.com/AldanTan);[liboqs-rust](https://github.com/AldanTanneo/liboqs-rs) | Rust (FFI to C) | Yes (wraps liboqs)                                  | Rust bindings for liboqs. Suitable for server-side implementations (e.g., conduwuit, Synapse-via-PyO3).                                                          |
+| [pqcrypto-falcon](https://crates.io/crates/pqcrypto-falcon)                                   | Rust            | No (pure Rust)                                      | Part of the `pqcrypto` crate family. No C dependency — simplifies cross-compilation and auditing.                                                                |
+| [oqs-provider](https://github.com/open-quantum-safe/oqs-provider)                             | C (OpenSSL 3.x) | N/A                                                 | OpenSSL provider enabling PQC via existing TLS stacks. Useful for federation TLS termination but not directly for Matrix JSON signing.                           |
+| [falcon.js](https://github.com/nickthecook/falcon-js) (community)                             | JavaScript      | No                                                  | Community WASM/JS port. Must be audited for constant-time guarantees before production use.                                                                      |
+
+**Constant-time requirement:** All implementations MUST use constant-time discrete Gaussian sampling during key generation and signing. Non-constant-time implementations leak the secret key via timing side channels. The [Falcon reference implementation](https://falcon-sign.info/) provides a constant-time sampler as the default. Implementers SHOULD prefer liboqs or pqcrypto-falcon, which inherit this property.
+
+**WASM and mobile:** liboqs compiles to WebAssembly via Emscripten, enabling browser-based Matrix clients (Element Web, Cinny) to perform FN-DSA operations. Mobile clients (iOS/Android) can use liboqs via platform-native FFI (Swift C interop, JNI). Implementers must verify that the WASM build does not introduce timing variability through JIT compilation or garbage collection.
+
 ## Security Considerations
 
 - **Real-time server impersonation.** The primary quantum threat to Matrix signatures is not harvest-now-decrypt-later (which applies to confidentiality, not authentication) but real-time server impersonation. An adversary with a quantum computer can derive any server's Ed25519 private key from its published public key and then forge new PDUs, spoof federation requests, and inject events into live rooms. Matrix's SHA-256 hash-linked DAG protects historical event integrity (SHA-256 is quantum-resistant), but cannot prevent forged _new_ events from being accepted by the federation. This MSC eliminates that attack vector by migrating to quantum-resistant signatures.
