@@ -291,16 +291,21 @@ Attaching an ~888-byte `X-Matrix-PQC` header to every HTTP request (including ti
 
 **Key Derivation.** Both sides derive a symmetric session key using HKDF-SHA-256:
 
-```
+```python
+# Build a salt that uniquely identifies this server pair + KEM exchange.
+# Each string is preceded by its 2-byte big-endian length to prevent
+# ambiguity (e.g., "ab"+"cde" vs "abc"+"de" would otherwise be identical).
+origin_bytes      = b'\x00\x0b' + b'example.com'        # 2-byte length prefix + UTF-8
+destination_bytes = b'\x00\x0a' + b'matrix.org'         # 2-byte length prefix + UTF-8
+salt = SHA-256(origin_bytes + destination_bytes + ct)   # ct = raw KEM ciphertext bytes
+
 session_key = HKDF-SHA-256(
-  ikm  = ss,
-  salt = SHA-256(origin || destination || ct),
-  info = "matrix-federation-hmac-v1",
-  L    = 32
+  ikm  = ss,        # shared secret from ML-KEM decapsulation
+  salt = salt,
+  info = b'matrix-federation-hmac-v1',
+  L    = 32          # output 32 bytes
 )
 ```
-
-The `salt` binds the session key to the specific server pair and the KEM ciphertext, preventing key reuse across different federation links.
 
 **Per-Request Authentication.** Once a session is established, subsequent requests replace the ~888-byte `X-Matrix-PQC` asymmetric signature with a 32-byte HMAC-SHA-256:
 
@@ -313,11 +318,9 @@ The HMAC is computed over the same canonical JSON representation of the request 
 
 **Session Lifecycle.** Session keys SHOULD be rotated every 24 hours or after 10,000 requests (whichever comes first). Either side can initiate renegotiation by sending a new `X-Matrix-KEM-Init` header. The previous session key MUST be retained for a grace period (recommended: 60 seconds) to avoid rejecting in-flight requests signed with the old key.
 
-**Bandwidth Savings.** This reduces per-request PQC authentication overhead from ~888 bytes (FN-DSA signature) to ~44 bytes (session ID + HMAC), a ~20× reduction. The one-time KEM encapsulation cost (~1,088 bytes ciphertext for ML-KEM-768) is amortized across thousands of authenticated requests.
-
 ## Implementation Guidance
 
-FN-DSA is not yet as widely deployed as Ed25519, but mature, audited implementations exist across the languages relevant to the Matrix ecosystem:
+FN-DSA is not yet as widely deployed as Ed25519, but some example frameworks are below.
 
 | Library                                                                                       | Language        | FFI Required                                        | Notes                                                                                                                                                            |
 | --------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -327,27 +330,19 @@ FN-DSA is not yet as widely deployed as Ed25519, but mature, audited implementat
 | [oqs-provider](https://github.com/open-quantum-safe/oqs-provider)                             | C (OpenSSL 3.x) | N/A                                                 | OpenSSL provider enabling PQC via existing TLS stacks. Useful for federation TLS termination but not directly for Matrix JSON signing.                           |
 | [falcon.js](https://github.com/nickthecook/falcon-js) (community)                             | JavaScript      | No                                                  | Community WASM/JS port. Must be audited for constant-time guarantees before production use.                                                                      |
 
-**Constant-time requirement:** All implementations MUST use constant-time discrete Gaussian sampling during key generation and signing. Non-constant-time implementations leak the secret key via timing side channels. The [Falcon reference implementation](https://falcon-sign.info/) provides a constant-time sampler as the default. Implementers SHOULD prefer liboqs or pqcrypto-falcon, which inherit this property.
+**Constant-time requirement:** All implementations MUST use constant-time discrete Gaussian sampling during key generation and signing. Non-constant-time implementations leak the secret key via timing side channels. The [Falcon reference implementation](https://falcon-sign.info/) provides a constant-time sampler as the default. Implementers SHOULD prefer liboqs or pqcrypto-falcon, which are designed with this property in mind.
 
 **WASM and mobile:** liboqs compiles to WebAssembly via Emscripten, enabling browser-based Matrix clients (Element Web, Cinny) to perform FN-DSA operations. Mobile clients (iOS/Android) can use liboqs via platform-native FFI (Swift C interop, JNI). Implementers must verify that the WASM build does not introduce timing variability through JIT compilation or garbage collection.
 
 ## Security Considerations
 
-- **Real-time server impersonation.** The primary quantum threat to Matrix signatures is not harvest-now-decrypt-later (which applies to confidentiality, not authentication) but real-time server impersonation. An adversary with a quantum computer can derive any server's Ed25519 private key from its published public key and then forge new PDUs, spoof federation requests, and inject events into live rooms. Matrix's SHA-256 hash-linked DAG protects historical event integrity (SHA-256 is quantum-resistant), but cannot prevent forged _new_ events from being accepted by the federation. This MSC eliminates that attack vector by migrating to quantum-resistant signatures.
-
-- **Quantum threat timeline.** NIST and NSA guidance recommend beginning PQC migration immediately, regardless of when fault-tolerant quantum computers arrive. The U.S. government mandates PQC migration for federal systems by 2035 (CNSA 2.0). Matrix's decentralized architecture means migration requires ecosystem-wide coordination, making early action essential.
-
-- **Side-channel attacks on Falcon.** FN-DSA's discrete Gaussian sampler is the primary side-channel risk. A non-constant-time implementation can leak the secret key through timing, cache, or power analysis. Server implementations MUST use constant-time Gaussian sampling. The NIST FIPS 206 standard mandates constant-time implementation. Matrix client SDKs (especially WASM builds) must audit their FN-DSA implementation for timing leaks.
-
 - **Algorithm agility.** This MSC introduces a general mechanism for adding new signature algorithms (`algorithm:key_id` format) that can accommodate future PQC standards without further MSCs. If FN-DSA is found to be vulnerable before deployment reaches critical mass, the unstable prefix can be deprecated and a replacement algorithm introduced using the same framework.
 
 - **Downgrade attacks (federation).** Because PDU signatures are strictly bound to room versions, a network-level adversary cannot strip FN-DSA signatures from events in a PQC room without invalidating the events entirely. For Server-to-Server HTTP auth, an adversary could strip the `X-Matrix-PQC` header to force legacy Ed25519 verification, but this only compromises transport authentication, not the cryptographic integrity of the underlying PDUs or the DAG.
 
-- **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses, forcing clients to fall back to Ed25519-only cross-signing verification. This MSC does not solve this problem — robust E2EE downgrade protection requires client-side key continuity (TOFU) or cryptographically constrained room membership (MSC3917), which are deferred to a follow-up proposal. In the interim, clients that have previously observed an FN-DSA key for a user SHOULD warn if it disappears.
+- **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses, forcing clients to fall back to Ed25519-only cross-signing verification. This MSC does not solve that problem. Robust E2EE downgrade protection requires TOFU security or cryptographically-constrained room membership (MSC3917), which are deferred. Meanwhile, clients that have previously observed an FN-DSA key for a user SHOULD warn if it disappears.
 
 - **Key compromise recovery.** If a server's FN-DSA private key is compromised, the recovery procedure is identical to Ed25519 key compromise: rotate the key, publish the old key in `old_verify_keys` with an `expired_ts`, and re-sign the `/_matrix/key/v2/server` response. Events signed with the compromised key cannot be retroactively invalidated, consistent with existing Matrix security assumptions.
-
-- **Alignment with ZK proof framework.** The ZK prover framework (MSCYYYY) computes `h_auth` as a Keccak-256 hash over concatenated `(event_id || signature)` pairs. When FN-DSA signatures are used, `h_auth` binds PQC signatures to the proven state. The prover's split-verification architecture (signatures verified natively, DAG proven in-circuit) is unchanged — FN-DSA verification is performed by the native host OS, identical to Ed25519, and the result is committed to the STARK via `h_auth`.
 
 ## Unstable Prefix
 
