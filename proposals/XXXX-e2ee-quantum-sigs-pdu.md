@@ -2,7 +2,7 @@
 
 Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This spec change therefore aims to PREVENT forging new PDUs, spoofing federation requests, and injecting fabricated events. This MSC begins the migration to PQC-safe signatures.
+This spec change therefore aims to prevent forging new room events, spoofing federation requests, and impersonating E2EE devices. This MSC begins the migration to quantum-safe signatures.
 
 ## Proposal
 
@@ -22,7 +22,7 @@ In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
 ### Key Identifier Format
 
-Matrix currently identifies keys using the format . This MSC extends the set of recognized algorithm identifiers, currently in the format `algorithm:key_id` (e.g., `ed25519:abc123`).
+Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
 
 | Key Algorithm | Description                  | Key ID Format         |
 | ------------- | ---------------------------- | --------------------- |
@@ -92,7 +92,7 @@ In room versions that require PQC signatures (see [Room Version Requirements](#r
 
 The `X-Matrix` authorization header currently supports Ed25519 signatures for request authentication. This MSC extends it to support FN-DSA.
 
-When communicating with PQC-capable servers, the sender MUST transmit the PQC signature in a dedicated "secondary header," `X-Matrix-PQC`, while continuing to send the existing Ed25519 `Authorization` header for backwards compatibility. (Below example spaced for visual alignment.)
+Sending servers MUST include the `X-Matrix-PQC` header on all outgoing federation requests, regardless of whether the destination is known to support PQC. This eliminates the need for a capability-discovery round-trip before each request — unknown HTTP headers are safely ignored by legacy receivers per RFC 9110. (Below example spaced for visual alignment.)
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",   sig="<base64-ed25519-signature>"
@@ -241,7 +241,7 @@ This MSC requires a **new room version**. All PQC behavioral changes are scoped 
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. **However, for historical events received via backfill, this step is bypassed if the event's SHA-256 reference hash (Event ID) securely matches the `prev_events` hash of an already-verified forward event in the DAG.** If no FN-DSA signature is present and the event is not anchored by a known valid hash, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are entries in the existing `signatures` object.
-- **Signature Condensation (Optional):** To mitigate the storage cost of the PQC signature, servers MAY perform **Signature Condensation**. Because downstream workflows like ZK proofs (MSCYYYY) only require the signature to compute a cryptographic commitment (`h_auth = Keccak-256(event_id || signature)`), a server can compute and store this 32-byte hash in place of the full FN-DSA signature, securely discarding the ~888-byte Base64 string from disk while preserving mathematical provability.
+- **Signature Condensation (Optional):** To mitigate the storage cost of the PQC signature, servers MAY perform **Signature Condensation** on standard timeline events. Because downstream workflows like ZK proofs (MSCYYYY) only require the signature to compute a cryptographic commitment (`h_auth = Keccak-256(event_id || signature)`), a server can compute and store this 32-byte hash in place of the full FN-DSA signature, securely discarding the ~888-byte Base64 string from disk. **Exception:** Servers MUST NOT perform signature condensation on State Events (e.g., `m.room.create`, `m.room.member`). Full signatures for state events must be retained indefinitely to authenticate the room's auth chain for new servers joining via `/send_join`.
 
 The new room version does **not** change:
 
@@ -282,7 +282,7 @@ Transitioning to Post-Quantum Cryptography inherently introduces larger key and 
 
 Matrix currently stores the `signatures` object for every event indefinitely. Because SHA-256 is already quantum-resistant, once an event is buried deep in the DAG (e.g., referenced by thousands of subsequent events), its cryptographic integrity is permanently locked by the hash chain.
 
-In PQC room versions, servers MAY perform **Signature Condensation** on the FN-DSA signature: because the ZK proof framework (MSCYYYY) only requires the cryptographic commitment `h_auth = Keccak-256(event_id || signature)`, a server can pre-compute and store this 32-byte hash locally, then safely discard the full ~888-byte Base64 FN-DSA signature string from disk. This achieves a ~27× compression ratio on the PQC signature while preserving all mathematical provability for downstream workflows and historical integrity.
+In PQC room versions, servers MAY perform **Signature Condensation** on the FN-DSA signature for standard timeline events: because the ZK proof framework (MSCYYYY) only requires the cryptographic commitment `h_auth = Keccak-256(event_id || signature)`, a server can pre-compute and store this 32-byte hash locally, then safely discard the full ~888-byte Base64 FN-DSA signature string from disk. This achieves a ~27× compression ratio on the PQC signature while preserving all mathematical provability for downstream workflows and historical integrity. *(Note: State events cannot be condensed and must retain full signatures to serve to newly joining servers).*
 
 ### Payload Optimization: Binary Encodings (Informational)
 
@@ -352,7 +352,6 @@ Once this MSC is accepted but not yet merged into a released spec version, imple
 ## Dependencies
 
 - **NIST FIPS 206 (FN-DSA):** This MSC depends on the finalization of FIPS 206. The unstable prefix period provides a buffer for FIPS 206 to be published. If FIPS 206 is substantively modified, the unstable algorithm parameters will be updated accordingly.
-- **MSCYYYY (ZK-Proven Room Joins):** Not a hard dependency, but this MSC is designed to be forward-compatible with MSCYYYY. The `h_auth` computation in MSCYYYY naturally accommodates FN-DSA signatures without modification.
 
 ## Backwards Compatibility
 
