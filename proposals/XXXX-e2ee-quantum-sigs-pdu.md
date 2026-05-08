@@ -2,7 +2,7 @@
 
 Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This spec change therefore aims to prevent forging new room events, spoofing federation requests, and impersonating E2EE devices. This MSC begins the migration to quantum-safe signatures.
+This MSC aims to prevent the forgery of new room events, spoofing federation requests, and impersonating E2EE devices. This MSC begins the migration to quantum-safe signatures.
 
 ## Proposal
 
@@ -161,7 +161,7 @@ Cross-signing master, self-signing, and user-signing keys should also support FN
 
 When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor.
 
-**E2EE Downgrade Risk:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could strip a user's FN-DSA keys from the JSON to force a legacy Ed25519 fallback. Robust protection against this attack requires client-side key pinning (TOFU) or cryptographically constrained room membership (MSC3917), both of which introduce significant client-side state management and are outside the scope of this MSC. This MSC focuses on the cryptographic primitives and federation-layer changes; E2EE downgrade protection is deferred to a dedicated follow-up proposal.
+**E2EE Downgrade Risk:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could strip a user's FN-DSA keys from the JSON to force a legacy Ed25519 fallback. Strict protection against this attack requires client-side key pinning (TOFU) or cryptographically constrained room membership (MSC3917), both of which introduce significant client-side state management and are outside the scope of this MSC. This MSC focuses on the cryptographic primitives and federation-layer changes; E2EE downgrade protection is deferred to a dedicated follow-up proposal.
 
 #### Key Agreement (Informational)
 
@@ -265,7 +265,7 @@ The new room version does **not** change:
 
 ## Alternatives
 
-- **ML-DSA (FIPS 204 / Dilithium) instead of FN-DSA.** In theory, ML-DSA could stand as a drop-in replacement. Its algorithm relies exclusively on integer arithmetic, which eliminates the side-channel introspection attacks that FN-DSA's floating-point Gaussian sampling is theoretically (although seldom practically) vulnerable to. The downside to ML-DSA is its massive bandwidth footprint. FN-DSA signatures stay in the 600–900 byte range, whereas ML-DSA-44 exceeds 2.4 KB. Because Matrix events are federally replicated and heavily co-signed, the ML-DSA payload bloat is prohibitive. ML-DSA could serve as a fallback if FN-DSA standardization is delayed, but FN-DSA remains the vastly superior choice for high-throughput environments.
+- **ML-DSA (FIPS 204 / Dilithium) instead of FN-DSA.** In theory, ML-DSA could stand as a drop-in replacement. Its algorithm relies exclusively on integer arithmetic, which eliminates the side-channel introspection attacks that FN-DSA's floating-point Gaussian sampling is theoretically (although seldom practically) vulnerable to. The dealbreaker for ML-DSA is its massive bandwidth footprint. FN-DSA signatures stay in the 600–900 byte range, whereas ML-DSA-44 exceeds 2.4 KB. Because Matrix events are federally replicated and heavily co-signed, the ML-DSA payload bloat is prohibitive. ML-DSA could serve as a fallback if FN-DSA standardization is delayed, but FN-DSA remains the vastly superior choice for high-throughput environments.
 
 - **SLH-DSA (FIPS 205 / SPHINCS+) instead of FN-DSA.** SLH-DSA is hash-based and requires no lattice assumptions, making it the most conservative choice cryptographically. However, SLH-DSA-SHA2-128f signatures are 17,088 bytes — entirely impractical for per-event signing. SLH-DSA may be appropriate for long-lived trust anchors (i.e., cross-signing master keys) in a future MSC.
 
@@ -277,7 +277,7 @@ The new room version does **not** change:
 
 ## Performance & Lightweighting Opportunities
 
-Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. The increased storage cost (~888 bytes Base64 per FN-DSA signature) is a necessary and permanent cryptographic requirement — signatures cannot be discarded or compressed, because Event IDs in Room Version 3+ are computed _without_ signatures (they are stripped before hashing), meaning the DAG hash chain commits to event content but not authorship. Every event must retain its full signature indefinitely to allow independent verification by any server at any time.
+Moving to Post-Quantum Cryptography inevitably means dealing with larger key and signature sizes. The increased storage cost (~888 bytes Base64 per FN-DSA signature) is a necessary and permanent cryptographic requirement — signatures cannot be discarded or compressed, because Event IDs in Room Version 3+ are computed _without_ signatures (they are stripped before hashing), meaning the DAG hash chain commits to event content but not authorship. Every event must retain its full signature indefinitely to allow independent verification by any server at any time.
 
 ### Payload Optimization: Binary Encodings (Informational)
 
@@ -293,19 +293,33 @@ Attaching an ~888-byte `X-Matrix-PQC` header to every HTTP request (including ti
 
 ```python
 #!/usr/bin/env python3
-# Build a salt that uniquely identifies this server pair + KEM exchange.
-# Each string is preceded by its 2-byte big-endian length to prevent
-# ambiguity (e.g., "ab"+"cde" vs "abc"+"de" would otherwise be identical).
-origin_bytes      = b'\x00\x0b' + b'example.com'        # 2-byte length prefix + UTF-8
-destination_bytes = b'\x00\x0a' + b'matrix.org'         # 2-byte length prefix + UTF-8
-salt = SHA_256(origin_bytes + destination_bytes + ct)   # ct = raw KEM ciphertext bytes
+import hashlib
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+from cryptography.hazmat.primitives import hashes
 
-session_key = HKDF_SHA_256(
-  ikm  = ss,        # shared secret from ML-KEM decapsulation
-  salt = salt,
-  info = b'matrix-federation-hmac-v1',
-  L    = 32          # output 32 bytes
-)
+# Example inputs
+origin = "example.com"
+destination = "matrix.org"
+ct = b'\x00' * 1088   # ML-KEM-768 ciphertext placeholder
+ss = b'\x00' * 32     # ML-KEM shared secret placeholder
+
+# Length-prefixed encoding
+origin_bytes      = len(origin).to_bytes(2, 'big') + origin.encode()
+destination_bytes = len(destination).to_bytes(2, 'big') + destination.encode()
+
+# Salt
+salt = hashlib.sha256(origin_bytes + destination_bytes + ct).digest()
+
+# Session key
+session_key = HKDF(
+    algorithm=hashes.SHA256(),
+    length=32,
+    salt=salt,
+    info=b'matrix-federation-hmac-v1',
+).derive(ss)
+
+print("salt:       ", salt.hex())
+print("session_key:", session_key.hex())
 ```
 
 **Per-Request Authentication.** Once a session is established, subsequent requests replace the ~888-byte `X-Matrix-PQC` asymmetric signature with a 32-byte HMAC-SHA-256:
