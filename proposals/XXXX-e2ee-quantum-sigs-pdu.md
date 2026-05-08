@@ -20,6 +20,8 @@ Matrix event IDs use SHA-256, providing 128-bit (post-quantum) collision resista
 
 In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
+> **Note:** For readability, this proposal uses the intended stable identifier `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted and merged into the Matrix specification, implementations MUST use the unstable identifier `org.matrix.mscXXXX.fn-dsa-512` in all protocol fields (key IDs, signature entries, and algorithm names). See [Unstable Prefix](#unstable-prefix) for the full mapping.
+
 ### Key Identifier Format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (i.e., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
@@ -380,7 +382,7 @@ This proposal is fully backwards-compatible:
 
 - **Phase 1 (Key Distribution & Transport)** has zero behavioral impact on events. FN-DSA keys in `verify_keys` and the `X-Matrix-PQC` header are safely ignored by servers that don't recognize the algorithm.
 - **Phase 2 (PQC Room Versions)** safely isolates all PDU format changes to a new room version. Rooms that are not upgraded continue to use Ed25519 indefinitely. There is no forced migration.
-- **No changes to existing endpoints.** All existing federation and client-server API endpoints continue to function identically. The changes are purely additive — new key types, new signature entries, and a new room version.
+- **No new endpoints.** All existing federation and client-server API endpoints continue to function. This MSC extends existing endpoints (i.e., adding new key types to `verify_keys`, new entries in `signatures`, and a new HTTP header) but does not introduce new API paths.
 - **E2EE backwards compatibility.** Clients that do not support FN-DSA device keys will not upload them. The `/keys/query` response includes all uploaded key types, but clients that do not recognize FN-DSA algorithm prefixes will simply ignore those entries. Cross-signing continues to work with Ed25519 keys. FN-DSA cross-signatures are additive.
 
 ---
@@ -389,12 +391,12 @@ This proposal is fully backwards-compatible:
 
 - [ ] Are [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal) specified in the MSC's PR description?
 - [ ] Are all MSCs that this MSC depends on already accepted?
-- [x] For each endpoint that is introduced or modified:
-  - [x] Have authentication requirements been specified?
-  - [x] Have rate-limiting requirements been specified?
-  - [x] Have guest access requirements been specified?
-  - [x] Are error responses specified?
-    - [x] Does each error case have a specified `errcode` (i.e. `M_FORBIDDEN`) and HTTP status code?
+- [ ] For each endpoint that is introduced or modified:
+  - [ ] Have authentication requirements been specified?
+  - [ ] Have rate-limiting requirements been specified?
+  - [ ] Have guest access requirements been specified?
+  - [ ] Are error responses specified?
+    - [ ] Does each error case have a specified `errcode` (i.e. `M_FORBIDDEN`) and HTTP status code?
       - [ ] If a new `errcode` is introduced, is it clear that it is new?
   - [x] Are the [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis) honoured?
     - [x] Do HTTP endpoints `use_underscores_like_this`?
