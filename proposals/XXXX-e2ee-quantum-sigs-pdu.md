@@ -1,12 +1,14 @@
 # MSC XXXX: Post-Quantum Digital Signatures for Federation and E2EE
 
-Matrix's federation protocol and end-to-end encryption (E2EE) system rely exclusively on Ed25519 digital signatures. Quantum computers running Shor's algorithm can efficiently derive Ed25519 private keys from their corresponding public keys — and indeed break all elliptic-curve and RSA schemes — reducing their security to zero. Since Matrix server signing keys are fully public (published via `GET /_matrix/key/v2/server`), a quantum-capable adversary would be able to impersonate any homeserver in real time: forging new PDUs, spoofing federation requests, and injecting fabricated events into live room DAGs. While large-scale quantum computers do not yet exist, the timeline for their arrival is uncertain, and Matrix's decentralized architecture requires ecosystem-wide coordination to migrate. This MSC begins that migration now by introducing post-quantum cryptographic (PQC) signature algorithms before the threat window opens.
+Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-Note: while historical events cannot be retroactively altered (Matrix's SHA-256 hash-linked DAG ensures integrity regardless of signature scheme), an adversary who derives a server's private key can forge _new_ events that appear authentic to all federation participants. This is the primary threat this MSC addresses.
+This spec change therefore aims to PREVENT forging new PDUs, spoofing federation requests, and injecting fabricated events. This MSC begins the migration to a PQC-safe signatures.
 
 ## Proposal
 
 This MSC introduces **FN-DSA** (Fast-Fourier transform over NTRU-Lattice-Based Digital Signature Algorithm), standardized as [NIST FIPS 206](https://csrc.nist.gov/pubs/fips/206/ipd), as the primary post-quantum signature scheme for Matrix. FN-DSA is based on the Falcon algorithm and was selected by NIST specifically for use cases requiring compact signatures and fast verification — both critical for Matrix's high-throughput federation.
+
+In theory, Dilithium can stand as a drop-in replacement. Its algorithm relies exclusively on integer arithmetic, which eliminates the side-channel introspection attacks that Falcon's floating-point arithmetic is theoretically (although seldomly practically) vulnerable to. The downside to Dilithium is larger signatures and keys. Falcon manages to stay in the 600-900 byte range, while Dilithium often exceeds 2 or 4 kB.
 
 ### Algorithm Parameters
 
@@ -17,7 +19,7 @@ This MSC defines two security levels:
 | `fn-dsa-512`  | I (128-bit PQ) | 897 bytes   | ~666 bytes   | ~0.1 ms      | Server signing keys, PDU signatures, device keys |
 | `fn-dsa-1024` | V (256-bit PQ) | 1,793 bytes | ~1,280 bytes | ~0.2 ms      | Cross-signing keys, long-lived trust anchors     |
 
-Servers MUST support `fn-dsa-512`. Servers MAY additionally support `fn-dsa-1024` for higher-security deployments.
+In future room versions (TODO: define precisely which), servers MUST support `fn-dsa-512`. Servers MAY additionally support `fn-dsa-1024` for higher-security deployments.
 
 ### Key Identifier Format
 
