@@ -159,7 +159,7 @@ Cross-signing master, self-signing, and user-signing keys should also support FN
 
 When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor.
 
-**Downgrade Protection:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could maliciously strip a user's PQC keys from the JSON to force a legacy fallback. To prevent this, clients MUST treat the presence of an `fn-dsa-512` Master Key as a strict protocol assertion. If a user's published trust anchor includes an FN-DSA key, verifying clients MUST hard-reject any downstream device keys or self-signing keys for that user that lack a valid FN-DSA signature.
+**E2EE Downgrade Risk:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could strip a user's FN-DSA keys from the JSON to force a legacy Ed25519 fallback. Robust protection against this attack requires client-side key pinning (TOFU) or cryptographically constrained room membership (MSC3917), both of which introduce significant client-side state management and are outside the scope of this MSC. This MSC focuses on the cryptographic primitives and federation-layer changes; E2EE downgrade protection is deferred to a dedicated follow-up proposal.
 
 #### Key Agreement (Informational)
 
@@ -306,7 +306,9 @@ Attaching an ~888-byte `X-Matrix-PQC` header to every single HTTP request (inclu
 
 - **Algorithm agility.** This MSC introduces a general mechanism for adding new signature algorithms (`algorithm:key_id` format) that can accommodate future PQC standards without further MSCs. If FN-DSA is found to be vulnerable before deployment reaches critical mass, the unstable prefix can be deprecated and a replacement algorithm introduced using the same framework.
 
-- **Downgrade attacks.** Because PDU signatures are strictly bound to room versions, a network-level adversary cannot strip FN-DSA signatures from events in a PQC room without invalidating the events entirely. For Server-to-Server HTTP auth, an adversary could strip the `X-Matrix-PQC` header to force legacy Ed25519 verification, but this only compromises transport authentication, not the cryptographic integrity of the underlying PDUs or the DAG.
+- **Downgrade attacks (federation).** Because PDU signatures are strictly bound to room versions, a network-level adversary cannot strip FN-DSA signatures from events in a PQC room without invalidating the events entirely. For Server-to-Server HTTP auth, an adversary could strip the `X-Matrix-PQC` header to force legacy Ed25519 verification, but this only compromises transport authentication, not the cryptographic integrity of the underlying PDUs or the DAG.
+
+- **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses, forcing clients to fall back to Ed25519-only cross-signing verification. This MSC does not solve this problem — robust E2EE downgrade protection requires client-side key continuity (TOFU) or cryptographically constrained room membership (MSC3917), which are deferred to a follow-up proposal. In the interim, clients that have previously observed an FN-DSA key for a user SHOULD warn if it disappears.
 
 - **Key compromise recovery.** If a server's FN-DSA private key is compromised, the recovery procedure is identical to Ed25519 key compromise: rotate the key, publish the old key in `old_verify_keys` with an `expired_ts`, and re-sign the `/_matrix/key/v2/server` response. Events signed with the compromised key cannot be retroactively invalidated, consistent with existing Matrix security assumptions.
 
