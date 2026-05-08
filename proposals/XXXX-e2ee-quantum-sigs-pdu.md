@@ -275,7 +275,7 @@ The new room version does **not** change:
 
 ## Performance & Lightweighting Opportunities
 
-Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. The increased storage cost (~888 bytes Base64 per FN-DSA signature) is a necessary and permanent cryptographic requirement — signatures cannot be discarded or compressed, because Event IDs in Room Version 3+ are computed *without* signatures (they are stripped before hashing), meaning the DAG hash chain commits to event content but not authorship. Every event must retain its full signature indefinitely to allow independent verification by any server at any time.
+Transitioning to Post-Quantum Cryptography inherently introduces larger key and signature sizes. The increased storage cost (~888 bytes Base64 per FN-DSA signature) is a necessary and permanent cryptographic requirement — signatures cannot be discarded or compressed, because Event IDs in Room Version 3+ are computed _without_ signatures (they are stripped before hashing), meaning the DAG hash chain commits to event content but not authorship. Every event must retain its full signature indefinitely to allow independent verification by any server at any time.
 
 ### Payload Optimization: Binary Encodings (Informational)
 
@@ -283,7 +283,35 @@ Matrix currently encodes all cryptographic material as Base64 within JSON, infla
 
 ### HTTP Overhead: Symmetric Federation Auth (Informational)
 
-Attaching an ~888-byte `X-Matrix-PQC` header to every HTTP request (including tiny payloads like typing notifications or read receipts) is inefficient. This MSC recommends a fast-follow proposal to upgrade federation authentication: servers should use a PQC Key Encapsulation Mechanism (i.e., ML-KEM / FIPS 203) to negotiate a shared symmetric session key between homeservers, replacing per-request asymmetric signatures with a highly compact 32-byte HMAC.
+Attaching an ~888-byte `X-Matrix-PQC` header to every HTTP request (including tiny payloads like typing notifications or read receipts) is inefficient. A future MSC should upgrade federation authentication to use symmetric session keys negotiated via a PQC Key Encapsulation Mechanism. The protocol sketch below is provided for implementer guidance and spec consistency:
+
+**Session Establishment.** When server A first contacts server B (or when a session expires), A performs an ML-KEM-768 (FIPS 203) encapsulation against B's published ML-KEM public key (distributed via `/_matrix/key/v2/server` in a future MSC). This produces a shared secret `ss` and a ciphertext `ct`. A sends `ct` to B in an `X-Matrix-KEM-Init` header on the first request. B decapsulates `ct` to recover `ss`.
+
+**Key Derivation.** Both sides derive a symmetric session key using HKDF-SHA-256:
+
+```
+session_key = HKDF-SHA-256(
+  ikm  = ss,
+  salt = SHA-256(origin || destination || ct),
+  info = "matrix-federation-hmac-v1",
+  L    = 32
+)
+```
+
+The `salt` binds the session key to the specific server pair and the KEM ciphertext, preventing key reuse across different federation links.
+
+**Per-Request Authentication.** Once a session is established, subsequent requests replace the ~888-byte `X-Matrix-PQC` asymmetric signature with a 32-byte HMAC-SHA-256:
+
+```http
+Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
+X-Matrix-HMAC: session_id="<session-id>",mac="<base64-hmac-sha-256>"
+```
+
+The HMAC is computed over the same canonical JSON representation of the request (Method, URI, Destination, and body hash) used by existing Matrix authentication. The `session_id` identifies which negotiated session key to use.
+
+**Session Lifecycle.** Session keys SHOULD be rotated every 24 hours or after 10,000 requests (whichever comes first). Either side can initiate renegotiation by sending a new `X-Matrix-KEM-Init` header. The previous session key MUST be retained for a grace period (recommended: 60 seconds) to avoid rejecting in-flight requests signed with the old key.
+
+**Bandwidth Savings.** This reduces per-request PQC authentication overhead from ~888 bytes (FN-DSA signature) to ~44 bytes (session ID + HMAC), a ~20× reduction. The one-time KEM encapsulation cost (~1,088 bytes ciphertext for ML-KEM-768) is amortized across thousands of authenticated requests.
 
 ## Implementation Guidance
 
