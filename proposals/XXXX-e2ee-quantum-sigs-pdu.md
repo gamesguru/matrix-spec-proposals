@@ -12,30 +12,28 @@ This MSC introduces **FN-DSA** (Fast-Fourier transform over NTRU-Lattice-Based D
 
 This MSC proposes a single, unified signature scheme.
 
-| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                               |
-| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------------------ |
-| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, device & cross-signing keys |
+| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                   |
+| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
+| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
 
-**For PDU signatures:** Matrix Event IDs use SHA-256, providing ~128 bits of post-quantum collision resistance (Grover's algorithm). Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function then becomes the bottleneck.
-
-**For cross-signing keys:** Matrix currently uses Ed25519 (~128-bit classical security) uniformly for all key types, including master keys. There is no precedent for stronger keys on trust anchors. NIST Level I provides an equivalent 128-bit post-quantum security floor, cross-signing keys are rotatable, and a single parameter set eliminates cipher-suite negotiation complexity.
+Matrix event IDs use SHA-256, providing 128-bit (post-quantum) collision resistance (Grover's algorithm). Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function then becomes a potential bottleneck.
 
 In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
 ### Key Identifier Format
 
-This MSC adds a recognized algorithm identifier, also of the format `algorithm:key_id` (e.g., `ed25519:abc123`).
+Matrix currently identifies keys using the format . This MSC extends the set of recognized algorithm identifiers, currently in the format `algorithm:key_id` (e.g., `ed25519:abc123`).
 
 | Key Algorithm | Description                  | Key ID Format         |
 | ------------- | ---------------------------- | --------------------- |
 | `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`    |
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>` |
 
-Key IDs must be unique within each algorithm namespace on a given server.
+Key IDs MUST be unique within each algorithm namespace on a given server.
 
 ### Server Signing Keys
 
-Servers that implement this MSC should publish FN-DSA keys in `GET /_matrix/key/v2/server`, alongside their existing Ed25519 keys. They MUST do so to participate in PQC room versions:
+The `GET /_matrix/key/v2/server` response must include both types of public keys. We leverage the schema's support of multiple algorithm prefixes:
 
 ```json
 {
@@ -58,26 +56,26 @@ Servers that implement this MSC should publish FN-DSA keys in `GET /_matrix/key/
 }
 ```
 
-FN-DSA public keys are encoded as unpadded base64, just like Ed25519 keys.
+FN-DSA public keys are encoded as unpadded base64, just like existing Ed25519 keys.
 
-Servers should begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys in the transition period.
+Servers should begin publishing FN-DSA keys upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute public keys.
 
 ### PDU Signing
 
-To prevent consensus divergence and avoid polluting legacy rooms with unrecognized cryptographic material, this MSC does **not** alter the signing rules for legacy room versions. Introducing optional PQC signatures into legacy rooms creates heterogeneous validation states and allows adversaries to simply strip the PQC signature to force an Ed25519 fallback.
+To maintain consistency, this MSC does **not** alter the signing rules for legacy room versions.
 
 Instead, PQC PDU signatures are strictly gated to a new room version.
 
-#### Legacy Room Versions (≤ v12)
+#### Legacy Room Versions (v12 and before)
 
-In older room versions, servers MUST continue to sign and verify PDUs using **Ed25519 only**. Servers MUST NOT append `fn-dsa-512` signatures to PDUs in legacy rooms. This ensures absolute backwards compatibility and prevents DAG divergence.
+In older room versions, servers continue to sign and verify PDUs using Ed25519 only.
 
 #### PQC-Required Room Versions (v13+)
 
 In room versions that require PQC signatures (see [Room Version Requirements](#room-version-requirements)):
 
-- All PDUs MUST carry an `fn-dsa-512` signature from the originating server.
-- Legacy `ed25519` signatures are strictly PROHIBITED to prevent redundant payload bloat and downgrade ambiguity.
+- Origin servers MUST sign all outgoing PDUs with `fn-dsa-512`.
+- Legacy `ed25519` signatures are expressly PROHIBITED to avoid payload bloat and downgrade ambiguity.
 - Receiving servers MUST reject PDUs that lack a valid `fn-dsa-512` signature.
 
 ```json
@@ -94,28 +92,24 @@ In room versions that require PQC signatures (see [Room Version Requirements](#r
 
 The `X-Matrix` authorization header currently supports Ed25519 signatures for request authentication. This MSC extends it to support FN-DSA.
 
-RFC 9110 (HTTP Semantics) prohibits sending multiple `Authorization` headers in a single request, and many reverse proxies (Nginx, Envoy, HAProxy) will drop or corrupt duplicate headers. Therefore, when communicating with PQC-capable servers, the sending server MUST transmit the PQC signature in a **dedicated secondary header** `X-Matrix-PQC`, while continuing to send the existing Ed25519 `Authorization` header for backwards compatibility:
+When communicating with PQC-capable servers, the sender MUST transmit the PQC signature in a dedicated "secondary header," `X-Matrix-PQC`, while continuing to send the existing Ed25519 `Authorization` header for backwards compatibility. (Below example spaced for visual alignment.)
 
 ```http
-Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
+Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",   sig="<base64-ed25519-signature>"
+X-Matrix-PQC:           origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
-The FN-DSA signature in the `X-Matrix-PQC` header MUST be computed over the exact same canonical JSON representation of the HTTP request elements (Method, URI, Destination, and body hash) as the standard Ed25519 signature.
+The FN-DSA signature MUST be computed over the exact same canonical JSON representation of the HTTP request (Method, URI, Destination, and body hash) as standard Ed25519 signatures.
 
-Receiving servers that support this MSC MUST attempt to verify the `X-Matrix-PQC` header if present. During the transition, if `X-Matrix-PQC` verification fails, the server SHOULD log a warning but MUST NOT reject the request if the `Authorization` header carries a valid Ed25519 signature. Legacy servers will ignore the `X-Matrix-PQC` header entirely.
+Receiving servers that support this spec MUST attempt to verify the `X-Matrix-PQC` header if present. During the transition, if `X-Matrix-PQC` verification fails, the server SHOULD log a warning but MUST NOT reject the request if the `Authorization` header carries a valid Ed25519 signature. Legacy servers will ignore the `X-Matrix-PQC` header entirely.
 
-Once the Matrix ecosystem reaches sufficient PQC adoption, a future MSC can deprecate the Ed25519 header entirely, at which point servers MAY send the FN-DSA signature directly in the primary `Authorization` header using the `X-Matrix` scheme:
-
-```http
-Authorization: X-Matrix origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
-```
+Because a single federation transaction (`PUT /_matrix/federation/v1/send/{txnId}`) can carry PDUs for multiple rooms — some legacy, some PQC — HTTP authentication cannot be scoped to a specific room version. The Ed25519 `Authorization` header therefore remains a permanent fixture as long as any legacy room exists on the federation. The `X-Matrix-PQC` header provides PQC transport authentication alongside it.
 
 ### Event ID and Content Hash Computation
 
 Event IDs in room versions 3 and later are computed as the reference hash of the event. The reference hash is calculated over a subset of the event fields, **excluding signatures**. Therefore, the introduction of FN-DSA signatures does **not** change event ID computation. Event IDs remain stable across the PQC migration.
 
-Similarly, the content hash (`hashes.sha256`) is computed over the canonical JSON of the event **after** the `signatures` and `unsigned` keys are stripped. Adding FN-DSA signatures to the `signatures` object therefore does **not** alter the content hash. Both event IDs and content hashes are fully stable across the PQC migration — no changes to hashing behavior are introduced by this MSC.
+Similarly, the content hash (`hashes.sha256`) is computed over the canonical JSON of the event **after** the `signatures` and `unsigned` keys are stripped. Adding FN-DSA signatures to the `signatures` object therefore does **not** alter the content hash.
 
 ### E2EE Device Key Migration
 
@@ -144,11 +138,11 @@ The `/keys/upload` endpoint is extended to accept FN-DSA device signing keys:
 }
 ```
 
-Clients that support this MSC SHOULD upload FN-DSA device keys alongside their existing Ed25519 keys. The `/keys/query` response includes all uploaded key types.
+Clients that support this MSC SHOULD upload FN-DSA device keys alongside Ed25519 keys. The `/keys/query` response includes all keys types.
 
 #### Cross-Signing Keys
 
-Cross-signing master, self-signing, and user-signing keys are extended to support FN-DSA:
+Cross-signing master, self-signing, and user-signing keys should also support FN-DSA:
 
 ```json
 {
