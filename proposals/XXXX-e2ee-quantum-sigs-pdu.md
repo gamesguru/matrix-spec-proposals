@@ -2,34 +2,32 @@
 
 Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This spec change therefore aims to PREVENT forging new PDUs, spoofing federation requests, and injecting fabricated events. This MSC begins the migration to a PQC-safe signatures.
+This spec change therefore aims to PREVENT forging new PDUs, spoofing federation requests, and injecting fabricated events. This MSC begins the migration to PQC-safe signatures.
 
 ## Proposal
 
 This MSC introduces **FN-DSA** (Fast-Fourier transform over NTRU-Lattice-Based Digital Signature Algorithm), standardized as [NIST FIPS 206](https://csrc.nist.gov/pubs/fips/206/ipd), as the primary post-quantum signature scheme for Matrix. FN-DSA is based on the Falcon algorithm and was selected by NIST specifically for use cases requiring compact signatures and fast verification — both critical for Matrix's high-throughput federation.
 
-In theory, Dilithium can stand as a drop-in replacement. Its algorithm relies exclusively on integer arithmetic, which eliminates the side-channel introspection attacks that Falcon's floating-point arithmetic is theoretically (although seldomly practically) vulnerable to. The downside to Dilithium is larger signatures and keys. Falcon manages to stay in the 600-900 byte range, while Dilithium often exceeds 2 or 4 kB.
-
 ### Algorithm Parameters
 
-This MSC defines two security levels:
+This MSC defines a single, unified parameter set to minimize implementation complexity and prevent cipher-suite downgrade attacks:
 
-| Parameter Set | NIST Level     | Public Key  | Signature    | Verification | Use Case                                         |
-| ------------- | -------------- | ----------- | ------------ | ------------ | ------------------------------------------------ |
-| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes   | ~666 bytes   | ~0.1 ms      | Server signing keys, PDU signatures, device keys |
-| `fn-dsa-1024` | V (256-bit PQ) | 1,793 bytes | ~1,280 bytes | ~0.2 ms      | Cross-signing keys, long-lived trust anchors     |
+| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                   |
+| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
+| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
 
-In future room versions (TODO: define precisely which), servers MUST support `fn-dsa-512`. Servers MAY additionally support `fn-dsa-1024` for higher-security deployments.
+Matrix Event IDs use SHA-256, which provides ~128 bits of post-quantum collision resistance (via Grover's algorithm). Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function would become the bottleneck.
+
+In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
 ### Key Identifier Format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
 
-| Key Algorithm | Description                  | Key ID Format          |
-| ------------- | ---------------------------- | ---------------------- |
-| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`     |
-| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>`  |
-| `fn-dsa-1024` | FN-DSA at NIST Level V       | `fn-dsa-1024:<key_id>` |
+| Key Algorithm | Description                  | Key ID Format         |
+| ------------- | ---------------------------- | --------------------- |
+| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`    |
+| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>` |
 
 Key IDs MUST be unique within each algorithm namespace on a given server.
 
@@ -58,7 +56,7 @@ The `GET /_matrix/key/v2/server` response must include both types of public keys
 }
 ```
 
-FN-DSA public keys are encoded as unpadded base64, just like existing Ed25519 keys. The `key` field for `fn-dsa-512` contains the 897-byte public key (1196 characters base64). For `fn-dsa-1024`, similar, if supplied.
+FN-DSA public keys are encoded as unpadded base64, just like existing Ed25519 keys. The `key` field for `fn-dsa-512` contains the 897-byte public key (1196 characters base64).
 
 Servers SHOULD begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys in the transition period.
 
@@ -85,7 +83,7 @@ Receiving servers that support this spec MUST attempt verification of an FN-DSA 
 
 In room versions that require PQC signatures (see [Room Version Requirements](#room-version-requirements)):
 
-- All PDUs MUST carry an `fn-dsa-512` signature from the originating server. Servers MAY additionally include an `fn-dsa-1024` signature, but it does not substitute for the `fn-dsa-512` signature.
+- All PDUs MUST carry an `fn-dsa-512` signature from the originating server.
 - Ed25519 signatures are OPTIONAL and MAY be included for backwards compatibility during the transition, but MUST NOT be the sole signature.
 - Receiving servers MUST reject PDUs that lack a valid `fn-dsa-512` signature.
 
@@ -93,7 +91,7 @@ In room versions that require PQC signatures (see [Room Version Requirements](#r
 
 To prevent consensus divergence between PQC-capable and legacy servers, signature verification MUST follow these rules:
 
-1. If the room version requires PQC (Phase 3): verify the `fn-dsa-512` signature. If invalid or absent, reject the event. If an `fn-dsa-1024` signature is also present, verify it as well — reject if invalid. Ed25519 verification is OPTIONAL.
+1. If the room version requires PQC (Phase 3): verify the `fn-dsa-512` signature. If invalid or absent, reject the event. Ed25519 verification is OPTIONAL.
 2. If the room version does not require PQC (Phase 2 hybrid): verify the Ed25519 signature first. If invalid, reject the event (consistent with legacy server behavior). Then, if an FN-DSA signature is present, verify it as well. If the FN-DSA signature is invalid, the server SHOULD log a warning but MUST NOT reject the event solely on that basis, as the Ed25519 signature remains authoritative in legacy room versions.
 3. If no FN-DSA signature is present and the room version does not require PQC, verify Ed25519 only (existing behavior).
 
@@ -166,17 +164,15 @@ Cross-signing master, self-signing, and user-signing keys are extended to suppor
     "usage": ["master"],
     "keys": {
       "ed25519:base64+master+key": "<base64-ed25519-master-key>",
-      "fn-dsa-1024:base64+pqc+master+key": "<base64-fn-dsa-1024-master-key>"
+      "fn-dsa-512:base64+pqc+master+key": "<base64-fn-dsa-512-master-key>"
     }
   }
 }
 ```
 
-Cross-signing keys SHOULD use `fn-dsa-1024` for stronger long-term security, as these keys are trust anchors that persist across device rotations.
-
 When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor.
 
-**Downgrade Protection:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could strip a user's PQC keys to force a legacy fallback. To prevent this, clients MUST treat an `fn-dsa-1024` Master Key as a strict protocol assertion. If a user's published trust anchor includes an FN-DSA key, verifying clients MUST hard-reject any device keys or self-signing keys for that user that lack a valid FN-DSA signature.
+**Downgrade Protection:** Because `/keys/query` responses are not protected by room versions, a compromised homeserver could maliciously strip a user's PQC keys from the JSON to force a legacy fallback. To prevent this, clients MUST treat the presence of an `fn-dsa-512` Master Key as a strict protocol assertion. If a user's published trust anchor includes an FN-DSA key, verifying clients MUST hard-reject any downstream device keys or self-signing keys for that user that lack a valid FN-DSA signature.
 
 #### Key Agreement (Informational)
 
@@ -189,7 +185,7 @@ Clients and homeservers have distinct responsibilities in the PQC migration:
 **Key Generation.** Clients that support this MSC MUST generate FN-DSA keypairs locally for:
 
 - Device signing keys (`fn-dsa-512`) — uploaded via `/keys/upload`
-- Cross-signing keys (`fn-dsa-1024` RECOMMENDED) — uploaded via `/keys/device_signing/upload`
+- Cross-signing keys (`fn-dsa-512`) — uploaded via `/keys/device_signing/upload`
 
 FN-DSA key generation requires constant-time discrete Gaussian sampling. Client implementations MUST use a side-channel-resistant FN-DSA library (see [Falcon's implementation complexity](#potential-issues)). WASM and mobile environments require particular care, as JIT compilation and garbage collection can introduce timing variability.
 
@@ -259,7 +255,7 @@ New room versions are created that require FN-DSA signatures. Rooms upgraded to 
 
 This MSC requires a **new room version** for the final phase of migration. The new room version makes the following changes:
 
-- **PDU signing:** `fn-dsa-512` signature REQUIRED. `fn-dsa-1024` signature OPTIONAL (additional, not a substitute). Ed25519 signature OPTIONAL.
+- **PDU signing:** `fn-dsa-512` signature REQUIRED. Ed25519 signature OPTIONAL.
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require verification of the FN-DSA signature. **However, for historical events received via backfill, this step is bypassed if the event's SHA-256 reference hash (Event ID) securely matches the `prev_events` hash of an already-verified forward event in the DAG.** If no FN-DSA signature is present and the event is not anchored by a known valid hash, the event is rejected.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are additional entries in the existing `signatures` object.
@@ -288,7 +284,7 @@ The new room version does **not** change:
 
 ## Alternatives
 
-- **ML-DSA (FIPS 204 / Dilithium) instead of FN-DSA.** ML-DSA is already finalized and has simpler implementation requirements (no Gaussian sampling). However, ML-DSA-65 signatures are 3,309 bytes — 5× larger than FN-DSA-512's ~666 bytes. For Matrix's high-throughput federation, this size penalty is significant. ML-DSA could serve as a fallback if FN-DSA standardization is delayed beyond 2027. A future MSC could add `ml-dsa-65` as an additional recognized algorithm.
+- **ML-DSA (FIPS 204 / Dilithium) instead of FN-DSA.** In theory, ML-DSA could stand as a drop-in replacement. Its algorithm relies exclusively on integer arithmetic, which eliminates the side-channel introspection attacks that FN-DSA's floating-point Gaussian sampling is theoretically (although seldom practically) vulnerable to. The downside to ML-DSA is its massive bandwidth footprint. FN-DSA signatures stay in the 600–900 byte range, whereas ML-DSA-44 exceeds 2.4 KB. Because Matrix events are federally replicated and heavily co-signed, the ML-DSA payload bloat is prohibitive. ML-DSA could serve as a fallback if FN-DSA standardization is delayed, but FN-DSA remains the vastly superior choice for high-throughput environments.
 
 - **SLH-DSA (FIPS 205 / SPHINCS+) instead of FN-DSA.** SLH-DSA is hash-based and requires no lattice assumptions, making it the most conservative choice cryptographically. However, SLH-DSA-SHA2-128f signatures are 17,088 bytes — entirely impractical for per-event signing. SLH-DSA may be appropriate for long-lived trust anchors (e.g., cross-signing master keys) in a future MSC.
 
@@ -340,11 +336,10 @@ Attaching an ~888-byte `X-Matrix-PQC` header to every single HTTP request (inclu
 
 While this MSC is in development, the following unstable prefixes are used:
 
-| Stable Identifier             | Unstable Identifier                              |
-| ----------------------------- | ------------------------------------------------ |
-| `fn-dsa-512` (key algorithm)  | `org.matrix.mscXXXX.fn-dsa-512`                  |
-| `fn-dsa-1024` (key algorithm) | `org.matrix.mscXXXX.fn-dsa-1024`                 |
-| `X-Matrix-PQC` (HTTP header)  | `X-Matrix-PQC` (no prefix needed, custom header) |
+| Stable Identifier            | Unstable Identifier                              |
+| ---------------------------- | ------------------------------------------------ |
+| `fn-dsa-512` (key algorithm) | `org.matrix.mscXXXX.fn-dsa-512`                  |
+| `X-Matrix-PQC` (HTTP header) | `X-Matrix-PQC` (no prefix needed, custom header) |
 
 The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example:
 
