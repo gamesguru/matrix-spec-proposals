@@ -10,30 +10,32 @@ This MSC introduces **FN-DSA** (Fast-Fourier transform over NTRU-Lattice-Based D
 
 ### Algorithm Parameters
 
-This MSC defines a single, unified parameter set to minimize implementation complexity and prevent cipher-suite downgrade attacks:
+This MSC proposes a single, unified signature scheme.
 
-| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                   |
-| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
-| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
+| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                               |
+| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------------------ |
+| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, device & cross-signing keys |
 
-Matrix Event IDs use SHA-256, which provides ~128 bits of post-quantum collision resistance (via Grover's algorithm). Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function would become the bottleneck.
+**For PDU signatures:** Matrix Event IDs use SHA-256, providing ~128 bits of post-quantum collision resistance (Grover's algorithm). Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function then becomes the bottleneck.
+
+**For cross-signing keys:** Matrix currently uses Ed25519 (~128-bit classical security) uniformly for all key types, including master keys. There is no precedent for stronger keys on trust anchors. NIST Level I provides an equivalent 128-bit post-quantum security floor, cross-signing keys are rotatable, and a single parameter set eliminates cipher-suite negotiation complexity.
 
 In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
 ### Key Identifier Format
 
-Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
+This MSC adds a recognized algorithm identifier, also of the format `algorithm:key_id` (e.g., `ed25519:abc123`).
 
 | Key Algorithm | Description                  | Key ID Format         |
 | ------------- | ---------------------------- | --------------------- |
 | `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`    |
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>` |
 
-Key IDs MUST be unique within each algorithm namespace on a given server.
+Key IDs must be unique within each algorithm namespace on a given server.
 
 ### Server Signing Keys
 
-The `GET /_matrix/key/v2/server` response must include both types of public keys. We leverage the schema's support of multiple algorithm prefixes:
+Servers that implement this MSC should publish FN-DSA keys in `GET /_matrix/key/v2/server`, alongside their existing Ed25519 keys. They MUST do so to participate in PQC room versions:
 
 ```json
 {
@@ -56,9 +58,9 @@ The `GET /_matrix/key/v2/server` response must include both types of public keys
 }
 ```
 
-FN-DSA public keys are encoded as unpadded base64, just like existing Ed25519 keys. The `key` field for `fn-dsa-512` contains the 897-byte public key (1196 characters base64).
+FN-DSA public keys are encoded as unpadded base64, just like Ed25519 keys.
 
-Servers SHOULD begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys in the transition period.
+Servers should begin publishing FN-DSA keys immediately upon implementing this MSC, even before PQC-capable room versions exist. This allows the federation to pre-distribute PQC public keys in the transition period.
 
 ### PDU Signing
 
