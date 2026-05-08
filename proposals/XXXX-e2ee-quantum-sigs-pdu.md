@@ -338,7 +338,7 @@ FN-DSA is not yet as widely deployed as Ed25519, but some example frameworks are
 
 - **Algorithm agility.** This MSC introduces a general mechanism for adding new signature algorithms (`algorithm:key_id` format) that can accommodate future PQC standards without further MSCs. If FN-DSA is found to be vulnerable before deployment reaches critical mass, the unstable prefix can be deprecated and a replacement algorithm introduced using the same framework.
 
-- **Downgrade attacks (federation).** Because PDU signatures are strictly bound to room versions, a network-level adversary cannot strip FN-DSA signatures from events in a PQC room without invalidating the events entirely. For Server-to-Server HTTP auth, an adversary could strip the `X-Matrix-PQC` header to force legacy Ed25519 verification, but this only compromises transport authentication, not the cryptographic integrity of the underlying PDUs or the DAG.
+- **Downgrade attacks (federation).** Because PDU signatures are strictly bound to room versions, a network-level adversary cannot strip FN-DSA signatures from events in a PQC room without invalidating the events entirely. For Server-to-Server HTTP auth, an adversary could strip the `X-Matrix-PQC` header to force legacy Ed25519 verification, but this only compromises transport authentication, not the integrity of PDUs or the DAG.
 
 - **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses, forcing clients to fall back to Ed25519-only cross-signing verification. This MSC does not solve that problem. Robust E2EE downgrade protection requires TOFU security or cryptographically-constrained room membership (MSC3917), which are deferred. Meanwhile, clients that have previously observed an FN-DSA key for a user SHOULD warn if it disappears.
 
@@ -375,10 +375,10 @@ Once this MSC is accepted but not yet merged into a released spec version, imple
 
 This proposal is fully backwards-compatible:
 
-- **Phase 1 (Key Distribution & Transport)** has zero behavioral impact on events. FN-DSA keys in `verify_keys` and the `X-Matrix-PQC` header are safely ignored by servers that don't recognize the algorithm.
-- **Phase 2 (PQC Room Versions)** safely isolates all PDU format changes to a new room version. Rooms that are not upgraded continue to use Ed25519 indefinitely. There is no forced migration.
-- **No new endpoints.** All existing federation and client-server API endpoints continue to function. This MSC extends existing endpoints (i.e., adding new key types to `verify_keys`, new entries in `signatures`, and a new HTTP header) but does not introduce new API paths.
-- **E2EE backwards compatibility.** Clients that do not support FN-DSA device keys will not upload them. The `/keys/query` response includes all uploaded key types, but clients that do not recognize FN-DSA algorithm prefixes will simply ignore those entries. Cross-signing continues to work with Ed25519 keys. FN-DSA cross-signatures are additive.
+- **Phase 1 (Key Distribution & Transport)** has zero impact on events or auth.
+- **Phase 2 (PQC Room Versions)** isolates PDU format changes to new room version. Rooms that are not upgraded continue to use Ed25519. This spec gives no advice on backporting to legacy rooms.
+- **No new endpoints.** All existing federation and client-server API endpoints remain unchanged. This MSC extends existing endpoints (i.e., adding new key types to `verify_keys`, new entries in `signatures`, and a new HTTP header).
+- **E2EE backwards compatibility.** Cross-signing continues to work with Ed25519 keys. FN-DSA cross-signatures are optional. This spec focuses on PDU signatures.
 
 ---
 
