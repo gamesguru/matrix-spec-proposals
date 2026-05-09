@@ -380,9 +380,19 @@ The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, a
 
 Once this MSC is accepted but not yet merged into a released spec version, implementations SHOULD support both the unstable prefix and the stable identifier, accepting either.
 
+### Pre-Finalization Deployment Guidance
+
+FIPS 206 has not been finalized as of May 2026. Implementations deploying FN-DSA before finalization MUST observe the following constraints:
+
+- **All keys are temporary.** FN-DSA keys published under unstable identifiers (`org.matrix.mscXXXX.fn-dsa-512`) MUST be treated as provisional. Operators SHOULD expect mandatory key rotation if FIPS 206 final changes encodings, parameters, or the signing algorithm relative to the draft revision used.
+- **Pin a specific draft revision.** Implementations MUST document which FIPS 206 draft revision they target. Interoperability between implementations targeting different draft revisions is not guaranteed.
+- **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final standard changes the public key encoding, signature encoding, or algorithm semantics, all previously published unstable FN-DSA keys MUST be retired to `old_verify_keys` and replaced with keys conforming to the updated specification. Signatures produced under the old parameters remain valid for events whose `origin_server_ts` falls within the key's validity window, consistent with standard Matrix key expiry semantics.
+- **PQC room versions are draft-scoped.** Rooms created with a PQC-required room version during the unstable period are bound to the draft revision active at creation time. If the final standard is incompatible, these rooms cannot be migrated in-place — a new room version referencing the final standard would be required, and rooms would need to be upgraded.
+- **No production trust assumptions.** During the unstable period, FN-DSA signatures provide defence-in-depth but MUST NOT be the sole basis for production security decisions. Ed25519 signatures and transport authentication remain the authoritative trust anchors until FIPS 206 is finalized and stable identifiers are adopted.
+
 ## Dependencies
 
-- **NIST FIPS 206 (FN-DSA):** Unstable prefixes buffer against pre-finalization changes.
+- **NIST FIPS 206 (FN-DSA):** This MSC targets the FIPS 206 initial public draft. Unstable prefixes and the deployment guidance above buffer against pre-finalization changes. Once FIPS 206 is finalized, this MSC will be updated to reference the final standard, and stable identifiers (`fn-dsa-512`) will replace unstable prefixes.
 
 ## Backwards Compatibility
 
