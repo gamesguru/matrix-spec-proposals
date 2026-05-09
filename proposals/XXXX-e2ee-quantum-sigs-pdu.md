@@ -1,12 +1,12 @@
 # MSC XXXX: Post-Quantum Digital Signatures for Federation and E2EE
 
-Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
+Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys using Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This MSC begins the migration to quantum-safe signatures to prevent the forgery of new room events and the spoofing of federation requests, and to provide an opportunistic post-quantum authentication path for E2EE device identity.
+This MSC begins the post-quantum migration to secure signature schemes, federation transport auth, and device E2EE.
 
 ## Proposal
 
-This MSC introduces **FN-DSA** (NTRU-Lattice-Based Digital Signature Algorithm), specified by the [NIST FIPS 206 initial public draft](https://csrc.nist.gov/pubs/fips/206/ipd), as the post-quantum signature scheme for Matrix. FN-DSA (Falcon) was selected by NIST for compact signatures and fast verification — both critical for high-throughput federation.
+This MSC introduces **FN-DSA**, a 128-bit secure lattice-based signature scheme specified by the [NIST FIPS 206 initial public draft](https://csrc.nist.gov/pubs/fips/206/ipd), as the post-quantum signature scheme for Matrix. FN-DSA (Falcon) was selected by NIST for compact signatures and fast verification — both critical for high-throughput federation.
 
 ### Algorithm Parameters
 
@@ -32,6 +32,20 @@ Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed2
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>` |
 
 Key IDs MUST be unique within each algorithm namespace on a given server.
+
+#### Homeserver abbreviations
+
+The below guidelines are set for parameter abbreviation codes. Those wishing to implement a new homeserver and having sufficient momentum in doing so ought to amend the spec to make domain holders aware of key name scoping.
+
+| Homeserver   | Abbreviation |
+| ------------ | ------------ |
+| Synapse      | `syne`       |
+| Dendrite     | `dend`       |
+| Construct    | `cnst`       |
+| Conduit      | `cond`       |
+| Conduwuit    | `cuwu`       |
+| Continuwuity | `c10y`       |
+| Tuwunel      | `tuwn`       |
 
 ### FN-DSA Encoding and Signing Operation
 
