@@ -64,11 +64,11 @@ FN-DSA public keys are encoded as unpadded base64. Servers should begin publishi
 
 PQC PDU signatures are strictly gated to a new room version. Legacy room versions are unchanged.
 
-#### Legacy Room Versions (v12 and before)
+#### Legacy Room Versions
 
 In older room versions, servers continue to sign and verify PDUs using Ed25519 only.
 
-#### PQC-Required Room Versions (v13+)
+#### PQC-Required Room Versions
 
 In room versions that require PQC signatures (see [Room Version Requirements](#room-version-requirements)):
 
@@ -194,21 +194,21 @@ sequenceDiagram
 
     Note over S1: Publishes both keys via /_matrix/key/v2/server
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (Room org.matrix.mscXXXX): {ed25519 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (legacy room): {ed25519 only}
     activate S2
-    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies ed25519 PDU signature for Room org.matrix.mscXXXX.
+    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies ed25519 PDU signature (legacy rule).
     S2-->>S1: 200 OK
     deactivate S2
 
-    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room org.matrix.mscXXXX): {ed25519 only}
+    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (legacy room): {ed25519 only}
     activate S3
     Note over S3: Ignores X-Matrix-PQC header.<br/>Verifies ed25519 PDU signature.
     S3-->>S1: 200 OK
     deactivate S3
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room org.matrix.mscXXXX): {fn-dsa-512 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (PQC room): {fn-dsa-512 only}
     activate S2
-    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies fn-dsa-512 PDU signature for Room org.matrix.mscXXXX.
+    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies fn-dsa-512 PDU signature (PQC rule).
     S2-->>S1: 200 OK
     deactivate S2
 ```
@@ -219,7 +219,7 @@ sequenceDiagram
 Servers begin publishing FN-DSA keys via `/_matrix/key/v2/server` and transmitting the `X-Matrix-PQC` header for Server-to-Server HTTP authentication. Clients begin uploading `fn-dsa-512` device and cross-signing keys. PDUs continue to be signed exclusively with Ed25519 according to legacy room versions.
 
 **Phase 2 — PQC Room Version (Deployment)**
-A new room version is formalized which makes `fn-dsa-512` the sole, authoritative PDU signature scheme. Users and administrators may upgrade existing rooms to this version to gain post-quantum PDU signatures. Legacy rooms (v12 and below) remain untouched.
+A new room version is formalized which makes `fn-dsa-512` the sole, authoritative PDU signature scheme. Users and administrators may upgrade existing rooms to this version to gain post-quantum PDU signatures. Legacy rooms remain untouched.
 
 ## Room Version Requirements
 
@@ -255,7 +255,7 @@ The new room version does **not** change:
 
 - **SLH-DSA (FIPS 205 / SPHINCS+).** Most conservative (hash-based, no lattice assumptions), but 17,088-byte signatures are impractical for per-event signing. Potentially useful for long-lived trust anchors in a future MSC.
 
-- **Hybrid Ed25519 + PQC.** NIST SP 800-227 recommends hybrid constructions, but this MSC avoids hybrid PDU signing — in v13+ rooms, FN-DSA is the sole authority. The transport layer (`X-Matrix-PQC` + Ed25519 `Authorization`) is hybrid during transition, but that's HTTP-only.
+- **Hybrid Ed25519 + PQC.** NIST SP 800-227 recommends hybrid constructions, but this MSC avoids hybrid PDU signing — in PQC rooms, FN-DSA is the sole authority. The transport layer (`X-Matrix-PQC` + Ed25519 `Authorization`) is hybrid during transition, but that's HTTP-only.
 
 - **Waiting for FIPS 206 finalization.** Delaying extends the vulnerability window. Unstable prefixes allow early adoption without committing to final identifiers.
 
