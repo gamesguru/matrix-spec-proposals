@@ -2,7 +2,7 @@
 
 Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys via Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This MSC aims to prevent the forgery of new room events, spoofing federation requests, and impersonating E2EE devices. This MSC begins the migration to quantum-safe signatures.
+This MSC begins the migration to quantum-safe signatures to prevent the forgery of new room events, the spoofing of federation requests, and the impersonation of E2EE devices.
 
 ## Proposal
 
@@ -16,7 +16,7 @@ This MSC proposes a single, unified signature scheme.
 | ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
 | `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
 
-Matrix event IDs use SHA-256, which provides 128-bit classical collision resistance. Grover's algorithm reduces SHA-256's preimage resistance to ~128 bits against a quantum adversary. Going beyond NIST Level I for signatures offers no practical benefit since SHA-256 elsewhere in the system is a comparable security bound.
+Matrix event IDs use SHA-256. Due to classical collision bounds (Birthday Paradox) and quantum preimage bounds (Grover's algorithm), SHA-256 provides a maximum of ~128 bits of security. Deploying signatures beyond NIST Level I (128-bit PQ) offers no practical security benefit, as the hash function itself would become the bottleneck.
 
 In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
@@ -84,7 +84,7 @@ PQC PDU signatures are strictly gated to a new room version. Legacy room version
 
 #### Legacy Room Versions
 
-In older room versions, servers continue to sign and verify PDUs using Ed25519 only.
+In older room versions, servers continue to sign and verify PDUs using Ed25519 only. Servers MUST NOT append `fn-dsa-512` signatures to PDUs in legacy rooms, as this introduces unnecessary bloat and risks consensus divergence.
 
 #### PQC-Required Room Versions
 
@@ -252,7 +252,7 @@ A new room version is formalized which makes `fn-dsa-512` the sole, authoritativ
 This MSC requires a **new room version**. All PQC changes are scoped to this version — existing room versions are unaffected.
 
 - **PDU signing:** Origin servers MUST sign PDUs with `fn-dsa-512`. Origin servers MUST NOT include `ed25519` signatures. Receiving servers MUST ignore unrecognized or legacy signature entries — their presence MUST NOT cause rejection (see [PQC-Required Room Versions](#pqc-required-room-versions) for rationale).
-- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require strict verification of the `fn-dsa-512` signature from the server identified by the event's `sender` domain (consistent with existing event signature verification). If no valid FN-DSA signature from the expected server is present, the event MUST be rejected. Additional signatures from other algorithms or servers are ignored for acceptance purposes.
+- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require strict verification of the `fn-dsa-512` signature from the server identified by the event's `sender` domain. If no valid FN-DSA signature from the expected server is present, the event MUST be rejected. Additional signatures from unrecognized or legacy algorithms are ignored for acceptance purposes. _(Note: Signatures from other servers MUST still be verified if required by the event type, such as resident server co-signatures on room joins)._
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are entries in the existing `signatures` object.
 
