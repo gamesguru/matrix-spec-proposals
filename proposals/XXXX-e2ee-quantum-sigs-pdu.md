@@ -261,6 +261,8 @@ The new room version does **not** change:
 
 - **Extending Olm/Megolm to PQC.** Key agreement migration (Curve25519 → ML-KEM) is orthogonal and far more complex. Bundling would delay everything. Signature migration provides immediate protection against server impersonation; key agreement (the HNDL concern) is addressed separately.
 
+- **Signature hash-chaining (future storage savers for highly co-signed events).** To reduce the payload tax of multiple co-signatures, subsequent co-signers could commit to a hash of previous signatures and discard the originals. This fails under Matrix's zero-trust model: a hash commitment proves a blob existed (integrity) but cannot prove it was a valid cryptographic signature (authenticity) without the original bytes. Every server must independently verify signatures, so linear storage of PQC signatures is a strict requirement. Sub-linear compression requires schemes that preserve verifiability, such as Zero-Knowledge Proofs or future post-quantum aggregate signatures.
+
 ## Performance & Lightweighting Opportunities
 
 PQC means larger keys and signatures. The ~888 bytes Base64 per FN-DSA signature is permanent — signatures cannot be pruned because Event IDs (Room Version 3+) are computed _without_ them, so the DAG commits to content but not authorship. Every event must retain its signature for independent verification.
