@@ -366,7 +366,7 @@ While this MSC is in development, the following unstable prefixes are used:
 | `fn-dsa-512` (key algorithm) | `org.matrix.mscXXXX.fn-dsa-512`                  |
 | `X-Matrix-PQC` (HTTP header) | `X-Matrix-PQC` (no prefix needed, custom header) |
 
-The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example:
+The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example, the `/_matrix/key/v2/server` response would use the unstable algorithm identifier in key IDs:
 
 ```json
 {
