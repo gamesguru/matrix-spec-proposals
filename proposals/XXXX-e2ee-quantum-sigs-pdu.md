@@ -130,7 +130,7 @@ The FN-DSA signature MUST be computed over the same JSON signing object used for
 
 #### Header Syntax
 
-`X-Matrix-PQC` uses the same parameter syntax and parsing rules as the existing `Authorization: X-Matrix` header. Required parameters are `origin`, `destination`, `key`, and `sig`. Unknown parameters MUST be ignored. Duplicate parameters or multiple `X-Matrix-PQC` headers render the request authentication invalid. The `sig` parameter value is the unpadded base64-encoded FN-DSA signature. Malformed headers (invalid base64, missing required parameters, unparseable syntax) MUST be treated as absent for enforcement purposes and SHOULD be logged.
+`X-Matrix-PQC` uses the same parameter syntax and parsing rules as the existing `Authorization: X-Matrix` header. Required parameters are `origin`, `destination`, `key`, and `sig`. Unknown parameters MUST be ignored. Duplicate parameters or multiple `X-Matrix-PQC` headers render the request authentication invalid. The `sig` parameter value is the unpadded base64-encoded FN-DSA signature. Malformed headers (invalid base64, missing required parameters, unparsable syntax) MUST be treated as absent for enforcement purposes and SHOULD be logged.
 
 #### Verification and Enforcement
 
