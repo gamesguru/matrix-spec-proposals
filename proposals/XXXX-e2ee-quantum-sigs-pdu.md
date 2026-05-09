@@ -16,7 +16,7 @@ This MSC proposes a single, unified signature scheme.
 | ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
 | `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
 
-Matrix event IDs use SHA-256, providing 128-bit post-quantum collision resistance (Grover's algorithm). Going beyond NIST Level I offers no benefit since SHA-256 becomes the bottleneck.
+Matrix event IDs use SHA-256, which provides 128-bit classical collision resistance. Grover's algorithm reduces SHA-256's preimage resistance to ~128 bits against a quantum adversary. Going beyond NIST Level I for signatures offers no practical benefit since SHA-256 elsewhere in the system is a comparable security bound.
 
 In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
@@ -95,7 +95,7 @@ Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed255
 X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
-The FN-DSA signature MUST be computed over the exact same canonical JSON representation of the HTTP request (Method, URI, Destination, and body hash) as standard Ed25519 signatures.
+The FN-DSA signature MUST be computed over the same JSON signing object used for existing Matrix federation request authentication (containing `method`, `uri`, `origin`, `destination`, and `content` when present).
 
 Receiving servers that support this spec MUST verify the `X-Matrix-PQC` header if present. During transition, if verification fails, the server SHOULD log a warning but MUST NOT reject the request if the Ed25519 `Authorization` header is valid. Legacy servers ignore the header entirely.
 
@@ -151,9 +151,9 @@ Cross-signing master, self-signing, and user-signing keys should also support FN
 }
 ```
 
-When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor.
+When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor. If an FN-DSA cross-signature is present but fails verification, clients MUST treat that relationship as untrusted and MUST NOT fall back to Ed25519 for the same relationship. Ed25519-only evaluation is permitted only when no FN-DSA cross-signature exists.
 
-**E2EE Downgrade Risk:** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses to force Ed25519 fallback. Strict protection requires client-side key pinning (TOFU) or constrained room membership (MSC3917), both deferred to a follow-up MSC.
+**E2EE Downgrade Risk:** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses to force Ed25519 fallback. The Ed25519 fallback above applies only when the FN-DSA signature is absent, not when it is present but invalid. Strict protection against stripping requires client-side key pinning (TOFU) or constrained room membership (MSC3917), both deferred to a follow-up MSC.
 
 #### Key Agreement (Informational)
 
@@ -251,7 +251,7 @@ The new room version does **not** change:
 
 ## Alternatives
 
-- **ML-DSA (FIPS 204 / Dilithium).** Integer-only arithmetic eliminates FN-DSA's side-channel concerns, but ML-DSA-44 signatures exceed 2.4 KB vs FN-DSA's ~666 bytes. The bandwidth cost is prohibitive for heavily co-signed, federally replicated events.
+- **ML-DSA (FIPS 204 / Dilithium).** Integer-only arithmetic eliminates FN-DSA's side-channel concerns, but ML-DSA-44 signatures exceed 2.4 KB vs FN-DSA's ~666 bytes. The bandwidth cost is prohibitive for heavily co-signed, federated events.
 
 - **SLH-DSA (FIPS 205 / SPHINCS+).** Most conservative (hash-based, no lattice assumptions), but 17,088-byte signatures are impractical for per-event signing. Potentially useful for long-lived trust anchors in a future MSC.
 
@@ -315,7 +315,7 @@ Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed255
 X-Matrix-HMAC: session_id="<session-id>",mac="<base64-hmac-sha-256>"
 ```
 
-The HMAC covers the same canonical JSON (Method, URI, Destination, body hash) as existing Matrix auth.
+The HMAC is computed over the same canonical JSON signing object used by existing Matrix federation request authentication.
 
 **Session Lifecycle.** Rotate every 24 hours or 10,000 requests. Either side renegotiates via a new `X-Matrix-KEM-Init` header. The old key MUST be retained for 60 seconds to cover in-flight requests.
 
