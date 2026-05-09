@@ -39,7 +39,7 @@ This MSC targets FN-DSA-512 (n=512, q=12289) as specified by the FIPS 206 initia
 
 **Public key encoding.** The public key is the raw FN-DSA-512 public key byte string as defined by FIPS 206. It is encoded as unpadded base64 using the standard RFC 4648 alphabet.
 
-**Signature encoding.** The signature is the raw FN-DSA-512 signature byte string as defined by FIPS 206. FN-DSA signatures are variable-length; implementations MUST accept signatures up to 809 bytes (the maximum for FN-DSA-512) and MUST reject signatures exceeding this length. Signatures are encoded as unpadded base64 using the standard RFC 4648 alphabet.
+**Signature encoding.** The signature is the raw FN-DSA-512 signature byte string as defined by FIPS 206. Unlike the original Falcon submission which used variable-length signatures, FIPS 206 mandates a fixed-length encoding (padded with zeros). For FN-DSA-512, the signature is exactly 666 bytes. Implementations MUST reject signatures of any other length. Signatures are encoded as unpadded base64 using the standard RFC 4648 alphabet.
 
 **Signing operation.** The message signed is the UTF-8 byte sequence of the Matrix Canonical JSON representation of the object after removing `signatures` and `unsigned`, consistent with existing Matrix signing conventions. FN-DSA is invoked in pure (non-prehash) mode with an empty context string. Implementations MUST reject non-canonical public key and signature encodings.
 
