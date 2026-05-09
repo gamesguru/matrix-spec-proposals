@@ -194,21 +194,21 @@ sequenceDiagram
 
     Note over S1: Publishes both keys via /_matrix/key/v2/server
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (Room v12): {ed25519 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (Room org.matrix.mscXXXX): {ed25519 only}
     activate S2
-    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies ed25519 PDU signature (v12 rule).
+    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies ed25519 PDU signature for Room org.matrix.mscXXXX.
     S2-->>S1: 200 OK
     deactivate S2
 
-    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room v12): {ed25519 only}
+    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room org.matrix.mscXXXX): {ed25519 only}
     activate S3
     Note over S3: Ignores X-Matrix-PQC header.<br/>Verifies ed25519 PDU signature.
     S3-->>S1: 200 OK
     deactivate S3
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room v13+): {fn-dsa-512 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room org.matrix.mscXXXX): {fn-dsa-512 only}
     activate S2
-    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies fn-dsa-512 PDU signature (v13 rule).
+    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies fn-dsa-512 PDU signature for Room org.matrix.mscXXXX.
     S2-->>S1: 200 OK
     deactivate S2
 ```
