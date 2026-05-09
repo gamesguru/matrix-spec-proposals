@@ -24,7 +24,7 @@ In PQC-required room versions, servers and clients MUST support `fn-dsa-512`.
 
 ### Key Identifier Format
 
-Matrix currently identifies keys using the format `algorithm:key_id` (i.e., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
+Matrix currently identifies keys using the format `algorithm:key_id` (e.g., `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
 
 | Key Algorithm | Description                  | Key ID Format         |
 | ------------- | ---------------------------- | --------------------- |
@@ -91,8 +91,8 @@ In room versions that require PQC signatures (see [Room Version Requirements](#r
 Sending servers MUST include the `X-Matrix-PQC` header on all outgoing federation requests, regardless of whether the destination supports PQC. Unknown HTTP headers are safely ignored per RFC 9110, so no capability discovery is needed.
 
 ```http
-Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",   sig="<base64-ed25519-signature>"
-X-Matrix-PQC:           origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
+Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the exact same canonical JSON representation of the HTTP request (Method, URI, Destination, and body hash) as standard Ed25519 signatures.
@@ -206,9 +206,9 @@ sequenceDiagram
     S3-->>S1: 200 OK
     deactivate S3
 
-    S1->>S2: Event (Room v13+): {fn-dsa-512 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (Room v13+): {fn-dsa-512 only}
     activate S2
-    Note over S2: Verifies fn-dsa-512 PDU signature (v13 rule).
+    Note over S2: Verifies X-Matrix-PQC transport header.<br/>Verifies fn-dsa-512 PDU signature (v13 rule).
     S2-->>S1: 200 OK
     deactivate S2
 ```
@@ -326,7 +326,7 @@ FN-DSA libraries:
 | Library                                                                                       | Language        | FFI Required                                        | Notes                                                                                                                                                            |
 | --------------------------------------------------------------------------------------------- | --------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [liboqs](https://github.com/open-quantum-safe/liboqs)                                         | C               | Yes (FFI bindings for Python, Rust, Go, Java, .NET) | Reference PQC library from the Open Quantum Safe project. Includes Falcon alongside all NIST PQC finalists. Compiles to WASM via Emscripten for browser targets. |
-| [oqs-rs](https://github.com/AldanTan);[liboqs-rust](https://github.com/AldanTanneo/liboqs-rs) | Rust (FFI to C) | Yes (wraps liboqs)                                  | Rust bindings for liboqs. Suitable for server-side implementations (i.e., conduwuit, Synapse-via-PyO3).                                                          |
+| [oqs-rs](https://github.com/AldanTan);[liboqs-rust](https://github.com/AldanTanneo/liboqs-rs) | Rust (FFI to C) | Yes (wraps liboqs)                                  | Rust bindings for liboqs. Suitable for server-side implementations (e.g., conduwuit, Synapse-via-PyO3).                                                          |
 | [pqcrypto-falcon](https://crates.io/crates/pqcrypto-falcon)                                   | Rust            | No (pure Rust)                                      | Part of the `pqcrypto` crate family. No C dependency — simplifies cross-compilation and auditing.                                                                |
 | [oqs-provider](https://github.com/open-quantum-safe/oqs-provider)                             | C (OpenSSL 3.x) | N/A                                                 | OpenSSL provider enabling PQC via existing TLS stacks. Useful for federation TLS termination but not directly for Matrix JSON signing.                           |
 | [falcon.js](https://github.com/nickthecook/falcon-js) (community)                             | JavaScript      | No                                                  | Community WASM/JS port. Must be audited for constant-time guarantees before production use.                                                                      |
@@ -334,6 +334,10 @@ FN-DSA libraries:
 All implementations MUST use constant-time Gaussian sampling. liboqs compiles to WASM for browser clients; mobile clients use platform FFI.
 
 ## Security Considerations
+
+- **Real-time impersonation.** Matrix's SHA-256 DAG protects historical event integrity from quantum adversaries. The primary threat is an attacker deriving a server's Ed25519 private key to forge _new_ events and spoof federation traffic in real time. This MSC permanently closes that attack vector.
+
+- **Timing side-channels.** FN-DSA's discrete Gaussian sampler leaks private keys via timing analysis if implemented incorrectly. All implementations MUST use audited, constant-time libraries (see Implementation Guidance).
 
 - **Algorithm agility.** The `algorithm:key_id` format accommodates future PQC standards without further MSCs. If FN-DSA is compromised, the unstable prefix can be deprecated and a replacement introduced.
 
