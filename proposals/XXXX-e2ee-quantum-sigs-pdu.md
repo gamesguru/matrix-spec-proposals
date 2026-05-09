@@ -54,11 +54,29 @@ The `GET /_matrix/key/v2/server` response includes both key types:
       "expired_ts": 1798761600000
     }
   },
+  "signatures": {
+    "example.com": {
+      "ed25519:auto": "<base64-ed25519-signature>",
+      "fn-dsa-512:pqc0": "<base64-fn-dsa-512-signature>"
+    }
+  },
   "valid_until_ts": 1798848000000
 }
 ```
 
-FN-DSA public keys are encoded as unpadded base64. Servers should begin publishing FN-DSA keys immediately, even before PQC room versions exist, to pre-distribute public keys across the federation.
+FN-DSA public keys are encoded as unpadded base64. Servers SHOULD begin publishing FN-DSA keys immediately, even before PQC room versions exist, to pre-distribute public keys across the federation.
+
+#### Server Key Trust Model
+
+Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server` response MUST include an FN-DSA self-signature in the `signatures` field alongside the existing Ed25519 signature. Receiving servers MUST verify this self-signature before trusting the FN-DSA key.
+
+Once a receiving server has successfully verified and cached a valid FN-DSA signing key for a remote server, subsequent FN-DSA key changes MUST be authenticated by an existing non-expired FN-DSA key via the `old_verify_keys` mechanism. A new FN-DSA key MUST NOT be accepted solely on the basis of Ed25519 authentication if the receiving server has previously observed a valid FN-DSA key for that server.
+
+Servers SHOULD pin observed FN-DSA keys and treat unexpected key changes — particularly the disappearance of a previously-observed FN-DSA key or the appearance of an unattested replacement — as potential compromise indicators worthy of operator alerts.
+
+Key notaries (`/_matrix/key/v2/query`) MUST include FN-DSA keys and their corresponding signatures in responses when present on the queried server. Notary responses are themselves signed objects; notaries that support this MSC MUST include FN-DSA signatures on their responses.
+
+FN-DSA keys follow identical validity semantics to Ed25519 keys: an event signed by `fn-dsa-512:<key_id>` is valid if the key was valid at the event's `origin_server_ts`. Retired FN-DSA keys appear in `old_verify_keys` with an `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire key response, identically to existing behavior.
 
 ### PDU Signing
 
@@ -73,8 +91,9 @@ In older room versions, servers continue to sign and verify PDUs using Ed25519 o
 In room versions that require PQC signatures (see [Room Version Requirements](#room-version-requirements)):
 
 - Origin servers MUST sign all outgoing PDUs with `fn-dsa-512`.
-- Legacy `ed25519` signatures are expressly PROHIBITED to avoid payload bloat and downgrade ambiguity.
-- Receiving servers MUST reject PDUs that lack a valid `fn-dsa-512` signature.
+- Origin servers MUST NOT include `ed25519` signatures on PDUs in PQC room versions.
+- Receiving servers MUST require a valid `fn-dsa-512` signature from the origin server. If no valid FN-DSA signature is present, the event MUST be rejected.
+- Receiving servers MUST ignore unrecognized or legacy signature algorithm entries in the `signatures` object; the presence of additional signatures (e.g., `ed25519`) MUST NOT cause event rejection. This prevents a signature-mutation denial-of-service where an intermediary appends a legacy signature to an otherwise-valid PQC event — since signatures are excluded from event IDs and content hashes, such mutation is always possible.
 
 ```json
 {
@@ -88,7 +107,7 @@ In room versions that require PQC signatures (see [Room Version Requirements](#r
 
 ### Federation HTTP Authentication
 
-Sending servers MUST include the `X-Matrix-PQC` header on all outgoing federation requests, regardless of whether the destination supports PQC. Unknown HTTP headers are safely ignored per RFC 9110, so no capability discovery is needed.
+Sending servers that support this MSC MUST include the `X-Matrix-PQC` header on all outgoing federation requests. Unknown HTTP headers are safely ignored per RFC 9110, so no capability discovery is needed for legacy servers.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
@@ -97,9 +116,16 @@ X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for existing Matrix federation request authentication (containing `method`, `uri`, `origin`, `destination`, and `content` when present).
 
-Receiving servers that support this spec MUST verify the `X-Matrix-PQC` header if present. During transition, if verification fails, the server SHOULD log a warning but MUST NOT reject the request if the Ed25519 `Authorization` header is valid. Legacy servers ignore the header entirely.
+#### Verification and Enforcement
 
-Because a single federation transaction can carry PDUs for multiple rooms (some legacy, some PQC), HTTP auth cannot be scoped to a room version. The Ed25519 `Authorization` header remains permanent as long as any legacy room exists.
+Receiving servers that support this MSC MUST verify the `X-Matrix-PQC` header when present. Enforcement is **room-scoped** to avoid an indefinitely downgradeable transport layer:
+
+- **PQC-room traffic:** When a request is scoped to a PQC-required room (e.g., room-specific endpoints such as `/make_join`, `/send_join`, `/make_leave`, `/send_leave`, `/invite`, `/state`, `/state_ids`, `/event`, `/backfill`, `/get_missing_events`), and the receiving server supports this MSC, a valid `X-Matrix-PQC` header MUST be present. Requests lacking a valid PQC transport signature for PQC-room endpoints MUST be rejected with HTTP `401 Unauthorized`.
+- **Mixed transactions:** For `PUT /_matrix/federation/v1/send/{txnId}` transactions containing at least one PDU destined for a PQC-required room, a valid `X-Matrix-PQC` header MUST be present. If absent or invalid, the receiving server MUST reject the entire transaction with HTTP `401 Unauthorized`.
+- **Legacy-only traffic:** For requests that do not involve any PQC-required room, `X-Matrix-PQC` verification failure SHOULD be logged as a warning but MUST NOT cause request rejection, provided the Ed25519 `Authorization` header is valid.
+- **Legacy servers:** Servers that do not support this MSC ignore the `X-Matrix-PQC` header entirely.
+
+The Ed25519 `Authorization` header remains required on all federation requests as long as any legacy room version exists in the federation.
 
 ### Event ID and Content Hash Computation
 
@@ -225,8 +251,8 @@ A new room version is formalized which makes `fn-dsa-512` the sole, authoritativ
 
 This MSC requires a **new room version**. All PQC changes are scoped to this version — existing room versions are unaffected.
 
-- **PDU signing:** `fn-dsa-512` signature REQUIRED. Legacy `ed25519` signatures are strictly FORBIDDEN to prevent heterogeneous event formats.
-- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require strict verification of the FN-DSA signature. If no valid FN-DSA signature is present, the event MUST be rejected.
+- **PDU signing:** Origin servers MUST sign PDUs with `fn-dsa-512`. Origin servers MUST NOT include `ed25519` signatures. Receiving servers MUST ignore unrecognized or legacy signature entries — their presence MUST NOT cause rejection (see [PQC-Required Room Versions](#pqc-required-room-versions) for rationale).
+- **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require strict verification of the `fn-dsa-512` signature from the server identified by the event's `sender` domain (consistent with existing event signature verification). If no valid FN-DSA signature from the expected server is present, the event MUST be rejected. Additional signatures from other algorithms or servers are ignored for acceptance purposes.
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
 - **Event format:** No changes to event format. FN-DSA signatures are entries in the existing `signatures` object.
 
@@ -337,13 +363,15 @@ All implementations MUST use constant-time Gaussian sampling. liboqs compiles to
 
 ## Security Considerations
 
-- **Real-time impersonation.** Matrix's SHA-256 DAG protects historical event integrity from quantum adversaries. The primary threat is an attacker deriving a server's Ed25519 private key to forge _new_ events and spoof federation traffic in real time. This MSC permanently closes that attack vector.
+- **Real-time impersonation.** Matrix's SHA-256 DAG provides integrity for already-referenced historical events. The primary real-time threat is an attacker deriving a server's Ed25519 private key to forge _new_ events and spoof federation traffic. This MSC significantly mitigates that attack vector by requiring post-quantum signatures for PDUs in PQC room versions and for federation transport to PQC rooms.
 
 - **Timing side-channels.** FN-DSA's discrete Gaussian sampler leaks private keys via timing analysis if implemented incorrectly. All implementations MUST use audited, constant-time libraries (see Implementation Guidance).
 
-- **Algorithm agility.** The `algorithm:key_id` format accommodates future PQC standards without further MSCs. If FN-DSA is compromised, the unstable prefix can be deprecated and a replacement introduced.
+- **Algorithm agility.** The `algorithm:key_id` format provides syntactic extensibility for future PQC standards. Deploying a new algorithm still requires specification of its identifier, encodings, and verification rules, but does not require structural changes to the event or key formats. If FN-DSA is compromised, the unstable prefix can be deprecated and a replacement introduced via a follow-up MSC.
 
-- **Downgrade attacks (federation).** PDU signatures are bound to room versions — stripping FN-DSA from a PQC room event invalidates it. Stripping the `X-Matrix-PQC` header only downgrades transport auth, not PDU integrity.
+- **Downgrade attacks (federation).** PDU signatures are bound to room versions — stripping FN-DSA from a PQC room event invalidates it. Federation transport authentication (`X-Matrix-PQC`) is enforced for requests scoped to PQC rooms, preventing transport-level downgrade for PQC traffic. For legacy-only traffic, transport auth remains advisory during transition.
+
+- **Signature-mutation resistance.** Because signatures are excluded from event IDs and content hashes, intermediaries can mutate the `signatures` object without altering event identity. This MSC defends against signature-mutation denial-of-service by requiring receivers to ignore unknown or legacy signature entries rather than rejecting events that contain them.
 
 - **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query`. This MSC does not solve that; TOFU or MSC3917 are needed. Clients SHOULD warn if a previously-observed FN-DSA key disappears.
 
