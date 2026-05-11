@@ -171,6 +171,42 @@ The Ed25519 `Authorization` header remains required on all federation requests a
 
 Event IDs (room versions 3+) and content hashes (`hashes.sha256`) are computed **excluding signatures**. Adding FN-DSA signatures therefore changes neither event IDs nor content hashes.
 
+### Canonical Event Hash (`canonical_sha256`)
+
+In PQC room versions, origin servers MUST compute an additional hash — `canonical_sha256` — over the **entire event including signatures**. This field is placed alongside the existing content hash in the `hashes` object:
+
+```json
+{
+  "hashes": {
+    "sha256": "<content-hash-excluding-signatures>",
+    "canonical_sha256": "<hash-over-entire-event-including-signatures>"
+  }
+}
+```
+
+**Computation.** The `canonical_sha256` hash is computed as follows:
+
+1. The event is first finalized: `hashes.sha256` (the content hash) and `signatures` are computed and populated using the existing algorithm.
+2. The `canonical_sha256` key is removed from `hashes` if present, and the `unsigned` property is removed.
+3. The resulting object (which now contains `signatures` and `hashes.sha256`, but not `unsigned` or `canonical_sha256`) is serialized to [Canonical JSON](https://spec.matrix.org/v1.14/appendices/#canonical-json).
+4. A SHA-256 hash is computed over the resulting JSON bytes.
+5. The hash is encoded as unpadded base64 and placed in `hashes.canonical_sha256`.
+
+**Semantics.** The `canonical_sha256` is a notarization commitment: it records the exact cryptographic state of the event — content, topology, and authorship signatures — as finalized by the origin server. Unlike the Event ID (reference hash) and content hash, it **covers the `signatures` dictionary**.
+
+**Verification.** Receiving servers SHOULD verify the `canonical_sha256` when present. To verify:
+
+1. Extract and save the `canonical_sha256` value from `hashes`.
+2. Remove `canonical_sha256` from `hashes` and remove `unsigned` from the event.
+3. Serialize the remaining object to Canonical JSON and compute SHA-256.
+4. Compare the computed hash with the saved value.
+
+If verification fails, the receiving server SHOULD log a warning. A `canonical_sha256` mismatch indicates that the `signatures` dictionary was mutated in transit (e.g., a spurious signature was appended by an intermediary). The event MUST NOT be rejected solely due to a `canonical_sha256` mismatch — the Event ID and content hash remain the authoritative acceptance criteria. The `canonical_sha256` is an integrity signal, not an acceptance gate.
+
+**Interaction with co-signing.** The `canonical_sha256` is computed by the **origin server only**, before any co-signatures are appended. When a resident server appends a co-signature during `/send_join`, the `canonical_sha256` will no longer match the event's current signature set. This is expected and correct — the `canonical_sha256` records the origin server's signed state, not the final federation state. Receiving servers that verify `canonical_sha256` MUST strip non-origin signatures before verification, or compare only against the origin server's signature entry.
+
+**Rationale.** While Event IDs must remain signature-independent (for the reasons documented in [Alternatives: Deterministic hash chaining](#alternatives)), `canonical_sha256` provides an audit trail that enables servers to detect signature mutation without changing event identity. In a PQC context where FN-DSA signatures are ~10× larger than Ed25519, detecting unauthorized signature injection is valuable for bandwidth and storage integrity monitoring.
+
 ### E2EE Device and Cross-Signing Key Migration
 
 E2EE device signing keys, cross-signing keys, client implementation requirements, and key agreement migration are specified in [MSC 0F00: Post-Quantum Digital Signatures for E2EE](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00). This MSC defines the cryptographic primitives (`fn-dsa-512`) and encoding rules that MSC 0F00 builds upon.
@@ -220,14 +256,14 @@ This MSC requires a **new room version**. All PQC changes are scoped to this ver
 - **PDU signing:** Origin servers MUST sign PDUs with `fn-dsa-512`. Origin servers MUST NOT include `ed25519` signatures. Receiving servers MUST ignore unrecognized or legacy signature entries — their presence MUST NOT cause rejection (see [PQC-Required Room Versions](#pqc-required-room-versions) for rationale).
 - **Signature verification in auth rules:** Step 5 of the [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu) ("Passes signature checks...") is modified to require strict verification of the `fn-dsa-512` signature from the server whose signature is required by the existing event signature verification rules for that room version. If no valid FN-DSA signature from the expected server is present, the event MUST be rejected. Additional signatures from unrecognized or legacy algorithms are ignored for acceptance purposes. _(Note: Signatures from other servers MUST still be verified if required by the event type, such as resident server co-signatures on room joins)._
 - **Redaction algorithm:** The `signatures` field behavior is unchanged — redacted events retain all signatures, including FN-DSA signatures.
-- **Event format:** No changes to event format. FN-DSA signatures are entries in the existing `signatures` object.
+- **Event format:** The `hashes` object is extended with a `canonical_sha256` field (see [Canonical Event Hash](#canonical-event-hash-canonical_sha256)). FN-DSA signatures are entries in the existing `signatures` object. The `canonical_sha256` field MUST be preserved through redaction.
 
 The new room version does **not** change:
 
 - State resolution algorithm (remains v2)
 - Event ID computation (reference hash is signature-independent)
 - Auth rules (beyond the signature verification step)
-- Redaction rules (beyond signature preservation)
+- Redaction rules (beyond signature and `canonical_sha256` preservation)
 
 ## Potential Issues
 
