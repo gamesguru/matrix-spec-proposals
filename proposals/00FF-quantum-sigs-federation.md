@@ -1,8 +1,8 @@
-# MSC XXXX: Post-Quantum Digital Signatures for Federation and E2EE
+# MSC 00FF: Post-Quantum Digital Signatures for Federation
 
-Matrix PDU signing and device E2EE systems currently use `ed25519`. Quantum computers can theoretically reverse engineer private keys using Shor's algorithm, breaking elliptic-curve and RSA schemes.
+Matrix PDU signing currently uses `ed25519`. Quantum computers can theoretically reverse engineer private keys using Shor's algorithm, breaking elliptic-curve and RSA schemes.
 
-This MSC begins the post-quantum migration to secure signature schemes, federation transport auth, and device E2EE.
+This MSC begins the post-quantum migration to secure PDU signature schemes and federation transport authentication. E2EE device and cross-signing key migration is addressed separately in [MSC 0F00](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00).
 
 ## Proposal
 
@@ -12,15 +12,15 @@ This MSC introduces **FN-DSA**, a 128-bit secure lattice-based signature scheme 
 
 This MSC proposes a single, unified signature scheme.
 
-| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                   |
-| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------ |
-| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys, PDUs, and device keys |
+| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                     |
+| ------------- | -------------- | ---------- | ---------- | ------------ | ---------------------------- |
+| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys and PDUs |
 
 Matrix event IDs use SHA-256. Due to classical collision bounds (Birthday Paradox) and quantum preimage bounds (Grover's algorithm), SHA-256 provides a maximum of ~128 bits of security. Deploying signatures beyond NIST Level I (128-bit PQ) offers limited additional benefit in Matrix's current design, where SHA-256-based constructions elsewhere in the protocol present a comparable security target. Note that hash collision resistance and signature unforgeability are distinct security properties; this comparison is a deployment tradeoff, not a formal security reduction.
 
-Homeservers participating in PQC-required room versions MUST support `fn-dsa-512` for PDU signing, verification, and federation transport authentication. E2EE-capable clients supporting the E2EE portion of this MSC SHOULD support `fn-dsa-512` for device and cross-signing keys.
+Homeservers participating in PQC-required room versions MUST support `fn-dsa-512` for PDU signing, verification, and federation transport authentication.
 
-> **Note:** For readability, this proposal uses the intended stable identifier `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted and merged into the Matrix specification, implementations MUST use the unstable identifier `org.matrix.mscXXXX.fn-dsa-512` in all protocol fields (key IDs, signature entries, and algorithm names). See [Unstable Prefix](#unstable-prefix) for the full mapping.
+> **Note:** For readability, this proposal uses the intended stable identifier `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted and merged into the Matrix specification, implementations MUST use the unstable identifier `org.matrix.msc00FF.fn-dsa-512` in all protocol fields (key IDs, signature entries, and algorithm names). See [Unstable Prefix](#unstable-prefix) for the full mapping.
 
 ### Key Identifier Format
 
@@ -171,83 +171,9 @@ The Ed25519 `Authorization` header remains required on all federation requests a
 
 Event IDs (room versions 3+) and content hashes (`hashes.sha256`) are computed **excluding signatures**. Adding FN-DSA signatures therefore changes neither event IDs nor content hashes.
 
-### E2EE Device Key Migration
+### E2EE Device and Cross-Signing Key Migration
 
-#### Device Signing Keys
-
-The `/keys/upload` endpoint is extended to accept FN-DSA device signing keys:
-
-```json
-{
-  "device_keys": {
-    "user_id": "@alice:example.com",
-    "device_id": "JLAFKJWSCS",
-    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-    "keys": {
-      "curve25519:JLAFKJWSCS": "<base64-curve25519-key>",
-      "ed25519:JLAFKJWSCS": "<base64-ed25519-key>",
-      "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
-    },
-    "signatures": {
-      "@alice:example.com": {
-        "ed25519:JLAFKJWSCS": "<base64-ed25519-self-signature>",
-        "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
-      }
-    }
-  }
-}
-```
-
-Clients SHOULD upload FN-DSA device keys alongside Ed25519 keys.
-
-#### Cross-Signing Keys
-
-Cross-signing master, self-signing, and user-signing keys SHOULD also support FN-DSA:
-
-```json
-{
-  "master_key": {
-    "user_id": "@alice:example.com",
-    "usage": ["master"],
-    "keys": {
-      "ed25519:base64+master+key": "<base64-ed25519-master-key>",
-      "fn-dsa-512:base64+pqc+master+key": "<base64-fn-dsa-512-master-key>"
-    }
-  }
-}
-```
-
-When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor. If an FN-DSA cross-signature is present but fails verification, clients MUST treat that relationship as untrusted and MUST NOT fall back to Ed25519 for the same relationship. Ed25519-only evaluation is permitted only when no FN-DSA cross-signature exists.
-
-**E2EE Downgrade Risk:** A compromised homeserver could strip FN-DSA keys from `/keys/query` responses to force Ed25519 fallback. The Ed25519 fallback above applies only when the FN-DSA signature is absent, not when it is present but invalid. Strict protection against stripping requires client-side key pinning (TOFU) or constrained room membership (MSC3917), both deferred to a follow-up MSC.
-
-#### Key Agreement (Informational)
-
-This MSC does **not** change Olm/Megolm key agreement (Curve25519/X25519). Migration to ML-KEM (FIPS 203) is deferred to a separate MSC. MLS (RFC 9420) and its TreeKEM key schedule provide logarithmic key distribution (network bandwidth) overhead, making PQC key agreement scalable; see [MSC3918](https://github.com/matrix-org/matrix-spec-proposals/pull/3918).
-
-### Client Implementation Requirements
-
-**Key Generation.** Clients that support this MSC MUST generate FN-DSA keypairs locally for:
-
-- Device signing keys (`fn-dsa-512`) — uploaded via `/keys/upload`
-- Cross-signing keys (`fn-dsa-512`) — uploaded via `/keys/device_signing/upload`
-
-Client implementations MUST use a side-channel-resistant FN-DSA library (see [Falcon's implementation complexity](#potential-issues)).
-
-**Signing.** Clients MUST sign their own device keys with both their Ed25519 and FN-DSA device signing keys (self-signatures). When cross-signing another device or user, the signing client SHOULD produce both an Ed25519 and an FN-DSA cross-signature. **All FN-DSA signatures MUST be computed over the exact same Matrix Canonical JSON representation of the object as the legacy Ed25519 signatures** (i.e., after stripping the `signatures` and `unsigned` fields).
-
-**Verification.** Clients MUST verify FN-DSA signatures in the E2EE trust chain:
-
-- Device key self-signatures (when evaluating a device's authenticity)
-- Cross-signing signatures (master -> self-signing -> device key chain)
-
-Clients do **not** verify PDU signatures or federation HTTP authentication — these are exclusively homeserver responsibilities.
-
-**What clients do NOT need to do:**
-
-- Verify or inspect the `signatures` object on timeline events (homeserver-only)
-- Process `X-Matrix-PQC` headers (server-to-server transport)
-- Implement FN-DSA for Olm/Megolm key agreement (deferred to a separate MSC)
+E2EE device signing keys, cross-signing keys, client implementation requirements, and key agreement migration are specified in [MSC 0F00: Post-Quantum Digital Signatures for E2EE](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00). This MSC defines the cryptographic primitives (`fn-dsa-512`) and encoding rules that MSC 0F00 builds upon.
 
 ### Interaction Sequence
 
@@ -281,8 +207,8 @@ sequenceDiagram
 
 ### Migration Timeline
 
-**Phase 1 — Transport, E2EE, & Key Distribution (Immediate)**
-Servers begin publishing FN-DSA keys via `/_matrix/key/v2/server` and transmitting the `X-Matrix-PQC` header for Server-to-Server HTTP authentication. Clients begin uploading `fn-dsa-512` device and cross-signing keys. PDUs continue to be signed exclusively with Ed25519 according to legacy room versions.
+**Phase 1 — Transport & Key Distribution (Immediate)**
+Servers begin publishing FN-DSA keys via `/_matrix/key/v2/server` and transmitting the `X-Matrix-PQC` header for Server-to-Server HTTP authentication. PDUs continue to be signed exclusively with Ed25519 according to legacy room versions.
 
 **Phase 2 — PQC Room Version (Deployment)**
 A new room version is formalized which makes `fn-dsa-512` the sole, authoritative PDU signature scheme. Users and administrators may upgrade existing rooms to this version to gain post-quantum PDU signatures. Legacy rooms remain untouched.
@@ -329,6 +255,16 @@ The new room version does **not** change:
 
 - **Signature hash-chaining (future storage savers for highly co-signed events).** To reduce the payload tax of multiple co-signatures, subsequent co-signers could commit to a hash of previous signatures and discard the originals. This fails under Matrix's zero-trust model: a hash commitment proves a blob existed (integrity) but cannot prove it was a valid cryptographic signature (authenticity) without the original bytes. Every server must independently verify signatures, so linear storage of PQC signatures is a strict requirement. Sub-linear compression requires schemes that preserve verifiability, such as Zero-Knowledge Proofs or future post-quantum aggregate signatures.
 
+- **Deterministic hash chaining (signature-inclusive Event IDs).** A related proposal is to redefine Event ID computation to canonically hash the entire event, _including_ the `signatures` dictionary. If event N+1 references event N by its signature-inclusive hash, the DAG implicitly commits to the exact signature set of event N, theoretically allowing the original signatures to be pruned once a successor exists. This is fundamentally incompatible with Matrix's zero-trust federation model:
+  1. **Zero-trust violation.** Independent verification is a core invariant. Every server must independently verify historical signatures during state resolution, backfill, or gap-fill. If signatures are pruned, late-joining servers must blindly trust the chain rather than verifying the cryptography.
+  2. **Identity mutation DoS.** If signatures were part of the Event ID, any intermediary server could fork the DAG by appending a spurious signature to an event in transit — creating a mathematically distinct Event ID for identical content. This is the exact class of attack that motivated the Room Version 3 redesign (MSC1659).
+  3. **Co-signing paradox.** The `/send_join` protocol requires the resident server to append its co-signature to the joining server's event. If signatures were hashed into the Event ID, the joining server and the rest of the federation would compute different Event IDs for the same join event, permanently splintering the DAG.
+  4. **DAG topology.** Matrix's DAG contains forks and merges. There is no single linear canonical successor to cleanly anchor a signature commitment.
+
+  Matrix explicitly excludes signatures from the Event ID so that the DAG commits to content, not authorship, by design (Room Version 3+). Changing this would be a fundamental protocol redesign, not an optimization.
+
+- **Distributed Symmetric Key Establishment (DSKE).** Information-theoretically secure protocols based on pre-shared random data (PSRD) and one-time pads eliminate asymmetric cryptography entirely. However, DSKE is catastrophically unsuitable for open federation: (1) PSRD is _consumable_ — each authentication operation permanently erases key material, requiring gigabytes of pre-shared state per server pair vs. FN-DSA's static ~1 KB public key that authenticates unlimited PDUs; (2) symmetric cryptography cannot provide _non-repudiation_ — Matrix's zero-trust DAG requires that any server can independently verify any historical event's authorship, which is impossible with shared symmetric secrets; (3) PSRD replenishment requires physical delivery (armored USB drives or dedicated QKD fiber), which is incompatible with permissionless internet-scale federation. DSKE is designed for closed, classified networks; FN-DSA provides the ultimate compression — ~1 KB of static text proves a server's identity to the entire world with zero consumable state.
+
 ## Performance & Lightweighting Opportunities
 
 PQC means larger keys and signatures. The ~888 bytes Base64 per FN-DSA signature is permanent — signatures cannot be pruned because Event IDs (Room Version 3+) are computed _without_ them, so the DAG commits to content but not authorship. Every event must retain its signature for independent verification.
@@ -367,7 +303,7 @@ All implementations MUST use constant-time Gaussian sampling and signing operati
 
 - **Signature-mutation resistance.** Because signatures are excluded from event IDs and content hashes, intermediaries can mutate the `signatures` object without altering event identity. This MSC defends against signature-mutation denial-of-service by requiring receivers to ignore unknown or legacy signature entries rather than rejecting events that contain them.
 
-- **Downgrade attacks (E2EE).** A compromised homeserver could strip FN-DSA keys from `/keys/query`. This MSC does not solve that; TOFU or MSC3917 are needed. Clients SHOULD warn if a previously-observed FN-DSA key disappears.
+- **Downgrade attacks (E2EE).** E2EE downgrade risks are addressed in [MSC 0F00](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00).
 
 - **Key compromise recovery.** Identical to Ed25519: rotate the key, publish the old key in `old_verify_keys` with `expired_ts`. Events signed with the compromised key cannot be retroactively invalidated.
 
@@ -377,7 +313,7 @@ While this MSC is in development, the following unstable prefixes are used:
 
 | Stable Identifier            | Unstable Identifier                              |
 | ---------------------------- | ------------------------------------------------ |
-| `fn-dsa-512` (key algorithm) | `org.matrix.mscXXXX.fn-dsa-512`                  |
+| `fn-dsa-512` (key algorithm) | `org.matrix.msc00FF.fn-dsa-512`                  |
 | `X-Matrix-PQC` (HTTP header) | `X-Matrix-PQC` (no prefix needed, custom header) |
 
 The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example, the `/_matrix/key/v2/server` response would use the unstable algorithm identifier in key IDs:
@@ -385,7 +321,7 @@ The unstable prefixes are used in `verify_keys` key IDs, `signatures` entries, a
 ```json
 {
   "verify_keys": {
-    "org.matrix.mscXXXX.fn-dsa-512:pqc0": {
+    "org.matrix.msc00FF.fn-dsa-512:pqc0": {
       "key": "<base64-fn-dsa-512-pubkey>"
     }
   }
@@ -398,9 +334,9 @@ Once this MSC is accepted but not yet merged into a released spec version, imple
 
 FIPS 206 has not been finalized as of May 2026. Implementations deploying FN-DSA before finalization MUST observe the following constraints:
 
-- **All keys are temporary.** FN-DSA keys published under unstable identifiers (`org.matrix.mscXXXX.fn-dsa-512`) MUST be treated as provisional. Operators SHOULD expect mandatory key rotation if FIPS 206 final changes encodings, parameters, or the signing algorithm relative to the draft revision used.
+- **All keys are temporary.** FN-DSA keys published under unstable identifiers (`org.matrix.msc00FF.fn-dsa-512`) MUST be treated as provisional. Operators SHOULD expect mandatory key rotation if FIPS 206 final changes encodings, parameters, or the signing algorithm relative to the draft revision used.
 - **Pin a specific draft revision.** Implementations MUST document which FIPS 206 draft revision they target. Interoperability between implementations targeting different draft revisions is not guaranteed.
-- **Use unstable identifiers everywhere.** During the draft period, PDU signatures, `/_matrix/key/v2/server` key entries, and `X-Matrix-PQC` header `key` parameters MUST use the unstable algorithm identifier (`org.matrix.mscXXXX.fn-dsa-512`), not the stable identifier. This ensures that draft-era signatures are distinguishable from signatures produced under the finalized standard, and that receiving servers can unambiguously determine which encoding rules apply.
+- **Use unstable identifiers everywhere.** During the draft period, PDU signatures, `/_matrix/key/v2/server` key entries, and `X-Matrix-PQC` header `key` parameters MUST use the unstable algorithm identifier (`org.matrix.msc00FF.fn-dsa-512`), not the stable identifier. This ensures that draft-era signatures are distinguishable from signatures produced under the finalized standard, and that receiving servers can unambiguously determine which encoding rules apply.
 - **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final standard changes the public key encoding, signature encoding, or algorithm semantics, all previously published unstable FN-DSA keys MUST be retired to `old_verify_keys` and replaced with keys conforming to the updated specification. Signatures produced under the old parameters remain valid for events whose `origin_server_ts` falls within the key's validity window, consistent with standard Matrix key expiry semantics.
 - **PQC room versions are draft-scoped.** Rooms created with a PQC-required room version during the unstable period are bound to the draft revision active at creation time. If the final standard is incompatible, these rooms cannot be migrated in-place — a new room version referencing the final standard would be required, and rooms would need to be upgraded.
 - **No production trust assumptions.** During the unstable period, FN-DSA signatures provide defence-in-depth but MUST NOT be the sole basis for production security decisions. Ed25519 signatures and transport authentication remain the authoritative trust anchors until FIPS 206 is finalized and stable identifiers are adopted.
@@ -416,7 +352,7 @@ This proposal is backwards-compatible for existing room versions and legacy PDU 
 - **Phase 1 (Key Distribution & Transport)** has zero impact on events or PDU auth rules. Transport auth is additive (`X-Matrix-PQC` is ignored by legacy servers).
 - **Phase 2 (PQC Room Versions)** isolates PDU format changes to new room version. Rooms that are not upgraded continue to use Ed25519. This spec gives no advice on backporting to legacy rooms.
 - **No new endpoints.** Existing endpoints are extended (new key types in `verify_keys`, new `signatures` entries, new HTTP header).
-- **E2EE backwards compatibility.** Cross-signing continues with Ed25519. FN-DSA cross-signatures are optional.
+- **E2EE backwards compatibility.** E2EE device and cross-signing key migration is addressed in [MSC 0F00](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00) and is fully backwards-compatible.
 
 ---
 
@@ -451,5 +387,5 @@ This proposal is backwards-compatible for existing room versions and legacy PDU 
   - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the unstable prefix section
   - [x] Unstable prefixes [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes) the awkward accepted-but-not-merged state
-  - [x] Chosen unstable prefixes do not pollute any global namespace (use "org.matrix.mscXXXX", not "org.matrix").
+  - [x] Chosen unstable prefixes do not pollute any global namespace (use "org.matrix.msc00FF", not "org.matrix").
 - [ ] Changes have applicable [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off) from all authors/editors/contributors
