@@ -6,7 +6,7 @@ This MSC begins the post-quantum migration to secure signature schemes, federati
 
 ## Proposal
 
-This MSC introduces **FN-DSA**, a 128-bit secure lattice-based signature scheme specified by the [NIST FIPS 206 initial public draft](https://csrc.nist.gov/pubs/fips/206/ipd), as the post-quantum signature scheme for Matrix. FN-DSA (Falcon) was selected by NIST for compact signatures and fast verification — both critical for high-throughput federation.
+This MSC introduces **FN-DSA**, a 128-bit secure lattice-based signature scheme specified by the [NIST FIPS 206 initial public draft](https://csrc.nist.gov/pubs/fips/206/ipd), as the post-quantum signature scheme for Matrix. FN-DSA (Falcon) was selected by NIST for small signatures and fast verification — both critical for high-throughput federation.
 
 ### Algorithm Parameters
 
