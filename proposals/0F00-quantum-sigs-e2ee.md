@@ -8,7 +8,7 @@ This MSC extends the post-quantum migration to E2EE device signing keys and cros
 
 This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by MSC 00FF. All encoding rules (public key encoding, signature encoding, signing operation) are identical to those specified in MSC 00FF. Refer to MSC 00FF for algorithm parameters, NIST security level rationale, and FIPS 206 dependency details.
 
-> **Note:** For readability, this proposal uses the intended stable identifier `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted and merged into the Matrix specification, implementations MUST use the unstable identifier `org.matrix.msc0F00.fn-dsa-512` in all E2EE protocol fields (device key IDs, cross-signing key IDs, and signature entries). See [Unstable Prefix](#unstable-prefix) for the full mapping.
+> **Note:** For readability, this proposal uses the intended stable identifier `fn-dsa-512` throughout the main text and examples. Until both this MSC and MSC 00FF are accepted and merged into the Matrix specification, implementations MUST use the unstable identifier `org.matrix.msc00FF.fn-dsa-512` — the canonical prefix defined by the Federation MSC where the algorithm is specified — in all protocol fields, including E2EE device key IDs, cross-signing key IDs, and signature entries. See [Unstable Prefix](#unstable-prefix) for the full mapping.
 
 ### Device Signing Keys
 
@@ -48,11 +48,15 @@ Cross-signing master, self-signing, and user-signing keys SHOULD also support FN
     "usage": ["master"],
     "keys": {
       "ed25519:base64+master+key": "<base64-ed25519-master-key>",
-      "fn-dsa-512:base64+pqc+master+key": "<base64-fn-dsa-512-master-key>"
+      "fn-dsa-512:<base64url-sha256-of-pubkey>": "<base64-fn-dsa-512-master-key>"
     }
   }
 }
 ```
+
+**Key ID Format.** Existing `ed25519` cross-signing keys use the unpadded base64 of the public key as their `<key_id>` (e.g., `ed25519:<base64-key>`). Because FN-DSA-512 public keys are 897 bytes, using the full base64-encoded key would produce a 1,196-character identifier that exceeds practical storage and URL-safety constraints.
+
+For `fn-dsa-512` cross-signing keys, the `<key_id>` MUST be the **unpadded base64url encoding of the SHA-256 hash** of the raw public key bytes. This guarantees a unique, URL-safe, 43-character identifier. Device keys are unaffected — they continue to use the device ID as their `<key_id>` (e.g., `fn-dsa-512:JLAFKJWSCS`).
 
 When cross-signing a device key, the signing client SHOULD produce both an Ed25519 and an FN-DSA signature. Verifying clients that support this MSC MUST verify the FN-DSA cross-signature if present, and SHOULD treat it as the authoritative trust anchor. If an FN-DSA cross-signature is present but fails verification, clients MUST treat that relationship as untrusted and MUST NOT fall back to Ed25519 for the same relationship. Ed25519-only evaluation is permitted only when no FN-DSA cross-signature exists.
 
@@ -112,11 +116,11 @@ This MSC does **not** change Olm/Megolm key agreement (Curve25519/X25519). Migra
 
 ## Unstable Prefix
 
-While this MSC is in development, the following unstable prefixes are used:
+The `fn-dsa-512` algorithm is canonically defined in [MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF). This MSC reuses the same unstable identifier to ensure that servers and clients use a single, consistent algorithm name across federation PDU signatures, device keys, and cross-signing keys.
 
-| Stable Identifier            | Unstable Identifier             |
-| ---------------------------- | ------------------------------- |
-| `fn-dsa-512` (key algorithm) | `org.matrix.msc0F00.fn-dsa-512` |
+| Stable Identifier            | Unstable Identifier             | Defined In |
+| ---------------------------- | ------------------------------- | ---------- |
+| `fn-dsa-512` (key algorithm) | `org.matrix.msc00FF.fn-dsa-512` | MSC 00FF   |
 
 The unstable prefix is used in device key IDs, cross-signing key IDs, and signature entries within `/keys/upload` and `/keys/device_signing/upload` requests and `/keys/query` responses.
 
@@ -124,18 +128,18 @@ The unstable prefix is used in device key IDs, cross-signing key IDs, and signat
 {
   "device_keys": {
     "keys": {
-      "org.matrix.msc0F00.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
+      "org.matrix.msc00FF.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
     },
     "signatures": {
       "@alice:example.com": {
-        "org.matrix.msc0F00.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
+        "org.matrix.msc00FF.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
       }
     }
   }
 }
 ```
 
-Once this MSC is accepted but not yet merged into a released spec version, implementations SHOULD support both the unstable prefix and the stable identifier, accepting either.
+Once both MSCs are accepted but not yet merged into a released spec version, implementations SHOULD support both the unstable prefix and the stable identifier, accepting either.
 
 ## Dependencies
 
@@ -182,5 +186,5 @@ This proposal is fully backwards-compatible:
   - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the unstable prefix section
   - [x] Unstable prefixes [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes) the awkward accepted-but-not-merged state
-  - [x] Chosen unstable prefixes do not pollute any global namespace (use "org.matrix.msc0F00", not "org.matrix").
+  - [x] Chosen unstable prefixes do not pollute any global namespace (reuses `org.matrix.msc00FF` from the defining MSC).
 - [ ] Changes have applicable [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off) from all authors/editors/contributors
