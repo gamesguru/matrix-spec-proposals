@@ -170,6 +170,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "mode": "extremity",
   "local_extremity_event_ids": ["$abc123", "$def456"],
+  "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
   "local_event_count": 81000,
   "limit": 1000
 }
@@ -189,15 +190,16 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                            |
-| --------------------------- | -------- | ----------------- | -------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                    |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities.                                   |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                           |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                             |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                               |
-| `max_depth_walk`            | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000. |
-| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                        |
+| Field                       | Type     | Required          | Description                                                                                                         |
+| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities ("want" — what it's trying to reach).                           |
+| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
+| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
+| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
+| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                            |
+| `max_depth_walk`            | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000.                              |
+| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
 
 **Response:**
 
@@ -221,19 +223,50 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Diff Computation:**
 
-In `extremity` mode, the responding server:
+In `extremity` mode, the responding server performs a **merge-base walk** modeled on Git's
+packfile negotiation protocol:
 
-1. Identifies forward extremities it has that the requester does not.
-2. Walks backwards from those extremities via `prev_events`, collecting event IDs.
-3. **Stop condition:** The walk terminates when it reaches an event ID that IS present in the
-   requester's `local_extremity_event_ids` (the merge-base), OR when it has walked
-   `max_depth_walk` events without finding a merge-base. If no merge-base is found within
-   `max_depth_walk`, the response SHOULD set `truncated: true`.
-4. Returns the collected event IDs in reverse topological order, up to `limit`.
+1. Build the `have` set: the union of `local_extremity_event_ids` and `have_event_ids`. These
+   represent events the requester already possesses.
+2. Identify forward extremities the responder has that are NOT in the `have` set — these are the
+   "want" events (unknown tips from the requester's perspective).
+3. Walk backwards from those unknown extremities via `prev_events`, collecting event IDs.
+4. **Stop condition:** For each branch of the walk, stop when the walk reaches an event ID that
+   IS in the `have` set. This event is the **merge-base** for that branch — the most recent
+   common ancestor between the two servers' DAGs. Events at or before the merge-base are NOT
+   included in the result (the requester already has them).
+5. **Safety limit:** If the walk visits `max_depth_walk` events without finding any event in the
+   `have` set, the walk is terminated and the response MUST set `truncated: true`. This prevents
+   CPU exhaustion when the requester's `have` set has no overlap with the responder's DAG (e.g.,
+   the requester has been offline for weeks and its sparse sample is too sparse).
+6. Returns the collected event IDs in reverse topological order, up to `limit`.
 
-The `max_depth_walk` parameter prevents CPU exhaustion if the requester's extremities are
-completely unknown to the responder (e.g., the requester has been offline for weeks). Servers
-MUST enforce `max_depth_walk <= 50000`. The default is `10000`.
+The `max_depth_walk` parameter prevents CPU exhaustion. Servers MUST enforce
+`max_depth_walk <= 50000`. The default is `10000`.
+
+**Constructing the `have` set (requesting server):**
+
+The requesting server constructs `have_event_ids` as a sparse, exponentially-spaced sample of
+event IDs it already possesses, working backwards from its extremities:
+
+1. Start from each local extremity and walk backwards via `prev_events`.
+2. Sample event IDs at exponentially increasing depth intervals: the first event, then 1 step
+   back, 2 steps, 4 steps, 8 steps, 16 steps, etc.
+3. Stop sampling after 32 samples per extremity, or when the walk reaches the room's create event.
+
+This produces approximately 32×E event IDs (where E is the number of extremities, typically 1–5),
+totaling 32–160 event IDs. The exponential spacing ensures:
+
+- Dense coverage near the frontier (where divergence is most likely)
+- Sparse coverage deep in the DAG (where both servers are likely synchronized)
+- O(log N) total samples for a DAG of depth N
+- The responder is highly likely to find a merge-base within the first few hundred events of
+  its backward walk, making the algorithm O(delta) in practice — proportional to the number of
+  missing events, not the total room size
+
+This is directly analogous to Git's `upload-pack` protocol, where the client sends
+`have <commit-id>` lines at exponentially increasing distances from HEAD until the server
+responds with `ACK <commit-id>` indicating the merge-base.
 
 In `bloom` mode, the responding server:
 
