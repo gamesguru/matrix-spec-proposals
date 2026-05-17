@@ -109,7 +109,7 @@ The digest is a dynamically-sized Bloom filter constructed as follows:
 3. **Populate the filter.** For each event ID in the active window, compute two independent hash
    values using XXH3-128, seeded with the constants `0x00` and `0x01` respectively.
 4. Use double hashing to derive `k=4` bit positions from the two hash values:
-   `position_i = (h1 + i * h2) mod m` for `i` in `0..4`.
+   `position_i = (h1 + i * h2) mod m` for `i` in `{0, 1, 2, 3}`.
 5. Set those bits in the filter.
 6. Base64url-encode the resulting byte array (unpadded).
 
@@ -117,7 +117,7 @@ The key mathematical constraint is:
 
 > `m = -n * ln(p) / (ln(2))^2`
 >
-> For `n = 5000` events and `p = 0.02` (2% FPR): `m = 31,175 bits ≈ 3.8 KB`
+> For `n = 5000` events and `p = 0.02` (2% false positive rate): `m = 31,175 bits ≈ 3.8 KB`
 >
 > For `n = 10000` events and `p = 0.02`: `m = 62,350 bits ≈ 7.6 KB`
 
@@ -479,7 +479,7 @@ old history is invisible to the Bloom filter. This is an intentional trade-off:
 - The `extremity` diff mode catches frontier divergence regardless of the window
 - If deep-history reconciliation is needed, the server can increase `digest_window` or fall back
   to a full `/state_ids` comparison
-- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~2% FPR regardless
+- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~2% false positive rate regardless
   of window size, preventing the saturation problem entirely
 
 ### Consistency During Active Rooms
