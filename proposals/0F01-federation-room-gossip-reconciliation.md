@@ -227,22 +227,33 @@ In `extremity` mode, the responding server performs a **merge-base walk** modele
 packfile negotiation protocol:
 
 1. Build the `have` set: the union of `local_extremity_event_ids` and `have_event_ids`. These
-   represent events the requester already possesses.
-2. Identify forward extremities the responder has that are NOT in the `have` set — these are the
+   represent events the requester already possesses. The combined `have` set MUST NOT exceed
+   256 entries; requests exceeding this MUST be rejected with HTTP 400.
+2. **Pre-flight validation:** Before starting the walk, the responder SHOULD check whether
+   _any_ event ID in the `have` set exists in its local store (a batch of point-lookups).
+   If zero `have` events are recognized, the responder SHOULD immediately return an empty
+   `probably_missing_event_ids` with `truncated: true` rather than walking the DAG. This
+   prevents a malicious requester from forcing a 50,000-event walk by sending fabricated
+   `have` event IDs that don't exist in the responder's DAG.
+3. Identify forward extremities the responder has that are NOT in the `have` set — these are the
    "want" events (unknown tips from the requester's perspective).
-3. Walk backwards from those unknown extremities via `prev_events`, collecting event IDs.
-4. **Stop condition:** For each branch of the walk, stop when the walk reaches an event ID that
+4. Walk backwards from those unknown extremities via `prev_events`, collecting event IDs.
+5. **Stop condition:** For each branch of the walk, stop when the walk reaches an event ID that
    IS in the `have` set. This event is the **merge-base** for that branch — the most recent
    common ancestor between the two servers' DAGs. Events at or before the merge-base are NOT
    included in the result (the requester already has them).
-5. **Safety limit:** If the walk visits `max_depth_walk` events without finding any event in the
+6. **Safety limit:** If the walk visits `max_depth_walk` events without finding any event in the
    `have` set, the walk is terminated and the response MUST set `truncated: true`. This prevents
    CPU exhaustion when the requester's `have` set has no overlap with the responder's DAG (e.g.,
    the requester has been offline for weeks and its sparse sample is too sparse).
-6. Returns the collected event IDs in reverse topological order, up to `limit`.
+7. Returns the collected event IDs in reverse topological order, up to `limit`.
 
 The `max_depth_walk` parameter prevents CPU exhaustion. Servers MUST enforce
-`max_depth_walk <= 50000`. The default is `10000`.
+`max_depth_walk <= 50000`. The default is `5000`. Servers SHOULD also maintain a per-peer,
+per-room accounting of total walk depth consumed over a rolling window (e.g., 60 seconds) and
+reject requests that would exceed a cumulative budget (RECOMMENDED: 100,000 events per peer
+per room per minute). This prevents an attacker from sending many small requests that each
+walk just under the per-request limit.
 
 **Constructing the `have` set (requesting server):**
 
