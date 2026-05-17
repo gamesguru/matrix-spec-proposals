@@ -103,7 +103,7 @@ The digest is a dynamically-sized Bloom filter constructed as follows:
    Hashing the entire event history is unnecessary because the bottom of the DAG (old history)
    rarely mutates — divergence almost always occurs at the frontier.
 2. **Size the filter.** Allocate `m` bits where `m = ceil(W * 6.235)` (approximately 6.235 bits
-   per element), which yields a false positive rate of ~2% with `k = 4` hash functions. For the
+   per element), which yields a false positive rate of ~5% with `k = 4` hash functions. For the
    default window of 5000 events, this produces a filter of `m = 31,175` bits (~3.8 KB). The
    server reports this value in the `digest_bits` field.
 3. **Populate the filter.** For each event ID in the active window, compute two independent hash
@@ -117,9 +117,9 @@ The key mathematical constraint is:
 
 > `m = -n * ln(p) / (ln(2))^2`
 >
-> For `n = 5000` events and `p = 0.02` (2% false positive rate): `m = 31,175 bits ≈ 3.8 KB`
+> For `n = 5000` events and `p = 0.05` (5% false positive rate): `m = 31,175 bits ≈ 3.8 KB`
 >
-> For `n = 10000` events and `p = 0.02`: `m = 62,350 bits ≈ 7.6 KB`
+> For `n = 10000` events and `p = 0.05`: `m = 62,350 bits ≈ 7.6 KB`
 
 Servers MAY adjust the window size and filter dimensions. A requesting server can infer the filter
 parameters from the `digest_bits` and `digest_window` fields in the response. Two servers with
@@ -519,7 +519,7 @@ old history is invisible to the Bloom filter. This is an intentional trade-off:
 - The `extremity` diff mode catches frontier divergence regardless of the window
 - If deep-history reconciliation is needed, the server can increase `digest_window` or fall back
   to a full `/state_ids` comparison
-- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~2% false positive rate regardless
+- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~5% false positive rate regardless
   of window size, preventing the saturation problem entirely
 
 ### Consistency During Active Rooms
