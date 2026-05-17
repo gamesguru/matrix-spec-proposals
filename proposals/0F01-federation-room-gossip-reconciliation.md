@@ -70,7 +70,9 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 ```json
 {
   "digest": "<opaque_base64_string>",
-  "digest_type": "xxh3_bloom_1024",
+  "digest_type": "xxh3_bloom",
+  "digest_bits": 32768,
+  "digest_window": 5000,
   "event_count": 81247,
   "extremity_event_ids": ["$abc123", "$def456"],
   "depth_range": [1, 93841],
@@ -80,39 +82,71 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 **Fields:**
 
-| Field                    | Type               | Required | Description                                                                                      |
-| ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------ |
-| `digest`                 | string             | Yes      | Base64-encoded digest of the server's event ID set for this room. See Digest Construction below. |
-| `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `xxh3_bloom_1024`.              |
-| `event_count`            | integer            | Yes      | The total number of non-rejected, non-outlier events the server holds for this room.             |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                               |
-| `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                        |
-| `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                       |
+| Field                    | Type               | Required | Description                                                                                                                             |
+| ------------------------ | ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `digest`                 | string             | Yes      | Base64url-encoded digest of the server's event ID set for this room. See Digest Construction below.                                     |
+| `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `xxh3_bloom`.                                                          |
+| `digest_bits`            | integer            | Yes      | The bit-length of the Bloom filter. The server dynamically sizes this; see Digest Construction.                                         |
+| `digest_window`          | integer            | Yes      | The number of most-recent events (by topological depth) included in the digest. See Active Window.                                      |
+| `event_count`            | integer            | Yes      | The total number of non-outlier events the server holds for this room (including locally rejected events; see Rejected Event Handling). |
+| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                      |
+| `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                               |
+| `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                              |
 
-**Digest Construction (`xxh3_bloom_1024`):**
+**Digest Construction (`xxh3_bloom`):**
 
-The digest is a 1024-bit (128-byte) Bloom filter constructed as follows:
+The digest is a dynamically-sized Bloom filter constructed as follows:
 
-1. Collect the set of all event IDs the server holds for this room (excluding rejected events and
-   outliers).
-2. For each event ID, compute two independent hash values using XXH3-128, seeded with the
-   constants `0x00` and `0x01` respectively.
-3. Use double hashing to derive `k=7` bit positions from the two hash values:
-   `position_i = (h1 + i * h2) mod 1024` for `i` in `0..7`.
-4. Set those bits in the 1024-bit filter.
-5. Base64-encode the resulting 128-byte filter (unpadded base64url).
+1. **Determine the Active Window.** Select the `W` most recent events by topological depth held
+   for this room (including locally rejected events; see Rejected Event Handling below). The
+   default window size is `W = 5000`. The server reports this value in the `digest_window` field.
+   Hashing the entire event history is unnecessary because the bottom of the DAG (old history)
+   rarely mutates — divergence almost always occurs at the frontier.
+2. **Size the filter.** Allocate `m` bits where `m = ceil(W * 6.235)` (approximately 6.235 bits
+   per element), which yields a false positive rate of ~2% with `k = 4` hash functions. For the
+   default window of 5000 events, this produces a filter of `m = 31,175` bits (~3.8 KB). The
+   server reports this value in the `digest_bits` field.
+3. **Populate the filter.** For each event ID in the active window, compute two independent hash
+   values using XXH3-128, seeded with the constants `0x00` and `0x01` respectively.
+4. Use double hashing to derive `k=4` bit positions from the two hash values:
+   `position_i = (h1 + i * h2) mod m` for `i` in `0..4`.
+5. Set those bits in the filter.
+6. Base64url-encode the resulting byte array (unpadded).
+
+The key mathematical constraint is:
+
+> `m = -n * ln(p) / (ln(2))^2`
+>
+> For `n = 5000` events and `p = 0.02` (2% FPR): `m = 31,175 bits ≈ 3.8 KB`
+>
+> For `n = 10000` events and `p = 0.02`: `m = 62,350 bits ≈ 7.6 KB`
+
+Servers MAY adjust the window size and filter dimensions. A requesting server can infer the filter
+parameters from the `digest_bits` and `digest_window` fields in the response. Two servers with
+different window sizes can still detect divergence — if their windows overlap, bit differences in
+the overlapping region indicate missing events.
 
 The Bloom filter approach allows:
 
-- O(1) equality comparison (if filters are identical, the rooms are very likely synchronized)
-- Approximate set difference estimation (count of bits set in `local AND NOT remote` correlates
-  with the number of locally-missing events)
-- Compact representation (128 bytes regardless of room size)
+- O(1) equality comparison (if filters are identical, the active windows are very likely synchronized)
+- Approximate set difference estimation (popcount of `local AND NOT remote` correlates with the
+  number of locally-missing events in the active window)
+- Compact representation (~4 KB for the common case, regardless of total room size)
 
-The false positive rate for a 1024-bit filter with k=7 and n=100,000 events is approximately 99.9%
-(i.e., saturated). For practical room sizes (n < 50,000), the false positive rate remains below 5%.
-Servers MAY negotiate a larger filter size via the `digest_type` parameter (e.g.,
-`xxh3_bloom_65536` for a 8KB filter) for very large rooms.
+**Rejected Event Handling:**
+
+Servers MUST include locally rejected events in the Bloom filter digest. If rejected events were
+excluded, a fetch loop would occur: Server B sees that Server A is "missing" an event (because A
+excluded it from the filter), returns it in `/room_diff`, Server A fetches it via `/room_events`,
+rejects it again, and the cycle repeats on the next gossip interval.
+
+By including rejected event IDs in the filter, Server B's membership test returns positive and the
+event is correctly skipped. This does not affect the security model — rejected events are only
+included in the _digest_, not in the _resolved state_. Additionally, servers MUST maintain a
+negative cache of event IDs that were fetched via reconciliation and subsequently rejected. Events
+in the negative cache MUST NOT be re-requested for a configurable cooldown period (RECOMMENDED:
+24 hours). This provides defense-in-depth against fetch loops even if the Bloom filter test
+produces a false negative for a rejected event ID.
 
 **Authorization:**
 
@@ -147,7 +181,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "mode": "bloom",
   "local_digest": "<base64_bloom_filter>",
-  "digest_type": "xxh3_bloom_1024",
+  "digest_type": "xxh3_bloom",
   "local_event_count": 81000,
   "limit": 1000
 }
@@ -155,14 +189,15 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                         |
-| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------- |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed. |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities.                |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                        |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                          |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.            |
-| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.     |
+| Field                       | Type     | Required          | Description                                                                            |
+| --------------------------- | -------- | ----------------- | -------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                    |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities.                                   |
+| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                           |
+| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                             |
+| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                               |
+| `max_depth_walk`            | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000. |
+| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                        |
 
 **Response:**
 
@@ -189,12 +224,20 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 In `extremity` mode, the responding server:
 
 1. Identifies forward extremities it has that the requester does not.
-2. Walks backwards from those extremities via `prev_events`, collecting event IDs up to `limit`.
-3. Returns the collected event IDs in reverse topological order.
+2. Walks backwards from those extremities via `prev_events`, collecting event IDs.
+3. **Stop condition:** The walk terminates when it reaches an event ID that IS present in the
+   requester's `local_extremity_event_ids` (the merge-base), OR when it has walked
+   `max_depth_walk` events without finding a merge-base. If no merge-base is found within
+   `max_depth_walk`, the response SHOULD set `truncated: true`.
+4. Returns the collected event IDs in reverse topological order, up to `limit`.
+
+The `max_depth_walk` parameter prevents CPU exhaustion if the requester's extremities are
+completely unknown to the responder (e.g., the requester has been offline for weeks). Servers
+MUST enforce `max_depth_walk <= 50000`. The default is `10000`.
 
 In `bloom` mode, the responding server:
 
-1. Tests each of its event IDs against the requester's Bloom filter.
+1. Tests each of its event IDs (within the active window) against the requester's Bloom filter.
 2. Event IDs that are NOT in the filter are probably missing from the requester.
 3. Returns those event IDs up to `limit`, ordered by topological depth (oldest first).
 
@@ -216,16 +259,18 @@ POST /_matrix/federation/v1/room_events/{roomId}
 ```json
 {
   "event_ids": ["$ghi789", "$jkl012", "$mno345"],
-  "include_auth_chain": true
+  "include_auth_chain": true,
+  "known_event_ids": ["$abc123", "$def456"]
 }
 ```
 
 **Fields (request):**
 
-| Field                | Type     | Required | Description                                                                                                   |
-| -------------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------- |
-| `event_ids`          | [string] | Yes      | The event IDs to fetch. Maximum 500 per request.                                                              |
-| `include_auth_chain` | bool     | No       | If true, the response includes all auth chain events that the requesting server might not have. Default true. |
+| Field                | Type     | Required | Description                                                                                                                                                                                               |
+| -------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `event_ids`          | [string] | Yes      | The event IDs to fetch. Maximum 500 per request.                                                                                                                                                          |
+| `include_auth_chain` | bool     | No       | If true, the response includes auth chain events that the requesting server might not have. Default true.                                                                                                 |
+| `known_event_ids`    | [string] | No       | Event IDs the requesting server already has. When walking auth chains, the responding server SHOULD stop at events in this set (the graph intersection), avoiding redundant transfer. Default empty list. |
 
 **Response:**
 
@@ -349,9 +394,20 @@ HTTP/1.1 304 Not Modified
 ETag: "xxh3:abc123def456"
 ```
 
-The ETag SHOULD be derived from the digest value itself. If the server's digest has not changed
-since the ETag value, it MUST return HTTP 304 with no body. This reduces the reconciliation polling
-cost to a single HTTP round-trip with a ~50 byte response for rooms that are already synchronized.
+The ETag MUST NOT be derived from the Bloom filter digest (which would require computing the full
+filter just to evaluate the conditional request, defeating the purpose of a fast 304 check).
+Instead, the ETag SHOULD be computed as:
+
+> `XXH3-64(sorted(extremity_event_ids) || event_count)`
+
+Because the Matrix DAG is append-only, if the forward extremities and the event count are identical,
+the underlying event set is mathematically guaranteed to be identical. This allows the server to
+evaluate the ETag in O(E) where E is the number of extremities (typically 1–5), without touching
+the event store or computing the Bloom filter.
+
+If the computed ETag matches the `If-None-Match` header, the server MUST return HTTP 304 with no
+body. This reduces the reconciliation polling cost to a single HTTP round-trip with a ~50 byte
+response for rooms that are already synchronized.
 
 ## Potential issues
 
@@ -370,16 +426,17 @@ A malicious server could abuse the reconciliation endpoints to cause resource ex
 - **Bulk fetch abuse:** The `room_events` endpoint returns full PDUs, which could be large. The
   500-event-per-request cap and standard federation rate limiting mitigate this.
 
-### Bloom Filter Saturation
+### Active Window Trade-offs
 
-For very large rooms (>50,000 events), the default 1024-bit Bloom filter saturates and every test
-returns positive (i.e., the filter becomes useless). In these cases:
+The active window approach (digesting only the top `W` events by depth) means that divergence in
+old history is invisible to the Bloom filter. This is an intentional trade-off:
 
-- Servers SHOULD negotiate a larger filter via the `digest_type` field (e.g., `xxh3_bloom_65536`)
-- The `extremity` mode in `room_diff` bypasses the Bloom filter entirely and works by walking from
-  divergent extremities, which is exact and works for any room size
-- The Bloom filter is primarily useful for _detecting_ divergence (step 1), not for computing the
-  exact diff (step 2)
+- Divergence in old history is rare (the DAG bottom is stable once fully replicated)
+- The `extremity` diff mode catches frontier divergence regardless of the window
+- If deep-history reconciliation is needed, the server can increase `digest_window` or fall back
+  to a full `/state_ids` comparison
+- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~2% FPR regardless
+  of window size, preventing the saturation problem entirely
 
 ### Consistency During Active Rooms
 
@@ -501,7 +558,7 @@ The following mapping will be used for identifiers in this MSC during developmen
 | `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0f01/room_digest/{roomId}` |
 | `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0f01/room_diff/{roomId}`   |
 | `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0f01/room_events/{roomId}` |
-| `xxh3_bloom_1024`                             | digest type     | `org.matrix.msc0f01.xxh3_bloom_1024`                                   |
+| `xxh3_bloom`                                  | digest type     | `org.matrix.msc0f01.xxh3_bloom`                                        |
 | `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                      |
 
 ## Dependencies
