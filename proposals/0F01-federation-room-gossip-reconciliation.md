@@ -160,6 +160,28 @@ Given a requesting server's event ID set (or a compact representation thereof), 
 event IDs that the responding server has but the requester likely does not. This is the "what am I
 missing?" query.
 
+The endpoint supports two diff modes because Matrix federation produces two fundamentally
+different classes of data loss:
+
+- **Frontier lag ("clean" divergence).** A server goes offline, gets rate-limited, or falls
+  behind. It misses a contiguous branch of events from the DAG tip. The server's extremities
+  are stale, but its interior DAG is intact. This is identical to a Git branch that is behind
+  upstream — the delta is a clean, linear range between the local and remote tips.
+
+- **Interior gaps ("Swiss cheese" divergence).** A server drops random individual events due
+  to rate limiting, rejection cascades, or auth chain fetch timeouts, but continues to receive
+  subsequent events via state-resyncs. The server's extremities may match the remote server's,
+  but its interior DAG has holes. This has no Git analogue — Git's content-addressable storage
+  guarantees that possessing a commit implies possessing all ancestors.
+
+The `extremity` mode is a **merge-base finder** (the Git approach) optimized for frontier lag.
+It walks backward from divergent extremities to find the most recent common ancestor, returning
+exactly the missing delta in O(delta) time.
+
+The `bloom` mode is a **set reconciliation tool** (the Cassandra approach) that ignores graph
+topology entirely and checks raw event set membership. It detects interior gaps that the
+merge-base finder is structurally blind to.
+
 **Request:**
 
 ```http
@@ -221,7 +243,18 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `remote_extremity_event_ids` | [string] | Yes      | The responding server's current forward extremities.                                                                                                                        |
 | `truncated`                  | bool     | Yes      | Whether the result was truncated due to `limit`. If true, the requesting server should make additional requests.                                                            |
 
-**Diff Computation:**
+**Diff Computation — Mode Selection:**
+
+Servers SHOULD select the diff mode based on the `room_digest` comparison:
+
+- If the remote server's `extremity_event_ids` contain event IDs the local server does not
+  recognize → use `extremity` mode (frontier lag; the merge-base walk will find the delta).
+- If the remote server's `extremity_event_ids` all match locally, but `event_count` differs →
+  use `bloom` mode (interior gap; extremities match but events are missing inside the DAG).
+- If both extremities diverge AND event counts differ → use `extremity` mode first (to resolve
+  the frontier), then `bloom` mode (to patch interior gaps).
+
+**Diff Computation — `extremity` mode:**
 
 In `extremity` mode, the responding server performs a **merge-base walk** modeled on Git's
 packfile negotiation protocol:
@@ -452,6 +485,13 @@ the event store or computing the Bloom filter.
 If the computed ETag matches the `If-None-Match` header, the server MUST return HTTP 304 with no
 body. This reduces the reconciliation polling cost to a single HTTP round-trip with a ~50 byte
 response for rooms that are already synchronized.
+
+**Why this bridges both failure modes:** The ETag design is deliberately constructed so that
+_both_ frontier lag and interior gaps produce a cache miss. If a server falls behind (frontier
+lag), its extremities will differ from the remote server's, changing the ETag. If a server has
+Swiss cheese gaps but identical extremities, its `event_count` will be lower, also changing the
+ETag. This ensures that the digest polling phase always detects divergence regardless of its
+topological structure, triggering the appropriate diff mode.
 
 ## Potential issues
 
