@@ -653,4 +653,3 @@ It is designed to complement:
 
 - [MSC3706](https://github.com/matrix-org/matrix-spec-proposals/pull/3706) (Partial state in send_join) — reconciliation can complete what partial joins leave incomplete
 - [MSC4297](https://github.com/matrix-org/matrix-spec-proposals/pull/4297) (State Resolution v2.1) — reconciliation repairs the data gaps that V2.1 cannot address algorithmically
-- [MSC00FD](proposals/00FD-strict-signing-key-caching.md) (Strict signing key caching) — reconciled events require signature verification against cached keys
