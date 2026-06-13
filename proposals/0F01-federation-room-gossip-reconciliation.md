@@ -126,13 +126,6 @@ parameters from the `digest_bits` and `digest_window` fields in the response. Tw
 different window sizes can still detect divergence — if their windows overlap, bit differences in
 the overlapping region indicate missing events.
 
-The Bloom filter approach allows:
-
-- O(1) equality comparison (if filters are identical, the active windows are very likely synchronized)
-- Approximate set difference estimation (popcount of `local AND NOT remote` correlates with the
-  number of locally-missing events in the active window)
-- Compact representation (~4 KB for the common case, regardless of total room size)
-
 **Rejected Event Handling:**
 
 Servers MUST include locally rejected events in the Bloom filter digest. If rejected events were
@@ -259,15 +252,14 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
 In `extremity` mode, the responding server performs a **merge-base walk** modeled on Git's
 packfile negotiation protocol:
 
-1. Build the `have` set: the union of `local_extremity_event_ids` and `have_event_ids`. These
+1. **Topological Bounding Check ($O(1)$):** Before starting, the responder MUST perform a pre-flight depth check to prevent CPU-exhaustion DoS attacks.
+   - The requester provides `have_event_ids` (a sparse sample of known ancestors).
+   - The responder finds the `local_depth` of these events.
+   - `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`
+   - If `delta > max_depth_walk`, the responder MUST immediately return an empty result with `truncated: true`. This guarantees the server only ever walks bounded, recent history.
+2. Build the `have` set: the union of `local_extremity_event_ids` and `have_event_ids`. These
    represent events the requester already possesses. The combined `have` set MUST NOT exceed
    256 entries; requests exceeding this MUST be rejected with HTTP 400.
-2. **Pre-flight validation:** Before starting the walk, the responder SHOULD check whether
-   _any_ event ID in the `have` set exists in its local store (a batch of point-lookups).
-   If zero `have` events are recognized, the responder SHOULD immediately return an empty
-   `probably_missing_event_ids` with `truncated: true` rather than walking the DAG. This
-   prevents a malicious requester from forcing a 50,000-event walk by sending fabricated
-   `have` event IDs that don't exist in the responder's DAG.
 3. Identify forward extremities the responder has that are NOT in the `have` set — these are the
    "want" events (unknown tips from the requester's perspective).
 4. Walk backwards from those unknown extremities via `prev_events`, collecting event IDs.
@@ -276,17 +268,14 @@ packfile negotiation protocol:
    common ancestor between the two servers' DAGs. Events at or before the merge-base are NOT
    included in the result (the requester already has them).
 6. **Safety limit:** If the walk visits `max_depth_walk` events without finding any event in the
-   `have` set, the walk is terminated and the response MUST set `truncated: true`. This prevents
-   CPU exhaustion when the requester's `have` set has no overlap with the responder's DAG (e.g.,
-   the requester has been offline for weeks and its sparse sample is too sparse).
+   `have` set, the walk is terminated and the response MUST set `truncated: true`.
 7. Returns the collected event IDs in reverse topological order, up to `limit`.
 
 The `max_depth_walk` parameter prevents CPU exhaustion. Servers MUST enforce
 `max_depth_walk <= 50000`. The default is `5000`. Servers SHOULD also maintain a per-peer,
 per-room accounting of total walk depth consumed over a rolling window (e.g., 60 seconds) and
 reject requests that would exceed a cumulative budget (RECOMMENDED: 100,000 events per peer
-per room per minute). This prevents an attacker from sending many small requests that each
-walk just under the per-request limit.
+per room per minute).
 
 **Constructing the `have` set (requesting server):**
 
@@ -307,10 +296,6 @@ totaling 32–160 event IDs. The exponential spacing ensures:
 - The responder is highly likely to find a merge-base within the first few hundred events of
   its backward walk, making the algorithm O(delta) in practice — proportional to the number of
   missing events, not the total room size
-
-This is directly analogous to Git's `upload-pack` protocol, where the client sends
-`have <commit-id>` lines at exponentially increasing distances from HEAD until the server
-responds with `ACK <commit-id>` indicating the merge-base.
 
 In `bloom` mode, the responding server:
 
@@ -473,11 +458,14 @@ ETag: "xxh3:abc123def456"
 
 The ETag MUST NOT be derived from the Bloom filter digest (which would require computing the full
 filter just to evaluate the conditional request, defeating the purpose of a fast 304 check).
-Instead, the ETag SHOULD be computed as:
+Instead, the ETag MUST be computed as:
 
-> `XXH3-64(sorted(extremity_event_ids) || event_count)`
+> `Base64(room_xor_sum || XXH3-64(sorted(extremity_event_ids)))`
 
-Because the Matrix DAG is append-only, if the forward extremities and the event count are identical,
+- The `room_xor_sum` is computed as the XOR-sum of all event IDs currently in the room's event store. This is commutative and associative, allowing it to be updated in O(1) during event persistence or purging.
+- The `sorted(extremity_event_ids)` part ensures frontier divergence is detected.
+
+Because the Matrix DAG is append-only, if the `room_xor_sum` and the extremities are identical,
 the underlying event set is mathematically guaranteed to be identical. This allows the server to
 evaluate the ETag in O(E) where E is the number of extremities (typically 1–5), without touching
 the event store or computing the Bloom filter.
@@ -485,13 +473,6 @@ the event store or computing the Bloom filter.
 If the computed ETag matches the `If-None-Match` header, the server MUST return HTTP 304 with no
 body. This reduces the reconciliation polling cost to a single HTTP round-trip with a ~50 byte
 response for rooms that are already synchronized.
-
-**Why this bridges both failure modes:** The ETag design is deliberately constructed so that
-_both_ frontier lag and interior gaps produce a cache miss. If a server falls behind (frontier
-lag), its extremities will differ from the remote server's, changing the ETag. If a server has
-Swiss cheese gaps but identical extremities, its `event_count` will be lower, also changing the
-ETag. This ensures that the digest polling phase always detects divergence regardless of its
-topological structure, triggering the appropriate diff mode.
 
 ## Potential issues
 
@@ -540,22 +521,7 @@ requests with the events they have, but SHOULD set a response header
 
 ### Using `/make_join` as a Reconciliation Probe
 
-An alternative approach (discussed extensively in prior analysis) is to abuse the existing
-`/make_join` endpoint as a zero-mutation DAG probe. By calling `/make_join` with a throwaway user
-ID, a server can obtain the remote server's current `prev_events` (DAG tips) and `auth_events`
-without performing any mutations.
-
-This approach has the advantage of requiring no spec changes. However:
-
-1. It only reveals extremity divergence, not interior gaps (events missing from the middle of the
-   DAG)
-2. It creates spurious `make_join` traffic that obscures real join attempts in server logs
-3. It does not scale — there is no ETag/conditional-request support, and the response includes a
-   full PDU template that must be serialized and discarded
-4. It abuses an endpoint designed for a different purpose, creating confusion about intent
-
-The gossip reconciliation protocol proposed here addresses all of these limitations while remaining
-lightweight enough for periodic polling.
+(See performance guidance writeup for alternative architecture discussion).
 
 ### Full Merkle Tree Synchronization
 

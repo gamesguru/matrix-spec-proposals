@@ -78,12 +78,12 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
-| Parameter  | Type   | Required | Description                                                            |
-| ---------- | ------ | -------- | ---------------------------------------------------------------------- |
-| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                        |
-| `since`    | string | No       | An opaque pagination token from a previous response. For initial sync, |
-|            |        |          | omit this parameter.                                                   |
-| `limit`    | int    | No       | Maximum number of user entries to return. Default 100, max 1000.       |
+| Parameter  | Type   | Required | Description                                                          |
+| ---------- | ------ | -------- | -------------------------------------------------------------------- |
+| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                      |
+| `since`    | string | No       | An opaque pagination token from a previous response. For incremental |
+|            |        |          | updates, pass the `next_batch` from the previous response.           |
+| `limit`    | int    | No       | Maximum number of user entries to return. Default 100, max 1000.     |
 
 **Response:**
 
@@ -106,40 +106,45 @@ GET /_matrix/federation/v1/edu_digest
 
 **Fields (response):**
 
-| Field                  | Type    | Required | Description                                                 |
-| ---------------------- | ------- | -------- | ----------------------------------------------------------- |
-| `users`                | object  | Yes      | Map of user ID to version metadata.                         |
-| `users.*.version`      | integer | Yes      | Monotonically increasing version counter for this user's    |
-|                        |         |          | EDU state. Typically `origin_server_ts` of the last update. |
-| `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes   |
-|                        |         |          | even if version counters drift.                             |
-| `next_batch`           | string  | No       | Pagination token. If present, more users are available.     |
-| `edu_type`             | string  | Yes      | The EDU type this digest covers.                            |
+| Field                  | Type    | Required | Description                                               |
+| ---------------------- | ------- | -------- | --------------------------------------------------------- |
+| `users`                | object  | Yes      | Map of user ID to version metadata.                       |
+| `users.*.version`      | integer | Yes      | Monotonically increasing version counter for this user's  |
+|                        |         |          | EDU state. See Version Semantics below.                   |
+| `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes |
+|                        |         |          | even if version counters drift.                           |
+| `next_batch`           | string  | No       | Pagination token. If present, more users are available.   |
+| `edu_type`             | string  | Yes      | The EDU type this digest covers.                          |
 
 **Version Semantics:**
 
-The `version` field MUST be a monotonically increasing integer that advances
-every time the user's EDU state of the given type changes. Servers SHOULD use
-`origin_server_ts` (milliseconds since epoch) as the version. If two updates
-occur within the same millisecond, the server MUST increment the version
-beyond the previous value.
+The `version` field MUST be a monotonically increasing integer that advances every
+time the user's EDU state of the given type changes. Servers MUST NOT rely solely
+on `origin_server_ts` as the version, as it is sensitive to clock skew.
+
+Instead, the version acts as a **Lamport sequence number**:
+
+- The server MUST maintain a strict counter per user/EDU-type.
+- When state changes, the server MUST set: `new_version = max(origin_server_ts, previous_version + 1)`.
+- This ensures the version is always strictly increasing even if the physical clock jumps backward.
 
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation
 of the EDU content body. This serves as a tiebreaker — if two servers have
 the same `version` for a user but different `content_hash` values, their
 state has diverged and the one with the higher version wins.
 
-**Scoping:**
+**Scoping (Privacy):**
 
 The responding server MUST only include users that share at least one room
-with the requesting server. The set of shared users is determined by the
-current room membership state — the same scope as existing EDU delivery.
+with the requesting server.
 
-**Authorization:**
+**Authorization (Privacy):**
 
-The requesting server MUST be authenticated via standard federation
-authentication. No room-level authorization is required since EDU state
-is scoped to users, not rooms.
+The responding server MUST perform a **strict S2S routing index intersection**.
+Before responding, the server MUST intersect the queried users against the
+homeserver's materialized S2S routing table (a list of all users sharing
+at least one room with the requester). If a user is not in this set,
+they MUST NOT be included in the response, preventing metadata leakage.
 
 ### 2. EDU State Fetch: `POST /_matrix/federation/v1/edu_state`
 
@@ -325,39 +330,17 @@ evaluate the ETag in O(1) if it maintains a running maximum.
 ### Scale with Large User Bases
 
 A large homeserver (e.g., matrix.org) may have hundreds of thousands of
-users sharing rooms with a given peer. The paginated `edu_digest` response
-mitigates this, but a full initial sync could still require many round trips.
-
-Servers SHOULD cache the remote digest and only re-request pages that have
-changed (using the `since` token). For steady-state operation, most polls
-will result in HTTP 304 (no changes) or a small number of updated users.
-
-### Clock Skew
-
-Using `origin_server_ts` as the version counter is sensitive to clock skew.
-If a server's clock jumps backward, it could produce a lower version for a
-newer state update, causing remote servers to incorrectly believe they
-already have the latest state.
-
-Mitigation: servers MUST ensure the version is always strictly greater than
-the previous version for the same user and EDU type, regardless of wall
-clock time. The version is a logical clock, not a physical timestamp — it
-merely uses `origin_server_ts` as a convenient initial value.
-
-### Race Conditions During State Changes
-
-If a user's EDU state changes between the `edu_digest` and `edu_state`
-requests, the fetched state will be newer than what the digest indicated.
-This is harmless — the requesting server gets a more recent state than
-expected, which is strictly better than the stale state it had.
+users sharing rooms with a given peer. The stream-based `edu_digest` (using
+`since` tokens) mitigates this by only fetching incremental changes.
 
 ### Privacy Implications of Presence Probing
 
 The `edu_digest` endpoint could be used to probe whether a specific user is
-online without being in a shared room (if the server does not properly scope
-the response). The "Scoping" requirement — that only users sharing rooms
-with the requester are included — mitigates this. Servers MUST NOT include
-users that do not share at least one room with the requesting server.
+online without being in a shared room.
+
+- **Mitigation:** The responding server MUST perform strict S2S routing
+  index intersection to ensure only users sharing at least one room with the
+  requesting server are included.
 
 ## Alternatives
 
@@ -405,9 +388,8 @@ a separate proposal. This was rejected because:
 ### Information Disclosure
 
 The `edu_digest` endpoint reveals which users are hosted on the responding
-server and their EDU activity patterns (version advancement rate). This
-metadata is already implicitly available through room membership and
-existing EDU delivery, so the incremental disclosure is minimal.
+server and their EDU activity patterns (version advancement rate). The
+S2S routing intersection requirement minimizes this metadata leakage.
 
 ### Denial of Service
 
@@ -433,8 +415,7 @@ state has a higher version.
 
 ## Unstable prefix
 
-The following mapping will be used for identifiers in this MSC during
-development:
+The following mapping will be used for identifiers in this MSC during development:
 
 | Proposed final identifier           | Purpose  | Development identifier                                       |
 | ----------------------------------- | -------- | ------------------------------------------------------------ |
