@@ -78,11 +78,11 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
-| Parameter  | Type   | Required | Description                                                                                                                     |
-| :--------- | :----- | :------- | :------------------------------------------------------------------------------------------------------------------------------ |
-| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                                                 |
-| `since`    | string | No       | An opaque pagination token from a previous response. For incremental updates, pass the `next_batch` from the previous response. |
-| `limit`    | int    | No       | Maximum number of user entries to return. Default 100, max 1000.                                                                |
+| Parameter  | Type   | Required | Description                                                                                            |
+| :--------- | :----- | :------- | :----------------------------------------------------------------------------------------------------- |
+| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                        |
+| `since`    | string | No       | Pagination token from previous response. Incremental updates pass `next_batch` from previous response. |
+| `limit`    | int    | No       | Max user entries to return. Default 100, max 1000.                                                     |
 
 **Response:**
 
@@ -105,13 +105,13 @@ GET /_matrix/federation/v1/edu_digest
 
 **Fields (response):**
 
-| Field                  | Type    | Required | Description                                                                                      |
-| ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------------ |
-| `users`                | object  | Yes      | Map of user ID to version metadata.                                                              |
-| `users.*.version`      | integer | Yes      | Monotonically increasing version counter for this user's EDU state. See Version Semantics below. |
-| `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes even if version counters drift.        |
-| `next_batch`           | string  | No       | Pagination token. If present, more users are available.                                          |
-| `edu_type`             | string  | Yes      | The EDU type this digest covers.                                                                 |
+| Field                  | Type    | Required | Description                                                                                 |
+| ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------- |
+| `users`                | object  | Yes      | Sorted map of userID-to-version metadata.                                                   |
+| `users.*.version`      | integer | Yes      | Monotonically increasing version counter for user's EDU state. See Version Semantics below. |
+| `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes even if version counters drift.   |
+| `next_batch`           | string  | No       | Pagination token. If present, more users are available.                                     |
+| `edu_type`             | string  | Yes      | The EDU type this digest covers.                                                            |
 
 **Version Semantics:**
 
@@ -163,11 +163,11 @@ POST /_matrix/federation/v1/edu_state
 
 **Fields (request):**
 
-| Field      | Type     | Required | Description                                          |
-| ---------- | -------- | -------- | ---------------------------------------------------- |
-| `edu_type` | string   | Yes      | The EDU type to fetch.                               |
-| `user_ids` | [string] | Yes      | User IDs to fetch state for. Maximum 200 per request |
-|            |          |          | to prevent abuse.                                    |
+| Field      | Type     | Required | Description                                      |
+| ---------- | -------- | -------- | ------------------------------------------------ |
+| `edu_type` | string   | Yes      | The EDU type to fetch.                           |
+| `user_ids` | [string] | Yes      | User IDs to fetch state for. Max 200 per request |
+|            |          |          | to prevent abuse.                                |
 
 **Response:**
 
