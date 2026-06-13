@@ -78,11 +78,11 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
-| Parameter | Type | Required | Description |
-| :--- | :--- | :--- | :--- |
-| `edu_type` | string | Yes | The EDU type to query. See Supported EDU Types. |
-| `since` | string | No | An opaque pagination token from a previous response. For incremental updates, pass the `next_batch` from the previous response. |
-| `limit` | int | No | Maximum number of user entries to return. Default 100, max 1000. |
+| Parameter  | Type   | Required | Description                                                                                                                     |
+| :--------- | :----- | :------- | :------------------------------------------------------------------------------------------------------------------------------ |
+| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                                                 |
+| `since`    | string | No       | An opaque pagination token from a previous response. For incremental updates, pass the `next_batch` from the previous response. |
+| `limit`    | int    | No       | Maximum number of user entries to return. Default 100, max 1000.                                                                |
 
 **Response:**
 
