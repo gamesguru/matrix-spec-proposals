@@ -417,8 +417,12 @@ def main():
     # Keep visualization links strong
     vis_links = [c for c in pairwise_connections if c["connection_score"] >= 0.12]
     html_links = [
-        {"source": l["msc_a"], "target": l["msc_b"], "value": l["connection_score"]}
-        for l in vis_links
+        {
+            "source": lnk["msc_a"],
+            "target": lnk["msc_b"],
+            "value": lnk["connection_score"],
+        }
+        for lnk in vis_links
     ]
 
     # Write HTML
@@ -436,39 +440,114 @@ def main():
         "#f15bb5",
     ]
 
-    html_content = f"""<!DOCTYPE html>
+    legend_items = []
+    for i, topic in cluster_topics.items():
+        col = colors[i % len(colors)]
+        legend_items.append(
+            f'<div class="legend-item">'
+            f'<div class="color-box" style="background-color: {col}"></div>'
+            f"<span><strong>Group {i}</strong>: {topic}</span>"
+            f"</div>"
+        )
+    legend_html = "".join(legend_items)
+
+    import json
+
+    html_template = """<!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>MSC Centrality & Feature Clusters</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
-        body {{ margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background-color: #111; color: #eee; overflow: hidden; }}
-        #header {{ position: absolute; top: 15px; left: 15px; pointer-events: none; }}
-        h1 {{ margin: 0 0 5px 0; font-size: 22px; color: #fff; }}
-        p {{ margin: 0 0 10px 0; font-size: 13px; color: #aaa; }}
-        #legend {{ font-size: 11px; background: rgba(30,30,30,0.85); padding: 10px; border-radius: 6px; border: 1px solid #333; pointer-events: auto; max-width: 320px; }}
-        .legend-item {{ display: flex; align-items: center; margin-bottom: 4px; }}
-        .color-box {{ width: 12px; height: 12px; border-radius: 3px; margin-right: 8px; }}
-        .node {{ cursor: pointer; stroke: #111; stroke-width: 1.5px; transition: stroke 0.15s; }}
-        .node:hover {{ stroke: #fff; stroke-width: 2.5px; }}
-        .link {{ stroke-opacity: 0.5; stroke: #444; }}
-        .label {{ font-size: 10px; fill: #aaa; pointer-events: none; font-weight: 500; }}
-        #tooltip {{
-            position: absolute; display: none; background: rgba(15,15,15,0.95);
-            padding: 10px 14px; border-radius: 6px; border: 1px solid #444;
-            font-size: 12px; pointer-events: none; max-width: 350px; box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+        body {
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont,
+                "Segoe UI", Roboto, sans-serif;
+            background-color: #111;
+            color: #eee;
+            overflow: hidden;
+        }
+        #header {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            pointer-events: none;
+        }
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 22px;
+            color: #fff;
+        }
+        p {
+            margin: 0 0 10px 0;
+            font-size: 13px;
+            color: #aaa;
+        }
+        #legend {
+            font-size: 11px;
+            background: rgba(30,30,30,0.85);
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            pointer-events: auto;
+            max-width: 320px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 4px;
+        }
+        .color-box {
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+            margin-right: 8px;
+        }
+        .node {
+            cursor: pointer;
+            stroke: #111;
+            stroke-width: 1.5px;
+            transition: stroke 0.15s;
+        }
+        .node:hover {
+            stroke: #fff;
+            stroke-width: 2.5px;
+        }
+        .link {
+            stroke-opacity: 0.5;
+            stroke: #444;
+        }
+        .label {
+            font-size: 10px;
+            fill: #aaa;
+            pointer-events: none;
+            font-weight: 500;
+        }
+        #tooltip {
+            position: absolute;
+            display: none;
+            background: rgba(15,15,15,0.95);
+            padding: 10px 14px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            font-size: 12px;
+            pointer-events: none;
+            max-width: 350px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.5);
             line-height: 1.4;
-        }}
+        }
     </style>
 </head>
 <body>
     <div id="header">
         <h1>MSC Centrality & Feature Clusters</h1>
-        <p>Nodes sized by <strong>PageRank (Foundational Authority)</strong> &bull; Colored by <strong>Feature Cluster</strong></p>
+        <p>Nodes sized by <strong>PageRank</strong> &bull; Colored by cluster</p>
         <div id="legend">
-            <strong style="font-size: 12px; display: block; margin-bottom: 6px;">Thematic Feature Clusters:</strong>
-            {"".join(f'<div class="legend-item"><div class="color-box" style="background-color: {colors[i % len(colors)]}"></div><span><strong>Group {i}</strong>: {topic}</span></div>' for i, topic in cluster_topics.items())}
+            <strong style="font-size: 12px; display: block; margin-bottom: 6px;">
+                Thematic Feature Clusters:
+            </strong>
+            __LEGEND_HTML__
         </div>
     </div>
     <div id="tooltip"></div>
@@ -477,7 +556,7 @@ def main():
     <script>
         const width = window.innerWidth;
         const height = window.innerHeight;
-        const colors = {repr(colors)};
+        const colors = __COLORS__;
 
         const svg = d3.select("#network")
             .attr("width", width)
@@ -485,18 +564,20 @@ def main():
 
         const g = svg.append("g");
 
-        svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {{
+        svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {
             g.attr("transform", event.transform);
-        }}));
+        }));
 
-        const nodes = {repr(html_nodes)};
-        const links = {repr(html_links)};
+        const nodes = __NODES__;
+        const links = __LINKS__;
 
         const simulation = d3.forceSimulation(nodes)
             .force("link", d3.forceLink(links).id(d => d.id).distance(90))
             .force("charge", d3.forceManyBody().strength(-150))
             .force("center", d3.forceCenter(width / 2, height / 2))
-            .force("collision", d3.forceCollide().radius(d => Math.max(5, d.norm_pr * 22) + 4));
+            .force("collision", d3.forceCollide().radius(
+                d => Math.max(5, d.norm_pr * 22) + 4
+            ));
 
         const link = g.append("g")
             .selectAll("line")
@@ -510,7 +591,6 @@ def main():
             .data(nodes)
             .join("circle")
             .attr("class", "node")
-            // Scale node radius linearly with relative PageRank
             .attr("r", d => Math.max(5, d.norm_pr * 22))
             .attr("fill", d => colors[d.cluster % colors.length])
             .call(drag(simulation));
@@ -524,23 +604,26 @@ def main():
 
         const tooltip = d3.select("#tooltip");
 
-        node.on("mouseover", (event, d) => {{
-            tooltip.style("display", "block")
-                .html(`
-                    <div style="font-size: 13px; font-weight: bold; margin-bottom: 5px; color: #fff;">${{d.label}}</div>
-                    <div style="margin-bottom: 3px;"><strong>PageRank Authority:</strong> ${(d.pagerank * 100).toFixed(3)}%</div>
-                    <div><strong>Thematic Cluster:</strong> Group ${{d.cluster}} (${{d.topic}})</div>
-                `);
-        }})
-        .on("mousemove", (event) => {{
+        node.on("mouseover", (event, d) => {
+            tooltip.style("display", "block").html(
+                '<div style="font-size:13px; font-weight:bold; ' +
+                'margin-bottom:5px; color:#fff;">' + d.label + '</div>' +
+                '<div style="margin-bottom:3px;">' +
+                '<strong>PageRank Authority:</strong> ' +
+                (d.pagerank * 100).toFixed(3) + '%</div>' +
+                '<div><strong>Thematic Cluster:</strong> Group ' +
+                d.cluster + ' (' + d.topic + ')</div>'
+            );
+        })
+        .on("mousemove", (event) => {
             tooltip.style("left", (event.pageX + 12) + "px")
                    .style("top", (event.pageY - 20) + "px");
-        }})
-        .on("mouseout", () => {{
+        })
+        .on("mouseout", () => {
             tooltip.style("display", "none");
-        }});
+        });
 
-        simulation.on("tick", () => {{
+        simulation.on("tick", () => {
             link
                 .attr("x1", d => d.source.x)
                 .attr("y1", d => d.source.y)
@@ -554,29 +637,36 @@ def main():
             label
                 .attr("x", d => d.x + Math.max(6, d.norm_pr * 22) + 3)
                 .attr("y", d => d.y + 3);
-        }});
+        });
 
-        function drag(simulation) {{
+        function drag(simulation) {
             return d3.drag()
-                .on("start", (event, d) => {{
+                .on("start", (event, d) => {
                     if (!event.active) simulation.alphaTarget(0.3).restart();
                     d.fx = d.x;
                     d.fy = d.y;
-                }})
-                .on("drag", (event, d) => {{
+                })
+                .on("drag", (event, d) => {
                     d.fx = event.x;
                     d.fy = event.y;
-                }})
-                .on("end", (event, d) => {{
+                })
+                .on("end", (event, d) => {
                     if (!event.active) simulation.alphaTarget(0);
                     d.fx = null;
                     d.fy = null;
-                }});
-        }}
+                });
+        }
     </script>
 </body>
 </html>
 """
+
+    html_content = (
+        html_template.replace("__LEGEND_HTML__", legend_html)
+        .replace("__COLORS__", json.dumps(colors))
+        .replace("__NODES__", json.dumps(html_nodes))
+        .replace("__LINKS__", json.dumps(html_links))
+    )
 
     with open(HTML_OUTPUT, "w", encoding="utf-8") as f:
         f.write(html_content)
