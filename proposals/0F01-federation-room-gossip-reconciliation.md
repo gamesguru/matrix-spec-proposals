@@ -32,7 +32,8 @@ resolution algorithm itself is functioning correctly.
 
 | Endpoint                            | Limitation                                                                                                                    |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG                   |
+| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps;                                                                       |
+|                                     | useless for missing events in the middle of the DAG                                                                           |
 | `POST /get_missing_events/{roomId}` | BFS walk with a hard depth limit (default 10); cannot bridge gaps larger than 10 events; requires knowing the boundary events |
 | `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); O(N) comparison; no incremental diffing                                   |
 | `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                                   |

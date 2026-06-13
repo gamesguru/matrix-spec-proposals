@@ -197,12 +197,12 @@ POST /_matrix/federation/v1/edu_state
 
 **Fields (response):**
 
-| Field              | Type     | Required | Description                                      |
-| ------------------ | -------- | -------- | ------------------------------------------------ |
-| `edu_type`         | string   | Yes      | The EDU type.                                    |
-| `states`           | object   | Yes      | Map of user ID to current state.                 |
-| `states.*.version` | integer  | Yes      | Version counter matching the `edu_digest` value. |
-| `states.*.content` | object   | Yes      | The full EDU content body.                       |
+| Field              | Type     | Required | Description                                                        |
+| ------------------ | -------- | -------- | ------------------------------------------------------------------ |
+| `edu_type`         | string   | Yes      | The EDU type.                                                      |
+| `states`           | object   | Yes      | Map of user ID to current state.                                   |
+| `states.*.version` | integer  | Yes      | Version counter matching the `edu_digest` value.                   |
+| `states.*.content` | object   | Yes      | The full EDU content body.                                         |
 | `unknown_user_ids` | [string] | Yes      | User IDs from the request that the server does not have state for. |
 
 ### Supported EDU Types
