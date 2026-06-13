@@ -78,36 +78,11 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
-<table>
-  <thead>
-    <tr>
-      <th>Parameter</th>
-      <th>Type</th>
-      <th>Required</th>
-      <th>Description</th>
-    </tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><code>edu_type</code></td>
-      <td>string</td>
-      <td>Yes</td>
-      <td>The EDU type to query. See Supported EDU Types.</td>
-    </tr>
-    <tr>
-      <td><code>since</code></td>
-      <td>string</td>
-      <td>No</td>
-      <td>An opaque pagination token from a previous response. For incremental updates, pass the <code>next_batch</code> from the previous response.</td>
-    </tr>
-    <tr>
-      <td><code>limit</code></td>
-      <td>int</td>
-      <td>No</td>
-      <td>Maximum number of user entries to return. Default 100, max 1000.</td>
-    </tr>
-  </tbody>
-</table>
+| Parameter | Type | Required | Description |
+| :--- | :--- | :--- | :--- |
+| `edu_type` | string | Yes | The EDU type to query. See Supported EDU Types. |
+| `since` | string | No | An opaque pagination token from a previous response. For incremental updates, pass the `next_batch` from the previous response. |
+| `limit` | int | No | Maximum number of user entries to return. Default 100, max 1000. |
 
 **Response:**
 
