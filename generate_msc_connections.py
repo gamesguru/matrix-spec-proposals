@@ -3,18 +3,23 @@
 generate_msc_connections.py
 
 Advanced MSC relation generator.
-1. Computes TF-IDF from MSC prose.
-2. Runs PageRank over citation networks.
-3. Runs K-Means to cluster MSCs by feature similarity.
-4. Generates an interactive visualizer (nodes sized by PageRank, colored by cluster).
+1. Maps Merged (main branch) and Open (remote upstream branches) proposals.
+2. Computes TF-IDF from MSC prose across all mapped documents.
+3. Runs PageRank over combined citation networks.
+4. Runs K-Means to cluster MSCs by feature similarity.
+5. Generates an interactive visualizer (nodes sized by PageRank, colored by
+   cluster, shaped by Merged/Open, ordered chronologically vertically).
 """
 
 import csv
+import json
 import math
 import os
 import random
 import re
+import subprocess
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 # --- CONFIGURATION ---
 PROPOSALS_DIR = "proposals"
@@ -51,6 +56,11 @@ def parse_msc_metadata(filepath):
     if not title:
         title = filename.replace(".md", "")
     return msc_id, title
+
+
+def parse_msc_id_from_filename(filename):
+    msc_id_match = re.match(r"^(\d+)", filename)
+    return msc_id_match.group(1) if msc_id_match else None
 
 
 def extract_references(text, current_id):
@@ -193,31 +203,24 @@ def compute_pagerank(msc_citations, valid_ids):
     if N == 0:
         return {}
 
-    # Initialize uniform PageRank
     pr = {node: 1.0 / N for node in valid_ids}
-
-    # Track incoming linkages
     incoming = defaultdict(list)
     for node, refs in msc_citations.items():
         for ref in refs:
             incoming[ref].append(node)
 
-    # Out-degree counts (dangling nodes redirect uniformly)
     out_counts = {node: len(refs) for node, refs in msc_citations.items()}
 
     for _ in range(PAGERANK_ITERATIONS):
         new_pr = {}
-        # Sum PageRank from dangling nodes
         dangling_sum = sum(pr[node] for node in valid_ids if out_counts[node] == 0)
 
         for node in valid_ids:
             rank_sum = sum(pr[source] / out_counts[source] for source in incoming[node])
-            # PageRank update formula
             new_pr[node] = ((1 - PAGERANK_DAMPING) / N) + PAGERANK_DAMPING * (
                 rank_sum + (dangling_sum / N)
             )
 
-        # Normalize to combat floating point precision drift
         total = sum(new_pr.values())
         pr = {node: val / total for node, val in new_pr.items()}
 
@@ -230,7 +233,6 @@ def run_kmeans(tfidf_vectors, idf, k=NUM_CLUSTERS):
     if not doc_ids:
         return {}, {}
 
-    # 1. Initialize centroids randomly from existing documents
     centroids = []
     initial_ids = random.sample(doc_ids, min(k, len(doc_ids)))
     for node_id in initial_ids:
@@ -239,7 +241,6 @@ def run_kmeans(tfidf_vectors, idf, k=NUM_CLUSTERS):
     assignments = {}
 
     for _ in range(KMEANS_ITERATIONS):
-        # Assignment Step
         new_assignments = defaultdict(list)
         for doc_id in doc_ids:
             vector = tfidf_vectors[doc_id]
@@ -253,12 +254,10 @@ def run_kmeans(tfidf_vectors, idf, k=NUM_CLUSTERS):
             new_assignments[best_centroid].append(doc_id)
             assignments[doc_id] = best_centroid
 
-        # Update Step (recompute mean centroids)
         new_centroids = []
         for c_idx in range(k):
             assigned_docs = new_assignments[c_idx]
             if not assigned_docs:
-                # If a centroid becomes empty, re-initialize randomly
                 new_centroids.append(dict(tfidf_vectors[random.choice(doc_ids)]))
                 continue
 
@@ -267,11 +266,9 @@ def run_kmeans(tfidf_vectors, idf, k=NUM_CLUSTERS):
                 for token, val in tfidf_vectors[doc_id].items():
                     sum_vector[token] += val
 
-            # Compute average
             mean_vector = {
                 token: val / len(assigned_docs) for token, val in sum_vector.items()
             }
-            # Re-normalize to unit length
             norm = math.sqrt(sum(val**2 for val in mean_vector.values()))
             if norm > 0:
                 mean_vector = {token: val / norm for token, val in mean_vector.items()}
@@ -279,23 +276,55 @@ def run_kmeans(tfidf_vectors, idf, k=NUM_CLUSTERS):
 
         centroids = new_centroids
 
-    # Extract defining keywords for each cluster
     cluster_topics = {}
     for c_idx, centroid in enumerate(centroids):
-        # Sort words in centroid by weight
         top_words = sorted(centroid.items(), key=lambda x: x[1], reverse=True)[:4]
         cluster_topics[c_idx] = ", ".join([word for word, val in top_words])
 
     return assignments, cluster_topics
 
 
-def main():
-    print("Parsing proposals...")
-    msc_titles = {}
-    msc_outgoing = {}
-    msc_tokens = {}
+def get_branch_files(branch):
+    try:
+        r = subprocess.run(
+            ["git", "ls-tree", "-r", "--name-only", branch, "proposals"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        files = []
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if line.endswith(".md"):
+                files.append((branch, os.path.basename(line), line))
+        return files
+    except Exception:
+        return []
 
-    for file in os.listdir(PROPOSALS_DIR):
+
+def fetch_file_content(args):
+    msc_id, filename, branch, git_path = args
+    try:
+        r = subprocess.run(
+            ["git", "show", f"{branch}:{git_path}"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        return msc_id, filename, r.stdout
+    except Exception:
+        return msc_id, filename, ""
+
+
+def main():
+    # 1. Read local merged proposals
+    print("Reading local merged proposals from main branch...")
+    merged_files = set(os.listdir(PROPOSALS_DIR))
+    msc_titles = {}
+    msc_contents = {}
+    msc_status = {}
+
+    for file in merged_files:
         if not file.endswith(".md"):
             continue
         filepath = os.path.join(PROPOSALS_DIR, file)
@@ -303,15 +332,75 @@ def main():
         if not msc_id:
             continue
 
+        msc_status[msc_id] = "Merged"
         msc_titles[msc_id] = title
-
         with open(filepath, "r", encoding="utf-8", errors="ignore") as f:
-            content = f.read()
+            msc_contents[msc_id] = f.read()
 
+    # 2. Get remote branches to find open proposals
+    print("Mapping open proposals from remote branches...")
+    res = subprocess.run(
+        ["git", "branch", "-r"], capture_output=True, text=True, check=True
+    )
+    branches = []
+    for line in res.stdout.splitlines():
+        branch = line.strip()
+        if branch.startswith("upstream/") and not branch.endswith(
+            "HEAD -> upstream/main"
+        ):
+            branches.append(branch)
+
+    all_remote_files = {}
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        branch_files_results = executor.map(get_branch_files, branches)
+        for r in branch_files_results:
+            for branch, filename, git_path in r:
+                if filename not in all_remote_files:
+                    all_remote_files[filename] = (branch, git_path)
+
+    open_files = {}
+    for filename, val in all_remote_files.items():
+        msc_id = parse_msc_id_from_filename(filename)
+        if msc_id and msc_id not in msc_status:
+            open_files[msc_id] = (filename, val[0], val[1])
+
+    print(f"Found {len(open_files)} open proposals across remote branches.")
+
+    # 3. Fetch contents of open proposals in parallel
+    print("Fetching contents of open proposals...")
+    fetch_args = []
+    for msc_id, (filename, branch, git_path) in open_files.items():
+        fetch_args.append((msc_id, filename, branch, git_path))
+
+    with ThreadPoolExecutor(max_workers=32) as executor:
+        fetch_results = executor.map(fetch_file_content, fetch_args)
+        for msc_id, filename, content in fetch_results:
+            if not content:
+                continue
+
+            # Extract title
+            title = ""
+            for line in content.splitlines():
+                line = line.strip()
+                if line.startswith("#"):
+                    title = re.sub(r"^#+\s*", "", line)
+                    break
+            if not title:
+                title = filename.replace(".md", "")
+
+            msc_status[msc_id] = "Open"
+            msc_titles[msc_id] = title
+            msc_contents[msc_id] = content
+
+    # 4. Resolve global entities and citations
+    valid_ids = set(msc_titles.keys())
+    msc_outgoing = {}
+    msc_tokens = {}
+
+    for msc_id, content in msc_contents.items():
         msc_outgoing[msc_id] = extract_references(content, msc_id)
         msc_tokens[msc_id] = tokenize(content)
 
-    valid_ids = set(msc_titles.keys())
     msc_citations = {
         msc_id: refs.intersection(valid_ids) for msc_id, refs in msc_outgoing.items()
     }
@@ -321,16 +410,16 @@ def main():
         for ref in refs:
             msc_incoming[ref].add(msc_id)
 
-    # 1. PageRank Calculation
+    # 5. PageRank Calculation
     print("Computing PageRank Centrality...")
     pageranks = compute_pagerank(msc_citations, valid_ids)
 
-    # 2. Vector space & K-Means clustering
+    # 6. Vector space & K-Means clustering
     print("Analyzing text and performing K-Means clustering...")
     tfidf_vectors, idf = compute_tfidf(msc_tokens)
     cluster_assignments, cluster_topics = run_kmeans(tfidf_vectors, idf, NUM_CLUSTERS)
 
-    # 3. Pairwise Relation Analysis
+    # 7. Pairwise Relation Analysis
     print("Computing pairwise connection scores...")
     msc_list = sorted(list(valid_ids))
     num_mscs = len(msc_list)
@@ -374,13 +463,11 @@ def main():
                     }
                 )
 
-    # Sort connections by score
     pairwise_connections.sort(key=lambda x: x["connection_score"], reverse=True)
 
     # Write CSV
     print(f"Writing CSV output to {CSV_OUTPUT}...")
     with open(CSV_OUTPUT, "w", newline="", encoding="utf-8") as f:
-        # Save node stats as discrete metadata, and output the relationships
         writer = csv.DictWriter(
             f,
             fieldnames=[
@@ -397,12 +484,19 @@ def main():
         writer.writeheader()
         writer.writerows(pairwise_connections)
 
-    # Prepare node properties for HTML
-    # We scale PageRanks to standard visual ranges
+    # 8. Prepare Node Properties with target chronological Y coordinate
     max_pr = max(pageranks.values()) if pageranks else 1.0
+    node_ids_int = [int(nid) for nid in valid_ids if nid.isdigit()]
+    min_id = min(node_ids_int) if node_ids_int else 0
+    max_id = max(node_ids_int) if node_ids_int else 1
+    id_span = max_id - min_id if max_id > min_id else 1
 
     html_nodes = []
     for node_id in valid_ids:
+        nid_int = int(node_id) if node_id.isdigit() else min_id
+        norm_val = (nid_int - min_id) / id_span
+        target_y_ratio = 0.95 - (norm_val * 0.9)  # 0.95 oldest, 0.05 newest
+
         html_nodes.append(
             {
                 "id": node_id,
@@ -411,10 +505,12 @@ def main():
                 "norm_pr": pageranks[node_id] / max_pr,
                 "cluster": cluster_assignments[node_id],
                 "topic": cluster_topics[cluster_assignments[node_id]],
+                "status": msc_status[node_id],
+                "target_y_ratio": round(target_y_ratio, 3),
             }
         )
 
-    # Keep visualization links strong
+    # Filter visualization links
     vis_links = [c for c in pairwise_connections if c["connection_score"] >= 0.12]
     html_links = [
         {
@@ -425,10 +521,8 @@ def main():
         for lnk in vis_links
     ]
 
-    # Write HTML
     print(f"Writing browser-visualizer to {HTML_OUTPUT}...")
 
-    # Generate distinct colors for clusters
     colors = [
         "#ff595e",
         "#ffca3a",
@@ -450,8 +544,6 @@ def main():
             f"</div>"
         )
     legend_html = "".join(legend_items)
-
-    import json
 
     html_template = """<!DOCTYPE html>
 <html>
@@ -492,6 +584,8 @@ def main():
             border: 1px solid #333;
             pointer-events: auto;
             max-width: 320px;
+            max-height: 85vh;
+            overflow-y: auto;
         }
         .legend-item {
             display: flex;
@@ -503,19 +597,18 @@ def main():
             height: 12px;
             border-radius: 3px;
             margin-right: 8px;
+            flex-shrink: 0;
         }
         .node {
             cursor: pointer;
-            stroke: #111;
-            stroke-width: 1.5px;
-            transition: stroke 0.15s;
+            transition: stroke 0.15s, stroke-width 0.15s;
         }
         .node:hover {
-            stroke: #fff;
-            stroke-width: 2.5px;
+            stroke: #fff !important;
+            stroke-width: 3.5px !important;
         }
         .link {
-            stroke-opacity: 0.5;
+            stroke-opacity: 0.4;
             stroke: #444;
         }
         .label {
@@ -542,8 +635,24 @@ def main():
 <body>
     <div id="header">
         <h1>MSC Centrality & Feature Clusters</h1>
-        <p>Nodes sized by <strong>PageRank</strong> &bull; Colored by cluster</p>
+        <p>Sized by PageRank &bull; Timeline: Newest on top, oldest on bottom</p>
         <div id="legend">
+            <strong style="font-size: 12px; display: block; margin-bottom: 6px;">
+                Status Styling:
+            </strong>
+            <div class="legend-item">
+                <div class="color-box" style="
+                    background-color: #8ac926; border: 1.5px solid #111;
+                "></div>
+                <span><strong>Merged / Accepted</strong> (Solid Circle)</span>
+            </div>
+            <div class="legend-item">
+                <div class="color-box" style="
+                    background-color: #111; border: 2.5px solid #8ac926;
+                "></div>
+                <span><strong>Open / Draft</strong> (Hollow Ring)</span>
+            </div>
+            <hr style="border: 0; border-top: 1px solid #333; margin: 8px 0;">
             <strong style="font-size: 12px; display: block; margin-bottom: 6px;">
                 Thematic Feature Clusters:
             </strong>
@@ -583,12 +692,14 @@ def main():
         const links = __LINKS__;
 
         const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id(d => d.id).distance(90))
+            .force("link", d3.forceLink(links).id(d => d.id).distance(100))
             .force("charge", d3.forceManyBody().strength(-150))
             .force("center", d3.forceCenter(width / 2, height / 2))
             .force("collision", d3.forceCollide().radius(
-                d => Math.max(5, d.norm_pr * 22) + 4
-            ));
+                d => Math.max(5, d.norm_pr * 22) + 5
+            ))
+            .force("y", d3.forceY(d => d.target_y_ratio * height).strength(0.55))
+            .force("x", d3.forceX(width / 2).strength(0.1));
 
         const link = g.append("g")
             .selectAll("line")
@@ -603,7 +714,12 @@ def main():
             .join("circle")
             .attr("class", "node")
             .attr("r", d => Math.max(5, d.norm_pr * 22))
-            .attr("fill", d => colors[d.cluster % colors.length])
+            .attr("fill", d => d.status === "Merged"
+                ? colors[d.cluster % colors.length]
+                : "#111"
+            )
+            .attr("stroke", d => colors[d.cluster % colors.length])
+            .attr("stroke-width", d => d.status === "Merged" ? 1.5 : 3.0)
             .call(drag(simulation));
 
         const label = g.append("g")
@@ -619,6 +735,8 @@ def main():
             tooltip.style("display", "block").html(
                 '<div style="font-size:13px; font-weight:bold; ' +
                 'margin-bottom:5px; color:#fff;">' + d.label + '</div>' +
+                '<div style="margin-bottom:3px;">' +
+                '<strong>Status:</strong> ' + d.status + '</div>' +
                 '<div style="margin-bottom:3px;">' +
                 '<strong>PageRank Authority:</strong> ' +
                 (d.pagerank * 100).toFixed(3) + '%</div>' +
@@ -646,7 +764,7 @@ def main():
                 .attr("cy", d => d.y);
 
             label
-                .attr("x", d => d.x + Math.max(6, d.norm_pr * 22) + 3)
+                .attr("x", d => d.x + Math.max(6, d.norm_pr * 22) + 4)
                 .attr("y", d => d.y + 3);
         });
 
