@@ -566,6 +566,17 @@ def main():
 
         svg.call(d3.zoom().scaleExtent([0.1, 4]).on("zoom", (event) => {
             g.attr("transform", event.transform);
+            const k = event.transform.k;
+            label.text(d => {
+                if (k >= 1.2) {
+                    return d.label;
+                } else if (k >= 0.6) {
+                    return "MSC" + d.id;
+                } else {
+                    return "";
+                }
+            })
+            .style("fill-opacity", k >= 0.6 ? 1.0 : 0.0);
         }));
 
         const nodes = __NODES__;
