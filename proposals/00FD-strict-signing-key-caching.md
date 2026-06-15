@@ -121,7 +121,19 @@ This MSC therefore operates exclusively at the **Federation API / server behavio
 
 - **Cache expiration ≠ binding expiration.** The `valid_until_ts` field governs when to _refresh_ the key endpoint, not when to _forget_ the key body. Servers that purge key-body bindings on `valid_until_ts` expiry create a window where collision detection is blind. This MSC explicitly requires permanent retention of key-body bindings to close this gap.
 
-- **Storage exhaustion DoS.** Mandating permanent storage of key-body bindings introduces a theoretical storage exhaustion vector if an attacker forces a server to fetch and permanently store millions of unique Key IDs. Homeserver implementations SHOULD mitigate this by enforcing a reasonable maximum limit on the number of cached Key IDs per remote server name (e.g., 1,000 keys). If a remote server reaches this quota, receiving servers MUST ignore new Key IDs for that domain. As with TOFU poisoning, recovering from an exhausted quota requires the administrator to use the manual cache eviction escape hatch. Implementations MUST rely on existing federation rate-limiting to discard junk traffic before allocating database records. In practice, legitimate servers publish single-digit numbers of active keys at any given time; a server claiming thousands of Key IDs is unambiguously hostile.
+- **Storage exhaustion DoS.** Mandating permanent storage of key-body bindings introduces a
+  theoretical storage exhaustion vector if an attacker forces a server to fetch and permanently
+  store millions of unique Key IDs. Homeserver implementations SHOULD mitigate this by enforcing a
+  reasonable maximum limit on the number of cached Key IDs per remote server name (e.g., 1,000 keys).
+  If a remote server reaches this quota, receiving servers MUST ignore new Key IDs for that domain.
+  As with TOFU poisoning, recovering from an exhausted quota requires the administrator to use the
+  manual cache eviction escape hatch. Implementations MUST rely on existing federation rate-limiting
+  to discard junk traffic before allocating database records. In practice, legitimate servers
+  publish single-digit numbers of active keys at any given time; a server claiming thousands of Key
+  IDs is unambiguously hostile. To optimize database performance and minimize index footprint on
+  high-volume production deployments, homeserver implementations SHOULD utilize partial index
+  constraints (e.g., `WHERE is_compromised = FALSE` in PostgreSQL) when indexing the cached
+  signing keys.
 
 ## Unstable Prefix
 
