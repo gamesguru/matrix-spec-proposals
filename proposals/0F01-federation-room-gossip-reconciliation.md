@@ -102,10 +102,13 @@ The digest is a dynamically-sized Bloom filter constructed as follows:
    default window size is `W = 5000`. The server reports this value in the `digest_window` field.
    Hashing the entire event history is unnecessary because the bottom of the DAG (old history)
    rarely mutates — divergence almost always occurs at the frontier.
-2. **Size the filter.** Allocate `m` bits where `m = ceil(W * 6.235)` (approximately 6.235 bits
-   per element), which yields a false positive rate of ~5% with `k = 4` hash functions. For the
-   default window of 5000 events, this produces a filter of `m = 31,175` bits (~3.8 KB). The
-   server reports this value in the `digest_bits` field.
+2. **Size the filter.** Allocate `m` bits where `m` is the next power of two greater than or
+   equal to `ceil(W * 6.235)` (approximately 6.235 bits per element), which yields a
+   false-positive rate of ~5% with `k = 4` hash functions. Standardizing `m` as a power of two is
+   a strict requirement to enable in-place dynamic folding (see [Dynamic Filter Folding](#dynamic-filter-folding)).
+   For the default window of 5000 events, `ceil(5000 * 6.235) = 31,175`, so the server allocates
+   `m = 32,768` bits (exactly 4,096 bytes or 4.0 KB). The server reports this value in the
+   `digest_bits` field.
 3. **Populate the filter.** For each event ID in the active window, compute two independent hash
    values using XXH3-128, seeded with the constants `0x00` and `0x01` respectively.
 4. Use double hashing to derive `k=4` bit positions from the two hash values:
@@ -140,6 +143,21 @@ negative cache of event IDs that were fetched via reconciliation and subsequentl
 in the negative cache MUST NOT be re-requested for a configurable cooldown period (RECOMMENDED:
 24 hours). This provides defense-in-depth against fetch loops even if the Bloom filter test
 produces a false negative for a rejected event ID.
+
+### Dynamic Filter Folding
+
+To allow comparison of Bloom filters of different sizes (e.g., if Server A uses $W_a = 5000$,
+resulting in $m_a = 32,768$ bits, and Server B uses $W_b = 10000$, resulting in $m_b = 65,536$
+bits) without re-hashing raw event IDs, implementations MUST support dynamic filter folding.
+
+Because $m$ is strictly constrained to be a power of two, a larger Bloom filter of size $2m$
+can be folded in half to match a target size $m$ simply by dividing the bit-array into two
+equal halves and performing a bitwise `OR` operation on them:
+`folded_bits[i] = bits[i] | bits[i + half_bytes]`
+
+This mathematical projection is perfectly sound because $hash \pmod m$ maps to the exact same bit
+position as $(hash \pmod{2m}) \pmod m$. This enables instant, in-memory filter down-sampling
+with zero cryptographic overhead.
 
 **Authorization:**
 

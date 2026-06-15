@@ -128,7 +128,10 @@ Instead, the version acts as a **Lamport sequence number**:
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation
 of the EDU content body. This serves as a tiebreaker — if two servers have
 the same `version` for a user but different `content_hash` values, their
-state has diverged and the one with the higher version wins.
+state has diverged. In this scenario, the state with the lexicographically
+larger `content_hash` value wins. This ensures deterministic, consistent
+Last-Writer-Wins resolution across all homeservers without split-brain or
+manual negotiation.
 
 **Scoping (Privacy):**
 
@@ -283,25 +286,25 @@ there is no graph to traverse — only snapshots to compare:
 
 ### Gossip Scheduling
 
-EDU reconciliation SHOULD be scheduled independently from PDU
-reconciliation (MSC0F01), with different intervals reflecting the
-urgency of each EDU type:
+EDU reconciliation SHOULD be scheduled independently from PDU reconciliation (MSC0F01), with
+different intervals reflecting the urgency of each EDU type. To prevent cluster-wide "thundering
+herd" synchronization waves during large homeserver restarts or network partition recovery,
+implementations MUST apply a **randomized scheduling jitter of ±15%** to all base scheduling intervals:
 
-1. **`m.presence`** — Reconcile every 60 seconds with each peer. Presence
-   staleness is highly visible to end users and should be corrected quickly.
+1. **`m.presence`** — Reconcile every 60 seconds with each peer. Presence staleness is highly
+   visible to end users and should be corrected quickly.
 
-2. **`m.device_list_update`** — Reconcile every 30 seconds. Device list
-   staleness causes encryption failures (UTDs) which are critical to user
-   trust. Servers SHOULD prioritize device list reconciliation over other
-   EDU types.
+2. **`m.device_list_update`** — Reconcile every 30 seconds. Device list staleness directly causes
+   encryption failures and Undecryptable Messages (UTDs), which are critical to user trust. Because
+   of this, homeservers MUST aggressively prioritize device list reconciliation over other EDU
+   types and execute it immediately when a new S2S connection is established.
 
-3. **`m.receipt`** — Reconcile every 300 seconds. Read receipt staleness
-   is cosmetically annoying but not functionally harmful.
+3. **`m.receipt`** — Reconcile every 300 seconds. Read receipt staleness is cosmetically annoying
+   but not functionally harmful.
 
-4. **Back-off** — If a peer's `edu_digest` shows no version changes across
-   3 consecutive polls, the server SHOULD double the interval for that peer
-   up to a maximum of 3600 seconds. Any incoming EDU from the peer resets
-   the back-off.
+4. **Back-off** — If a peer's `edu_digest` shows no version changes across 3 consecutive polls, the
+   server SHOULD double the interval for that peer up to a maximum of 3600 seconds (applying the
+   ±15% jitter to the backed-off intervals). Any incoming EDU from the peer resets the back-off.
 
 ### ETag Optimization
 
