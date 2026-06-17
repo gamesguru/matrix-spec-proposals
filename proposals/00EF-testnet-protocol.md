@@ -1,8 +1,8 @@
-# MSC00EF: Matrix Testnet Segregation via Room Versions and Traffic Bypassing
+# MSCXXXX: Matrix Testnet Segregation via Room Versions and Traffic Bypassing
 
 **Authors:** [Your Name/Handle]
 **Date:** 2026-06-16
-**Version:** 1.3
+**Version:** 1.4
 **Status:** Draft
 
 ---
@@ -12,14 +12,6 @@
 As the Matrix ecosystem grows, developers and server administrators today increasingly rely on the production ecosystem to evaluate new features, scale-test homeservers, and debug federation issues in the aims of stability.
 
 This proposal introduces an extensible, parallel **multi-network framework** to support a `testnet` (a free-for-all developer playground) and a relatively stable `stagenet` (pre-production validation). To prevent cross-contamination with the `mainnet`, this MSC recommends strict application-layer isolation and clean ingress defenses at the network layer.
-
-## TODOs
-
-- Make each a proper superset of either: (a) the former/lesser, or (b) the `mainnet`. So that the `testnet` is everything inside it plus the `mainnet` as a starting base. Would "snapshots" be needed here, or could we truly mix two networks on the fly (even if `mainnet` only saw itself, and it was just `testnet` seeing dual traffic timelines and PDU/event stores in the DB)?
-
-- Maybe a 3rd `preprod` network? To make the `stagenet` less rigid. No, probably a bad idea.
-
----
 
 ## Operational philosophy
 
@@ -31,7 +23,7 @@ The `testnet` operates under a "wild west" philosophy:
 - **No take backs:** There are no SLAs, no database recovery guarantees, and (generally) no admin interventions. If a new feature corrupts a `testnet` deployment's database, the recommendation is to leave rooms where possible, wipe the database, and restart.
 - **Record incidents, keep moving:** Server admins are encouraged to log, profile, and record incidents (such as memory leaks or state-reset bugs) and report them through appropriate channels. Servers should remain running to the extent possible (and not undergo excessive downtime for maintenance).
 
-### The Stagenet (staging/pre-prod - networkID: `2`)
+### The `stagenet` (staging/pre-prod - networkID: `2`)
 
 The `stagenet` operates as a mirror of production, a stricter pre-prod environment:
 
@@ -86,9 +78,7 @@ To preserve test fidelity and minimize the need for codebase refactors, homeserv
 
 - **Behavior:** A homeserver MUST process a room version prefixed with `org.matrix.testnet-` or `org.matrix.stagenet-` using the exact same algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard `mainnet` room version. For example, `org.matrix.testnet-v10` and `org.matrix.stagenet-v10` MUST be processed identically to standard `mainnet` Room Version `10`.
 
-To the extent strict "PDU format adherence" is not possible, it is required that unstable room version suffixes be affixed (e.g., `org.matrix.testnet-org.matrix.msc4242`).
-
----
+To the extent strict "PDU format adherence" is not possible, it is required that unstable room version suffixes be affixed (e.g., `org.matrix.testnet-org.matrix.mscXXXX`).
 
 #### Separations of concern and root trust
 
@@ -118,6 +108,8 @@ Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 3. **Halt Discovery:** If discovery fails to resolve a valid destination via either the network-specific `.well-known` endpoint or the network-specific SRV record, the homeserver MUST immediately abort discovery and raise an error.
 4. **No Fallback:** Parallel network homeservers MUST NOT fall back to standard Mainnet `.well-known` paths (`/.well-known/matrix/server`), standard `mainnet` SRV records (`_matrix-fed._tcp`), or perform direct IP/port fallback connections on port `8448` or `443`.
 
+_Endpoint constraints:_ These `.well-known` endpoints require no authentication, have no specific rate-limiting requirements, do not apply to guest access, and MUST return an HTTP `404 Not Found` error (with standard `M_NOT_FOUND` errcode) if the requested network is not supported by the host.
+
 _Why this works:_ If a `testnet` server accidentally targets `matrix.org`, it queries the Testnet `.well-known` (returning `404`) and the `testnet` SRV (returning `NXDOMAIN`). Because the server cannot fall back to `mainnet` resolution paths, it immediately halts before opening a TCP connection to the `mainnet` server.
 
 ### Client-to-Server (C2S) discovery
@@ -127,8 +119,9 @@ To allow clients to securely discover homeservers on parallel networks when trig
 - **Distinct `.well-known` Client Paths:**
   - Clients operating on the Testnet MUST query `/.well-known/matrix/testnet-client`.
   - Clients operating on the Stagenet MUST query `/.well-known/matrix/stagenet-client`.
-  - **Schema:** The JSON schema for these endpoints MUST be strictly identical to the standard `/.well-known/matrix/client` file (e.g., returning homeserver base URLs and identity server addresses).
+- **Schema:** The JSON schema for these endpoints MUST be strictly identical to the standard `/.well-known/matrix/client` file (e.g., returning homeserver base URLs and identity server addresses).
 - **No Fallback:** Clients MUST NOT fall back to querying the Mainnet `/.well-known/matrix/client` endpoint when attempting discovery on a parallel network.
+- **Endpoint constraints:** Similar to server discovery, these `.well-known` endpoints require no authentication, have no specific rate-limiting requirements, do not apply to guest access, and MUST return an HTTP `404 Not Found` error (with standard `M_NOT_FOUND` errcode) if the requested network is not supported by the host.
 
 #### Ingress protection (Implementation Guide)
 
@@ -181,24 +174,20 @@ To prevent users from clicking a `testnet`/`stagenet` link and having it open in
 - **Stagenet URIs:** MUST use the scheme `matrix-stagenet:` (e.g., `matrix-stagenet:r/someroom:example.com`).
 - **OS Resolution:** Since operating systems register handlers per URI scheme, this allows developers to install separate client builds (e.g., Element Nightly for Testnet, Element Beta for Staging) which register solely to their respective schemes, completely eliminating UX collisions.
 
-### Ephemeral Lifespans
+### Ephemeral lifespans
 
-**TODO:** This seems questionable. May not be desirable at all.
+Given the nature of the `testnet`, data accumulation from extreme stress tests will inevitably exhaust volunteer node resources. Therefore, the `testnet` is strictly ephemeral. While this MSC refrains from introducing protocol-level mechanisms for automated state resets, it is highly recommended that the community coordinates periodic database wipes (e.g., out-of-band communication for a bi-annual network reset). Node operators and client developers MUST NOT expect long-term state durability on the `testnet`.
 
-- **Testnet Epochs:** To ensure volunteer node operators do not run out of disk space from extreme spam waves, the `testnet` operates on strict **6-month epochs**. Scheduled database resets and network-wide data wipes occur twice a year on **January 1st** and **July 1st** (coordinated as out-of-band community consensus). Upon epoch rollover, server administrators wipe local databases and start clean.
-- **Automated Epoch Signaling:** The active epoch integer and next scheduled wipe timestamp MUST be published as a DNS TXT record on the root of the `testnet` notary domain (e.g., querying `TXT _epoch.testnet.matrix.org` returns `"v=matrix-epoch; epoch=5; next_wipe=1782864000"`). Server administrators MAY query this record periodically; if the published integer exceeds the server's locally stored epoch state, automated local scripts can dynamically halt the daemon, trigger a database wipe, update the local state, and restart clean with zero human intervention.
-- **Stagenet Durability:** The `stagenet` does not operate on scheduled epochs. Data is preserved indefinitely to support long-term migration testing, with resets occurring only during major specification milestones.
+The `stagenet`, however, does not operate on scheduled epochs. Data is preserved indefinitely to support long-term migration testing, with resets occurring only during major specification milestones.
 
----
-
-## Drawbacks
+## Potential issues
 
 - **Server-Side Configuration:** Server administrators must maintain separate configuration profiles (e.g., generating separate signing keys, configuring distinct reverse proxy auto-bans, and defining network-specific room version support).
 - **Client Implementation:** Clients wishing to support parallel networks must register separate URI handlers (`matrix-testnet:` / `matrix-stagenet:`) and toggle their server selection accordingly.
 
-## Security/performance considerations
+## Security considerations
 
-The primary security goal of this MSC is _containment_. By utilizing network-specific room versions, `mainnet` servers remain isolated from potential traffic/bandwidth loads or malformed payloads from non-production networks.
+The primary security goal of this MSC is _containment_. By utilizing network-specific room versions, `mainnet` servers remain isolated from potential traffic/bandwidth loads or malformed payloads from non-production networks. Furthermore, the cryptographic key separation guarantees that an attacker cannot cross-pollinate event graphs or fork state by introducing `testnet` events into the `mainnet`. The strict no-fallback discovery also prevents resource starvation attacks against production infrastructure.
 
 ## Alternatives
 
@@ -206,16 +195,26 @@ The primary security goal of this MSC is _containment_. By utilizing network-spe
 - **TLD Restriction:** Restricting parallel networks to specific domains. Rejected due to arbitrary limitations/production collisions.
 - **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for smoke/stress testing.
 
-## Unstable prefixes
+## Dependencies
 
-During the draft and development phase, this proposal uses the following unstable prefixes (TODO: replace `00EF` with the PR number once assigned):
+This MSC does not depend on any currently unmerged MSCs.
 
-- **Testnet Room Versions:** `org.matrix.msc00ef.testnet-` (e.g., `org.matrix.msc00ef.testnet-v10`)
-- **Stagenet Room Versions:** `org.matrix.msc00ef.stagenet-` (e.g., `org.matrix.msc00ef.stagenet-v10`)
-- **HTTP Header:** `Matrix-MSC00EF-Network-Id`
-- **Testnet Server Discovery:** `/.well-known/matrix/msc00ef.testnet-server`
-- **Stagenet Server Discovery:** `/.well-known/matrix/msc00ef.stagenet-server`
-- **Testnet Client Discovery:** `/.well-known/matrix/msc00ef.testnet-client`
-- **Stagenet Client Discovery:** `/.well-known/matrix/msc00ef.stagenet-client`
+## Unstable prefix
 
-Once this MSC is approved and merged, these identifiers will be stabilized to their official names without the `msc00ef` namespace prefix.
+During the draft and development phase, this proposal uses the following unstable prefixes (replace `XXXX` with the PR number once assigned):
+
+- **Testnet Room Versions:** `org.matrix.mscXXXX.testnet-` (e.g., `org.matrix.mscXXXX.testnet-v10`)
+- **Stagenet Room Versions:** `org.matrix.mscXXXX.stagenet-` (e.g., `org.matrix.mscXXXX.stagenet-v10`)
+- **HTTP Header:** `Matrix-MSCXXXX-Network-Id`
+- **Testnet Server Discovery:** `/.well-known/matrix/mscXXXX.testnet-server`
+- **Stagenet Server Discovery:** `/.well-known/matrix/mscXXXX.stagenet-server`
+- **Testnet Client Discovery:** `/.well-known/matrix/mscXXXX.testnet-client`
+- **Stagenet Client Discovery:** `/.well-known/matrix/mscXXXX.stagenet-client`
+
+Homeservers supporting this framework SHOULD advertise support to clients by adding `"org.matrix.mscXXXX": true` to the `unstable_features` dictionary of their `/_matrix/client/versions` endpoint response.
+
+Once this MSC is approved and merged, these identifiers will be stabilized to their official names without the `mscXXXX` namespace prefix.
+
+## Unresolved Questions
+
+- None.
