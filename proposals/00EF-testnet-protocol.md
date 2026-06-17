@@ -70,12 +70,12 @@ To guarantee that production servers efficiently reject non-`mainnet` payloads, 
 
 All rooms created or federated on parallel networks MUST use a room version string prefixed with their respective network identifier:
 
-- **Testnet Rooms:** MUST use room versions prefixed with `org.matrix.testnet-` (e.g., `org.matrix.testnet-v10`).
-- **Stagenet Rooms:** MUST use room versions prefixed with `org.matrix.stagenet-` (e.g., `org.matrix.stagenet-v10`).
+- **Testnet Rooms:** MUST use room versions prefixed with `testnet-` (e.g., `testnet-v10`).
+- **Stagenet Rooms:** MUST use room versions prefixed with `stagenet-` (e.g., `stagenet-v10`).
 
 **Enforcement:**
 
-- **Mainnet Homeservers:** MUST reject any room-creation, join request, or message payload containing a room version with the `org.matrix.testnet-*` or `org.matrix.stagenet-*` prefix, returning an HTTP `400 Bad Request` with an `M_UNSUPPORTED_ROOM_VERSION` error code.
+- **Mainnet Homeservers:** MUST reject any room-creation, join request, or message payload containing a room version with the `testnet-` or `stagenet-` prefix, returning an HTTP `400 Bad Request` with an `M_UNSUPPORTED_ROOM_VERSION` error code.
 - **Testnet/Stagenet Homeservers:** MUST reject standard `mainnet` room versions (e.g., `"10"`, `"11"`, or any `mainnet` deployed `org.*` room version) and exclusively permit room versions matching their respective network prefix, returning an HTTP `400 Bad Request` with an `M_UNSUPPORTED_ROOM_VERSION` error code upon receiving mainnet room version payloads.
 
 _Impact:_ If an event accidentally leaks, `mainnet` homeservers may parse the JSON but will immediately drop the event upon seeing the unsupported room version, eliminating any risk of corruption or significant CPU usage.
@@ -84,11 +84,11 @@ _Impact:_ If an event accidentally leaks, `mainnet` homeservers may parse the JS
 
 To preserve test fidelity and minimize the need for codebase refactors, homeservers MUST natively alias network-specific room versions to their underlying `mainnet` algorithm.
 
-- **Behavior & Adoption Timeline:** A homeserver MUST process a room version prefixed with `org.matrix.testnet-` or `org.matrix.stagenet-` using the identical algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard `mainnet` room version. For example, `org.matrix.testnet-v10` and `org.matrix.stagenet-v10` MUST be processed identically to standard `mainnet` Room Version `10`.
+- **Behavior & Adoption Timeline:** A homeserver MUST process a room version prefixed with `testnet-` or `stagenet-` using the identical algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard `mainnet` room version. For example, `testnet-v10` and `stagenet-v10` MUST be processed identically to standard `mainnet` Room Version `10`.
 
-  Parallel networks SHOULD automatically adopt new stable mainnet room versions as their basis within 30 days of the mainnet room version stabilizing in the Matrix specification, creating the corresponding prefixed alias (e.g., `org.matrix.testnet-v11` corresponding to Room Version `11`).
+  Parallel networks SHOULD automatically adopt new stable mainnet room versions as their basis within 30 days of the mainnet room version stabilizing in the Matrix specification, creating the corresponding prefixed alias (e.g., `testnet-v11` corresponding to Room Version `11`).
 
-- **PDU Format Escape Hatch:** To allow for testing radical experiments (e.g., custom state resolution engines or experimental signature formats) where strict PDU format adherence is not possible, unstable room version suffixes MAY be appended (e.g., `org.matrix.testnet-org.matrix.mscXXXX`).
+- **PDU Format Escape Hatch:** To allow for testing radical experiments (e.g., custom state resolution engines or experimental signature formats) where strict PDU format adherence is not possible, unstable room version suffixes MAY be appended (e.g., `testnet-org.matrix.mscXXXX` or `testnet-org.msc4242.hydra12`).
 
   To invoke this escape hatch, the modification MUST meet specific incompatibility conditions (e.g., containing structural JSON alterations that would otherwise cause a standard mainnet parser to crash or throw signature validation errors), and MUST be formally registered as an unstable MSC prefix in the public directory rather than using ad-hoc unregistered suffixes.
 
@@ -305,8 +305,7 @@ This MSC does not depend on any currently unmerged MSCs.
 
 During the draft and development phase, this proposal uses the following unstable prefixes (replace `XXXX` with the PR number once assigned):
 
-- **Testnet Room Versions:** `org.matrix.mscXXXX.testnet-` (e.g., `org.matrix.mscXXXX.testnet-v10`)
-- **Stagenet Room Versions:** `org.matrix.mscXXXX.stagenet-` (e.g., `org.matrix.mscXXXX.stagenet-v10`)
+- **Testnet & Stagenet Room Versions:** Because `testnet-` and `stagenet-` are globally reserved prefixes representing the official alternate networks, they do NOT require unstable namespacing during the draft phase and MUST be used directly as `testnet-` and `stagenet-`.
 - **HTTP Header:** `Matrix-MSCXXXX-Network-Id`
 - **Testnet Server Discovery:** `/.well-known/matrix/mscXXXX.testnet-server`
 - **Stagenet Server Discovery:** `/.well-known/matrix/mscXXXX.stagenet-server`
@@ -329,7 +328,7 @@ To facilitate certain testing scenarios, administrators and developers may wish 
 
 This method is recommended for testing client features, widgets, or application-layer integrations where exact historical signatures and server domains are not critical.
 
-- **Import:** An administrative bot or script queries the production room state via the Client-Server API (`/rooms/{roomId}/state`), translates all user ID and server domain namespaces (e.g., mapping `@alice:matrix.org` to `@alice:testnet-matrix.org`), and creates a brand-new room on the `testnet` using the _corresponding_ network-specific room version (e.g., `org.matrix.mscXXXX.testnet-v10`).
+- **Import:** An administrative bot or script queries the production room state via the Client-Server API (`/rooms/{roomId}/state`), translates all user ID and server domain namespaces (e.g., mapping `@alice:matrix.org` to `@alice:testnet-matrix.org`), and creates a brand-new room on the `testnet` using the _corresponding_ network-specific room version (e.g., `testnet-v10`).
 - **VPNs:** To simulate activity from translated third-party domains without deploying separate servers (and creating separate signing keys), administrators can register a local Application Service (AS) on their `testnet` homeserver to act as a virtual proxy for those namespaces.
 
 ### Database Seeding & Local Key Spoofing (For Server & Federation Scale Testing)
