@@ -216,6 +216,24 @@ Homeservers supporting this framework SHOULD advertise support to clients by add
 
 Once this MSC is approved and merged, these identifiers will be stabilized to their official names without the `mscXXXX` namespace prefix.
 
+## Appendix: Administrative Room Cloning & State Population
+
+To facilitate high-fidelity testing, administrators and developers often need to populate parallel networks with existing mainnet room structures. Because parallel networks enforce strict cryptographic separation and do not trust mainnet keys, administrators can use two standard administrative methodologies to clone room state:
+
+### Client-Side State Translation (For Client & Widget Integration Testing)
+
+This method is recommended for testing client features, widgets, or application-layer integrations where exact historical signatures and server domains are not critical.
+
+- **Mechanism:** An administrative bot or script queries the production room state via the Client-Server API (`/rooms/{roomId}/state`), translates all user ID and server domain namespaces (e.g., mapping `@alice:matrix.org` to `@alice:testnet-matrix.org`), and creates a brand-new room on the testnet using the network-specific room version (e.g., `org.matrix.mscXXXX.testnet-v10`).
+- **Virtualization:** To simulate activity from these translated third-party domains without deploying separate servers, administrators can register a local Application Service (AS) on their testnet homeserver to act as a virtual proxy for those namespaces.
+
+### Database Seeding & Local Key Spoofing (For Server & Federation Scale Testing)
+
+This method is recommended for testing homeserver scale-limits, state-resolution performance, and database migrations where preserving the exact production DAG, user IDs, and timeline is required.
+
+- **DAG Rewriting:** An offline migration script takes a snapshot of a mainnet database and rewrites the room versions to their parallel network equivalents. Because event IDs are cryptographic hashes of the event content (which now contains a parallel room version), the script recalculates all event IDs in topological order, updating the `prev_events` and `auth_events` references down the chain.
+- **Trust Injection:** Rather than attempting to forge signatures for non-existent domains, the administrator injects dummy signing keys for the associated mainnet domains directly into their testnet homeserver's local key cache database (e.g., Synapse's `server_signature_keys` table). When the server validates the imported timeline, it finds the "cached" dummy keys locally, verifies the signatures, and completely bypasses any outbound DNS or notary lookups.
+
 ## Unresolved Questions
 
 - None.
