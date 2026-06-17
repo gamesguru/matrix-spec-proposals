@@ -99,11 +99,11 @@ Matrix federation relies on server keys (Ed25519) to sign and authenticate event
 - Testnet and Stagenet homeservers MUST use distinct cryptographic key pairs that are not registered or published on mainnet key servers or DNS records.
 - Mainnet homeservers MUST NOT trust or fetch keys from parallel network servers, and parallel network homeservers MUST reject signatures from mainnet server keys, ensuring mutual cryptographic isolation.
 
-* **Default Key Notaries:** Because Matrix homeservers rely on key notaries to verify historical signing keys for offline or unreachable servers, parallel network homeservers MUST NOT query mainnet key notaries. Instead, dedicated fallback notaries must be operated:
+- **Default Key Notaries:** Because Matrix homeservers rely on key notaries to verify historical signing keys for offline or unreachable servers, parallel network homeservers MUST NOT query mainnet key notaries. Instead, dedicated fallback notaries must be operated:
   - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for `testnet`)
   - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for `stagenet`)
 
-  **Outage Handling & Redundancy:**
+- **Outage Handling & Redundancy:**
   - **Fallback Chain:** Parallel networks SHOULD define secondary and tertiary backup notaries (e.g., `notary2.testnet.matrix.org`) in their configuration files to provide redundancy.
   - **Timeout & Retry Behavior:** If a primary parallel notary is unreachable, query attempts MUST time out after 10 seconds. Homeservers MUST retry the query following an exponential backoff loop with a maximum of 3 retries over a 1-hour window before declaring a transient outage.
   - **Failure Mode (Strict Containment):** If all configured parallel network notaries are offline or return verification failures, key verification MUST fail immediately (hard failure). Homeservers MUST NOT fall back to mainnet notaries or bypass key verification, ensuring that the strict "no-fallback" isolation policy is maintained even under catastrophic notary outages.
@@ -295,6 +295,7 @@ The primary security goal of this MSC is _containment_. By utilizing network-spe
 - **Sigil Inversion:** Inverting sigils (e.g., `~` for users, `?` for rooms) was proposed to segregate namespaces. This was rejected because of the overhead of forcing homeservers and SDKs to use custom regex parsers, string validators, and DB schemas (completely compromising test fidelity and carrying significant ecosystem-wide refactoring overhead).
 - **TLD Restriction:** Restricting parallel networks to specific domains. Rejected due to arbitrary limitations/production collisions.
 - **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for smoke/stress testing.
+- **Disabling Signature Verification:** Skipping Ed25519 signature checks on the `testnet` to maximize event throughput was considered and rejected. Matrix's Event Authorization Rules inherently rely on signatures to validate power levels and prevent trivial spoofing. Disabling cryptography would cause the DAG to collapse, completely compromising test fidelity for state-resolution algorithms. Furthermore, introducing a `bypass_crypto` flag into core homeserver logic presents an unacceptable CVE risk to the `mainnet`.
 
 ## Dependencies
 
