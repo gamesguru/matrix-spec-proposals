@@ -20,8 +20,8 @@ This proposal introduces an extensible, parallel **multi-network framework** to 
 
 The `testnet` operates under a "wild west" philosophy:
 
-- **Anything goes:** This network is designed for abuse. Spam waves, intentional state-resolution forks, malicious federation payloads, and crafted attacks by constructed PDU are permitted within reason.
-- **No take backs:** There are no SLAs, no database recovery guarantees, and (generally) no admin interventions. If a new feature corrupts a `testnet` deployment's database, the recommendation is to leave rooms where possible, wipe the database, and restart.
+- **Anything goes:** This network is designed for experimental features and probing for bugs. Spam waves, intentional state-resolution forks, and malicious federation payloads are permitted within reason (to the extent they do not substantially compromise).
+- **No take backs:** There are no SLAs, no database recovery guarantees, and (generally) no admin interventions. If a new feature corrupts a `testnet` deployment's database, the recommendation is to leave rooms where possible, wipe from the database, and restart.
 - **Record incidents, keep moving:** Server admins are encouraged to log, profile, and record incidents (such as memory leaks or state-reset bugs) and report them through appropriate channels. Servers should remain running to the extent possible (and not undergo excessive downtime for maintenance).
 
 ### The `stagenet` (staging/pre-prod - networkID: `2`)
@@ -29,12 +29,12 @@ The `testnet` operates under a "wild west" philosophy:
 The `stagenet` operates as a mirror of production, a stricter pre-prod environment:
 
 - **Pre-release validation:** Restricted to validating release candidate software, migration scripts, and stable app integrations before prod deployments.
-- **Constructive use only:** Unlike `testnet`, power level attacks, spam waves, and other malicious payloads are strictly prohibited.
+- **Constructive use only:** Unlike `testnet`, power level attacks, extreme load testing, and deliberately malicious payloads are strictly prohibited.
 - **State preservation:** State is ideally preserved across software upgrades. Wipes are rare and coordinated only around major specification milestones or permitted by smaller instances.
 
 ## Motivation
 
-Federation testing currently often involves isolated local setups (`Complement`, internal/non-federated room version tests) or else it involves running half-baked server code that risk corrupting the state of the `mainnet` if improperly implemented or configured (degrading mainnet performance and polluting production databases).
+Federation testing currently often involves isolated local setups (`Complement`, internal/non-federated room version tests) or else it involves deploying half-baked server code that risk corrupting the state of the `mainnet` if improperly implemented or configured (degrading mainnet performance and polluting production databases).
 
 A formal parallel network framework requires strict isolation; we can achieve this by leveraging standard Matrix federation protocol-level validation barriers (room versions and signatures) coupled with HTTP and/or DNS bypasses at the network/kernel layer.
 
@@ -53,7 +53,7 @@ To distinguish federation traffic across networks, this proposal establishes an 
 - `2`: **Stagenet** (Staging / Release Candidates)
 - `3+`: **Reserved / Private / Local Networks**
 
-Homeservers federating over `testnet` or `stagenet` traffic MUST explicitly include the respective Network ID as an integer value in the `Matrix-Network-Id` HTTP header on all outgoing federation requests (e.g., `Matrix-Network-Id: 1` for traffic on `testnet`).
+Homeservers federating over `testnet` or `stagenet` traffic MUST explicitly include the respective Network ID as an integer value in the `Matrix-Network-Id` HTTP header on all outgoing federation requests (e.g., `Matrix-Network-Id: 1` for traffic on `testnet`). Other checks would still filter traffic if this header were omitted, but it is required for comprehensiveness and consistency.
 
 #### Ingress Header Validation & Logging
 
@@ -82,15 +82,15 @@ _Impact:_ If an event accidentally leaks, `mainnet` homeservers may parse the JS
 
 #### Room version semantics
 
-To preserve test fidelity and minimize the need for codebase refactors, homeservers MUST natively alias network-specific room versions to their underlying `mainnet` algorithm.
+To preserve test fidelity and minimize the need for codebase refactors, homeservers MUST natively alias network-specific room versions to their underlying `mainnet` algorithm—you may only disregard this rule (reuse room version identifiers) up to a minor patch. Efforts must be made (especially in `stagenet`) to never alter primary or core room functionality under the _same_ room version identifier.
 
-- **Behavior & Adoption Timeline:** A homeserver MUST process a room version prefixed with `testnet-` or `stagenet-` using the identical algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard `mainnet` room version. For example, `testnet-v10` and `stagenet-v10` MUST be processed identically to standard `mainnet` Room Version `10`.
+- **Standard room versions and adoption timeline:** A homeserver MUST process a "standard" room version prefixed with `testnet-` or `stagenet-` using the standard algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard `mainnet` room version. For example, `testnet-v10` and `stagenet-v10` MUST be processed identically to standard `mainnet` Room Version `10`, relying on State Res v2.0 and room v10 event structure.
 
-  Parallel networks SHOULD automatically adopt new stable mainnet room versions as their basis within 30 days of the mainnet room version stabilizing in the Matrix specification, creating the corresponding prefixed alias (e.g., `testnet-v11` corresponding to Room Version `11`).
+    - Parallel networks SHOULD automatically adopt new stable mainnet room versions as their basis within 30 days of the mainnet room version stabilizing in the Matrix specification, creating the corresponding prefixed alias (e.g., `testnet-v11` corresponding to Room Version `11`).
 
-- **PDU Format Escape Hatch:** To allow for testing radical experiments (e.g., custom state resolution engines or experimental signature formats) where strict PDU format adherence is not possible, unstable room version suffixes MAY be appended (e.g., `testnet-org.matrix.mscXXXX` or `testnet-org.msc4242.hydra12`).
+- **Custom PDU formats/room versions:** To allow for testing of unstable featurs (e.g., state resolution engines) where strict PDU format adherence is not possible, unstable room version suffixes MAY be appended (e.g., `testnet-org.matrix.mscXXXX` or `testnet-org.msc4242.hydra12`).
 
-  To invoke this escape hatch, the modification MUST meet specific incompatibility conditions (e.g., containing structural JSON alterations that would otherwise cause a standard mainnet parser to crash or throw signature validation errors), and MUST be formally registered as an unstable MSC prefix in the public directory rather than using ad-hoc unregistered suffixes.
+    - To invoke this escape hatch, the modification MUST meet specific incompatibility conditions (e.g., containing structural JSON alterations that would otherwise cause a standard mainnet parser to crash or throw signature validation errors), and MUST be formally registered as an unstable MSC prefix in the public directory rather than using ad-hoc unregistered suffixes.
 
 #### Separations of concern and root trust
 
