@@ -9,56 +9,60 @@
 
 ## Introduction
 
-As the Matrix ecosystem grows, developers and server administrators need globally federated, parallel networks to evaluate new features, scale-test homeservers, and debug federation issues without risking mainnet stability.
+As the Matrix ecosystem grows, developers and server administrators today increasingly rely on the production ecosystem to evaluate new features, scale-test homeservers, and debug federation issues in the aims of stability.
 
-This proposal introduces an extensible, parallel **Matrix Multi-Network Framework** designed to support both a highly chaotic **Testnet** (a developer playground) and a highly stable **Stagenet** (pre-production release candidate validation). To ensure zero cross-contamination with the mainnet, this MSC proposes strict application-layer isolation through network-specific room versions and distinct cryptographic trust roots, supplemented by strict, no-fallback server/client discovery and clean ingress defenses at the network layer.
+This proposal introduces an extensible, parallel **multi-network framework** to support a **testnet** (a free-for-all developer playground) and a relatively stable **stagenet** (pre-production validation). To prevent cross-contamination with the mainnet, this MSC recommends strict application-layer isolation and clean ingress defenses at the network layer.
+
+## TODOs
+
+- Make each a proper superset of either: (a) the former/lesser, or (b) the `mainnet`. So that the `testnet` is everything inside it plus the `mainnet` as a starting base. Would "snapshots" be needed here, or could we truly mix two networks on the fly (even if `mainnet` only saw itself, and it was just `testnet` seeing dual traffic timelines and PDU/event stores in the DB)?
+
+- Maybe a 3rd `preprod` network? To make the `stagenet` less rigid. No, probably a bad idea.
 
 ## Operational Philosophy
 
-Before detailing the technical implementation, it is crucial to establish the social and operational expectations of these parallel networks.
+### The Testnet (dev playground - networkID: `1`)
 
-### The Testnet (Developer Playground - Network ID: `1`)
+The `testnet` operates under a "wild west" philosophy:
 
-The Matrix Testnet operates under a strict "Wild West" philosophy:
+- **Anything goes:** This network is designed for abuse. Spam waves, intentional state-resolution forks, malicious federation payloads, and crafted attacks by constructed PDU are permitted within reason.
+- **No take backs:** There are no SLAs, no database recovery guarantees, and (generally) no admin interventions. If a new feature corrupts a `testnet` deployment's database, the recommendation is to leave rooms where possible, wipe the database, and restart.
+- **Record incidents, keep moving:** Server admins are encouraged to log, profile, and record incidents (such as memory leaks or state-reset bugs) and report them through appropriate channels. Servers should remain running to the extent possible (and not undergo excessive downtime for maintenance).
 
-- **Anything Goes:** This network is designed for abuse. Spam waves, intentional state-resolution forks, malicious federation payloads, and massive room-join floods are expected and permitted.
-- **No Take Backs:** There are no SLAs, no database recovery guarantees, and no administrative interventions. If an experimental feature corrupts a testnet deployment's database, the accepted resolution is to wipe the database and restart.
-- **Record Incidents, Keep Moving:** Server admins are encouraged to aggressively log, profile, and record incidents (such as memory leaks or state-reset vulnerabilities) to generate bug reports for mainnet implementations. Document the carnage, patch the software, and keep moving.
+### The Stagenet (staging/pre-prod - networkID: `2`)
 
-### The Stagenet (Pre-Production Staging - Network ID: `2`)
+The `stagenet` operates as a mirror of production, a stricter pre-prod environment:
 
-The Matrix Stagenet operates as a high-fidelity mirror of the production mainnet:
-
-- **Pre-Release Validation:** Used solely for validating release candidate software, migration scripts, and stable app integrations before mainnet deployment.
-- **Constructive Use Only:** DoS testing, intentional spamming, or malicious payload distribution are strictly prohibited.
-- **State Continuity:** State is preserved across software upgrades. Wipes are rare and coordinated only around major specification milestones.
+- **Pre-release validation:** Restricted to validating release candidate software, migration scripts, and stable app integrations before prod deployments.
+- **Constructive use only:** Unlike `testnet`, power level attacks, spam waves, and other malicious payloads are strictly prohibited.
+- **State preservation:** State is ideally preserved across software upgrades. Wipes are rare and coordinated only around major specification milestones or permitted by smaller instances.
 
 ## Motivation
 
-Currently, testing federation often involves running isolated local deployments (like Complement) or ad-hoc federations that risk leaking into the public Matrix network if improperly configured. If a test homeserver accidentally connects to a mainnet server during a deliberate spam wave or extreme load test, it can severely degrade mainnet performance and pollute production databases.
+Federation testing currently often involves isolated local setups (`Complement`, internal/non-federated room version tests) or else it involves running half-baked server code that risk corrupting the state of the `mainnet` if improperly implemented or configured (degrading mainnet performance and polluting production databases).
 
-A formal parallel network framework requires strict isolation. Rather than modifying the fundamental identifiers (sigils) which introduces massive parser fragmentation and ecosystem-wide overhead, we can achieve absolute isolation by leveraging standard Matrix protocol-level validation barriers (room versions and cryptographic signatures) coupled with DNS and HTTP bypasses at the federation layer.
+A formal parallel network framework requires strict isolation; we can achieve this by leveraging standard Matrix federation protocol-level validation barriers (room versions and signatures) coupled with HTTP and/or DNS bypasses at the network/kernel layer.
 
-Additionally, to prevent CPU or network overhead on mainnet homeservers from processing junk HTTP requests, mainnet deployments can easily drop parallel network traffic at the network or reverse-proxy layer using simple, standard infrastructure patterns.
+Additionally, to prevent CPU or network overhead on the `mainnet` from "junk" HTTP requests, production deployments can safely drop non-`mainnet` network traffic (at the network or reverse-proxy layer using simple, standard infrastructure patterns).
 
 ## Proposal
 
-This MSC proposes a parallel network framework governed by the following technical specifications:
+This MSC proposes a parallel network framework defined by the following specifications:
 
 ### Extensible Integer Network IDs
 
-To distinguish federation traffic across parallel networks, this proposal establishes an extensible integer-based **Network ID** passed via the custom HTTP header `Matrix-Network-Id` (compliant with RFC 6648 deprecating the `X-` prefix):
+To distinguish federation traffic across networks, this proposal establishes an integer-based **Network ID** passed via a custom HTTP header `Matrix-Network-Id` with values:
 
 - `0` (or absent): **Mainnet** (Production)
-- `1`: **Testnet** (Chaos Playground)
+- `1`: **Testnet** (Experimental)
 - `2`: **Stagenet** (Staging / Release Candidates)
 - `3+`: **Reserved / Private / Local Networks**
 
-Testnet and Stagenet homeservers MUST explicitly include their respective Network ID as an integer value in the `Matrix-Network-Id` HTTP header on all outgoing federation requests (e.g., `Matrix-Network-Id: 1` for the Testnet).
+Homeservers federating over `testnet` or `stagenet` traffic MUST explicitly include the respective Network ID as an integer value in the `Matrix-Network-Id` HTTP header on all outgoing federation requests (e.g., `Matrix-Network-Id: 1` for traffic on `testnet`).
 
 ### Application-Layer Isolation
 
-To guarantee that mainnet servers cleanly reject parallel network payloads without mutating standard parsers, identifiers (sigils), or database schemas, the framework utilizes native protocol-level boundaries.
+To guarantee that production servers efficiently reject non-`mainnet` payloads, the proposal introduces native protocol-level boundaries.
 
 #### Network-Specific Room Versions
 
