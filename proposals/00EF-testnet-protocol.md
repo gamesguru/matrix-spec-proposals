@@ -1,14 +1,5 @@
 # MSCXXXX: Matrix Testnet Segregation via Room Versions and Traffic Bypassing
 
-**Authors:** [Your Name/Handle]
-**Date:** 2026-06-16
-**Version:** 1.4
-**Status:** Draft
-
----
-
-## Introduction
-
 As the Matrix ecosystem grows, developers and server administrators today increasingly rely on the production ecosystem to evaluate new features, scale-test homeservers, and debug federation issues in the aims of stability.
 
 This proposal introduces an extensible, parallel **multi-network framework** to support a `testnet` (a free-for-all developer playground) and a relatively stable `stagenet` (pre-production validation). To prevent cross-contamination with the `mainnet`, this MSC recommends strict application-layer isolation and clean ingress defenses at the network layer.
