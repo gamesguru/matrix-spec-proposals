@@ -73,7 +73,7 @@ All rooms created or federated on parallel networks MUST use a room version stri
 - **Testnet Rooms:** MUST use room versions prefixed with `testnet-` (e.g., `testnet-v10`).
 - **Stagenet Rooms:** MUST use room versions prefixed with `stagenet-` (e.g., `stagenet-v10`).
 
-**Enforcement:**
+##### Enforcement
 
 - **Mainnet Homeservers:** MUST reject any room-creation, join request, or message payload containing a room version with the `testnet-` or `stagenet-` prefix, returning an HTTP `400 Bad Request` with an `M_UNSUPPORTED_ROOM_VERSION` error code.
 - **Testnet/Stagenet Homeservers:** MUST reject standard `mainnet` room versions (e.g., `"10"`, `"11"`, or any `mainnet` deployed `org.*` room version) and exclusively permit room versions matching their respective network prefix, returning an HTTP `400 Bad Request` with an `M_UNSUPPORTED_ROOM_VERSION` error code upon receiving mainnet room version payloads.
@@ -132,6 +132,7 @@ Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
    - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
 
 3. **Halt Discovery:** If discovery fails to resolve a valid destination via either the network-specific `.well-known` endpoint or the network-specific SRV record, the homeserver MUST immediately abort discovery and raise an error.
+
 4. **No Fallback:** Parallel network homeservers MUST NOT fall back to standard Mainnet `.well-known` paths (`/.well-known/matrix/server`), standard `mainnet` SRV records (`_matrix-fed._tcp`), or perform direct IP/port fallback connections on port `8448` or `443`.
 
 _Endpoint constraints:_ These `.well-known` endpoints require no authentication, have no specific rate-limiting requirements, do not apply to guest access, and MUST return an HTTP `404 Not Found` error (with standard `M_NOT_FOUND` errcode) if the requested network is not supported by the host.
@@ -160,113 +161,6 @@ To allow clients to securely discover homeservers on parallel networks when trig
 - **Schema:** The JSON schema for these endpoints MUST be strictly identical to the standard `/.well-known/matrix/client` file (e.g., returning homeserver base URLs and identity server addresses).
 - **No Fallback:** Clients MUST NOT fall back to querying the Mainnet `/.well-known/matrix/client` endpoint when attempting discovery on a parallel network.
 - **Endpoint constraints:** Similar to server discovery, these `.well-known` endpoints require no authentication, have no specific rate-limiting requirements, do not apply to guest access, and MUST return an HTTP `404 Not Found` error (with standard `M_NOT_FOUND` errcode) if the requested network is not supported by the host.
-
-#### Ingress protection (Implementation Guide)
-
-Historically, the Matrix specification designated port `8448` for federation. However, **most modern deployments now federate over standard HTTPS port `443`** to easily bypass restrictive corporate and consumer ISP firewalls.
-
-Depending on an administrator's deployment strategy, three highly efficient ingress-dropping architectures can be used to isolate parallel network traffic:
-
-##### Host-level isolation (subdomains/HTTPS)
-
-Since modern servers multiplex federation over port `443`, the best practice is to separate networks by subdomain (e.g., `matrix.org` for `mainnet`, `testnet.matrix.org` for Testnet, and `stagenet.matrix.org` for Stagenet).
-
-- **Mechanism:** Nginx/reverse proxies evaluate the **server name (SNI)** during the initial TLS handshake.
-- **Efficiency:** Attempts to send `testnet` traffic to `matrix.org` are rejected at the TLS handshake level before Nginx ever reads or parses HTTP headers or payload bytes, resulting in virtually zero CPU overhead.
-
-##### Port-level isolation (firewalls)
-
-If subdomains are not used and isolation is handled via ports, this MSC defines standard default ports for parallel networks:
-
-- **Mainnet:** Port `443` or `8448`
-- **Testnet (ID `1`):** Port `8449`
-- **Stagenet (ID `2`):** Port `8450`
-
-These port assignments are recommended defaults and administrative conventions, rather than strict protocol-level requirements. Administrators are free to configure alternative ports provided proper network-level isolation is maintained. Because core protocol-level containment (the `Matrix-Network-Id` header and strict discovery/room version validation) operates independently of port selection, full interoperability and network isolation are guaranteed regardless of the specific ports chosen.
-
-- **Mechanism:** Mainnet homeservers do not listen on ports `8449` or `8450`.
-- **Efficiency:** The `mainnet` server's host firewall (e.g., `iptables`, `nftables`, or security groups) or OS kernel drops incoming packets immediately at the TCP layer with an `RST` (Reset) packet. This uses zero Nginx CPU cycles, generates zero log noise, and completely avoids user-space processing.
-
-##### Header-level isolation (web server)
-
-If the same host and port must be shared across parallel networks, administrators can implement header-filtering rules to immediately terminate incoming connections upon detecting a non-zero parallel network ID header.
-
-_Note on Nginx `return 444`:_ The non-standard status code `444` is an Nginx-specific directive instructing the server to instantly tear down the TCP connection without sending standard HTTP response headers or wrappers, saving CPU, egress bandwidth, and socket worker state under extreme parallel network loads.
-
-Depending on the edge reverse proxy, administrators can configure equivalent connection termination behaviors:
-
-###### Nginx
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name matrix.org;
-
-    # Terminate the connection if the network ID is a parallel network ID (non-zero).
-    # Nginx natively treats both empty string "" and the string "0" as false,
-    # so this naturally matches only non-zero IDs (1, 2, etc.) and drops them.
-    if ($http_matrix_network_id) {
-        return 444;
-    }
-}
-```
-
-###### Apache HTTP Server
-
-For true connection termination/dropping, Apache requires ModSecurity (`mod_security`) with the `drop` action to instantly tear down the TCP connection. Alternatively, standard `mod_rewrite` can be used to return a `403 Forbidden` response, though it does not instantly drop the TCP connection.
-
-**Using ModSecurity (Recommended for dropping):**
-
-```apache
-# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection if the parallel network ID is non-zero
-SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ^[1-9][0-9]*$" \
-    "id:100001,phase:1,drop,nolog,msg:'Non-mainnet network traffic forbidden'"
-```
-
-**Using mod_rewrite (Fallback, returns 403 Forbidden):**
-
-```apache
-# Requires mod_rewrite. Returns an HTTP 403 Forbidden response if the parallel network ID is non-zero
-RewriteEngine On
-RewriteCond %{HTTP:Matrix-Network-Id} ^[1-9][0-9]*$
-RewriteRule ^ - [F]
-```
-
-###### Caddy
-
-```caddy
-# Match when the header value is a non-zero parallel network ID and abort instantly
-@parallel_traffic {
-    header_regexp Matrix-Network-Id ^[1-9][0-9]*$
-}
-abort @parallel_traffic
-```
-
-###### HAProxy
-
-```haproxy
-# Silent-drop / close connection at TCP layer if parallel network ID is non-zero
-acl is_parallel_network req.hdr(Matrix-Network-Id) -m reg ^[1-9][0-9]*$
-http-request silent-drop if is_parallel_network
-```
-
-###### Envoy
-
-```yaml
-# Envoy route action configuration to terminate with local direct reply if parallel network ID is non-zero
-routes:
-  - match:
-      prefix: "/"
-      headers:
-        - name: "Matrix-Network-Id"
-          safe_regex_match:
-            google_re2: {}
-            regex: "^[1-9][0-9]*$"
-    direct_response:
-      status: 403
-      body:
-        inline_string: "Non-mainnet network traffic forbidden."
-```
 
 ### Client & URI integration
 
@@ -350,6 +244,113 @@ This method is recommended for testing homeserver scale-limits, state-resolution
 
 - **DAG Rewriting:** An offline migration script takes a snapshot of a `mainnet` database and rewrites the room versions to their parallel network equivalents. Because event IDs are cryptographic hashes of the event content (which now contains a parallel room version), the script recalculates all event IDs in topological order, updating the `prev_events` and `auth_events` references down the chain.
 - **Trust Injection:** Rather than attempting to forge signatures for non-existent domains, the administrator injects dummy signing keys for the associated `mainnet` domains directly into their `testnet` homeserver's local key cache database (e.g., Synapse's `server_signature_keys` table). When the server validates the imported timeline, it finds the "cached" dummy keys locally, verifies the signatures, and completely bypasses any outbound DNS or notary lookups.
+
+## Appendix: Ingress protection (Implementation Guide)
+
+Historically, the Matrix specification designated port `8448` for federation. However, **most modern deployments now federate over standard HTTPS port `443`** to easily bypass restrictive corporate and consumer ISP firewalls.
+
+Depending on an administrator's deployment strategy, three highly efficient ingress-dropping architectures can be used to isolate parallel network traffic:
+
+### Host-level isolation (subdomains/HTTPS)
+
+Since modern servers multiplex federation over port `443`, the best practice is to separate networks by subdomain (e.g., `matrix.org` for `mainnet`, `testnet.matrix.org` for Testnet, and `stagenet.matrix.org` for Stagenet).
+
+- **Mechanism:** Nginx/reverse proxies evaluate the **server name (SNI)** during the initial TLS handshake.
+- **Efficiency:** Attempts to send `testnet` traffic to `matrix.org` are rejected at the TLS handshake level before Nginx ever reads or parses HTTP headers or payload bytes, resulting in virtually zero CPU overhead.
+
+### Port-level isolation (firewalls)
+
+If subdomains are not used and isolation is handled via ports, this MSC defines standard default ports for parallel networks:
+
+- **Mainnet:** Port `443` or `8448`
+- **Testnet (ID `1`):** Port `8449`
+- **Stagenet (ID `2`):** Port `8450`
+
+These port assignments are recommended defaults and administrative conventions, rather than strict protocol-level requirements. Administrators are free to configure alternative ports provided proper network-level isolation is maintained. Because core protocol-level containment (the `Matrix-Network-Id` header and strict discovery/room version validation) operates independently of port selection, full interoperability and network isolation are guaranteed regardless of the specific ports chosen.
+
+- **Mechanism:** Mainnet homeservers do not listen on ports `8449` or `8450`.
+- **Efficiency:** The `mainnet` server's host firewall (e.g., `iptables`, `nftables`, or security groups) or OS kernel drops incoming packets immediately at the TCP layer with an `RST` (Reset) packet. This uses zero Nginx CPU cycles, generates zero log noise, and completely avoids user-space processing.
+
+### Header-level isolation (web server)
+
+If the same host and port must be shared across parallel networks, administrators can implement header-filtering rules to immediately terminate incoming connections upon detecting a non-zero parallel network ID header.
+
+_Note on Nginx `return 444`:_ The non-standard status code `444` is an Nginx-specific directive instructing the server to instantly tear down the TCP connection without sending standard HTTP response headers or wrappers, saving CPU, egress bandwidth, and socket worker state under extreme parallel network loads.
+
+Depending on the edge reverse proxy, administrators can configure equivalent connection termination behaviors:
+
+#### Nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name matrix.org;
+
+    # Terminate the connection if the network ID is a parallel network ID (non-zero).
+    # Nginx natively treats both empty string "" and the string "0" as false,
+    # so this naturally matches only non-zero IDs (1, 2, etc.) and drops them.
+    if ($http_matrix_network_id) {
+        return 444;
+    }
+}
+```
+
+#### Apache HTTP Server
+
+For true connection termination/dropping, Apache requires ModSecurity (`mod_security`) with the `drop` action to instantly tear down the TCP connection. Alternatively, standard `mod_rewrite` can be used to return a `403 Forbidden` response, though it does not instantly drop the TCP connection.
+
+**Using ModSecurity (Recommended for dropping):**
+
+```apache
+# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection if the parallel network ID is non-zero
+SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ^[1-9][0-9]*$" \
+    "id:100001,phase:1,drop,nolog,msg:'Non-mainnet network traffic forbidden'"
+```
+
+**Using mod_rewrite (Fallback, returns 403 Forbidden):**
+
+```apache
+# Requires mod_rewrite. Returns an HTTP 403 Forbidden response if the parallel network ID is non-zero
+RewriteEngine On
+RewriteCond %{HTTP:Matrix-Network-Id} ^[1-9][0-9]*$
+RewriteRule ^ - [F]
+```
+
+#### Caddy
+
+```caddy
+# Match when the header value is a non-zero parallel network ID and abort instantly
+@parallel_traffic {
+    header_regexp Matrix-Network-Id ^[1-9][0-9]*$
+}
+abort @parallel_traffic
+```
+
+#### HAProxy
+
+```haproxy
+# Silent-drop / close connection at TCP layer if parallel network ID is non-zero
+acl is_parallel_network req.hdr(Matrix-Network-Id) -m reg ^[1-9][0-9]*$
+http-request silent-drop if is_parallel_network
+```
+
+#### Envoy
+
+```yaml
+# Envoy route action configuration to terminate with local direct reply if parallel network ID is non-zero
+routes:
+  - match:
+      prefix: "/"
+      headers:
+        - name: "Matrix-Network-Id"
+          safe_regex_match:
+            google_re2: {}
+            regex: "^[1-9][0-9]*$"
+    direct_response:
+      status: 403
+      body:
+        inline_string: "Non-mainnet network traffic forbidden."
+```
 
 ## Unresolved Questions
 
