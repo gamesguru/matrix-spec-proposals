@@ -179,24 +179,22 @@ To prevent users from clicking a testnet/stagenet link and having it open in the
 
 ## Drawbacks
 
-- **Server-Side Configuration:** Server administrators must maintain separate configuration profiles for parallel networks (e.g., generating separate signing keys, configuring distinct reverse proxy auto-bans, and defining network-specific room version support).
+- **Server-Side Configuration:** Server administrators must maintain separate configuration profiles (e.g., generating separate signing keys, configuring distinct reverse proxy auto-bans, and defining network-specific room version support).
 - **Client Implementation:** Clients wishing to support parallel networks must register separate URI handlers (`matrix-testnet:` / `matrix-stagenet:`) and toggle their server selection accordingly.
 
-## Security Considerations
+## Security/Performance Considerations
 
-The primary security goal of this MSC is _containment_. By utilizing network-specific room versions, mainnet servers are cryptographically and logically protected from state-resolution attacks or malformed payloads originating from parallel networks.
-
-Furthermore, the combination of strict "No-Fallback" server discovery and the Nginx dynamic IP auto-ban configuration protects mainnet servers from resource-exhaustion, TCP connection starvation, or JSON-parsing attacks, preserving CPU and memory under extreme testnet loads.
+The primary security goal of this MSC is _containment_. By utilizing network-specific room versions, mainnet servers remain isolated from potential traffic/bandwidth loads or malformed payloads from non-production networks.
 
 ## Alternatives
 
-- **Sigil Inversion (Draft 1.0):** Inverting sigils (e.g., `~` for users, `?` for rooms) was proposed to segregate namespaces. This was rejected because it introduces a "Mutant Codebase" problem—forcing homeservers and SDKs to use custom regex parsers, string validators, and DB schemas, which completely compromises test fidelity. It also carries astronomical ecosystem-wide refactoring overhead.
-- **TLD Restriction:** Restricting parallel networks to specific Top Level Domains (e.g., `.test` or `.local`). This was rejected because developers often need to test using real-world DNS routing and valid TLS certificates.
-- **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for stress testing.
+- **Sigil Inversion:** Inverting sigils (e.g., `~` for users, `?` for rooms) was proposed to segregate namespaces. This was rejected because of the overhead of forcing homeservers and SDKs to use custom regex parsers, string validators, and DB schemas (completely compromising test fidelity and carrying significant ecosystem-wide refactoring overhead).
+- **TLD Restriction:** Restricting parallel networks to specific domains. Rejected due to arbitrary limitations/production collisions.
+- **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for smoke/stress testing.
 
 ## Unstable Prefixes
 
-During the draft and development phase, this proposal uses the following unstable prefixes (replace `00EF` with the PR number once assigned):
+During the draft and development phase, this proposal uses the following unstable prefixes (TODO: replace `00EF` with the PR number once assigned):
 
 - **Testnet Room Versions:** `org.matrix.msc00ef.testnet-` (e.g., `org.matrix.msc00ef.testnet-v10`)
 - **Stagenet Room Versions:** `org.matrix.msc00ef.stagenet-` (e.g., `org.matrix.msc00ef.stagenet-v10`)
