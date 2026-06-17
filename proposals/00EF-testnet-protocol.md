@@ -180,7 +180,7 @@ These port assignments are recommended defaults and administrative conventions, 
 
 ##### Header-level isolation (web server)
 
-If the same host and port must be shared across parallel networks, administrators can implement header-filtering rules to immediately terminate incoming connections upon detecting a parallel network ID header.
+If the same host and port must be shared across parallel networks, administrators can implement header-filtering rules to immediately terminate incoming connections upon detecting a non-zero parallel network ID header.
 
 _Note on Nginx `return 444`:_ The non-standard status code `444` is an Nginx-specific directive instructing the server to instantly tear down the TCP connection without sending standard HTTP response headers or wrappers, saving CPU, egress bandwidth, and socket worker state under extreme parallel network loads.
 
@@ -193,7 +193,9 @@ server {
     listen 443 ssl;
     server_name matrix.org;
 
-    # Terminate the connection instantly if the header is present
+    # Terminate the connection if the network ID is a parallel network ID (non-zero).
+    # Nginx natively treats both empty string "" and the string "0" as false,
+    # so this naturally matches only non-zero IDs (1, 2, etc.) and drops them.
     if ($http_matrix_network_id) {
         return 444;
     }
@@ -207,26 +209,26 @@ For true connection termination/dropping, Apache requires ModSecurity (`mod_secu
 **Using ModSecurity (Recommended for dropping):**
 
 ```apache
-# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection
-SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ." \
-    "id:100001,phase:1,drop,nolog,msg:'Parallel network traffic dropped'"
+# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection if the parallel network ID is non-zero
+SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ^[1-9][0-9]*$" \
+    "id:100001,phase:1,drop,nolog,msg:'Non-mainnet network traffic forbidden'"
 ```
 
 **Using mod_rewrite (Fallback, returns 403 Forbidden):**
 
 ```apache
-# Requires mod_rewrite. Returns an HTTP 403 Forbidden response (does not terminate TCP)
+# Requires mod_rewrite. Returns an HTTP 403 Forbidden response if the parallel network ID is non-zero
 RewriteEngine On
-RewriteCond %{HTTP:Matrix-Network-Id} . [NC]
+RewriteCond %{HTTP:Matrix-Network-Id} ^[1-9][0-9]*$
 RewriteRule ^ - [F]
 ```
 
 ###### Caddy
 
 ```caddy
-# Match the presence of the header and abort/terminate the connection instantly
+# Match when the header value is a non-zero parallel network ID and abort instantly
 @parallel_traffic {
-    header Matrix-Network-Id *
+    header_regexp Matrix-Network-Id ^[1-9][0-9]*$
 }
 abort @parallel_traffic
 ```
@@ -234,25 +236,27 @@ abort @parallel_traffic
 ###### HAProxy
 
 ```haproxy
-# Silent-drop / close connection at TCP layer if parallel network header matches
-acl is_parallel_network req.hdr(Matrix-Network-Id) -m found
+# Silent-drop / close connection at TCP layer if parallel network ID is non-zero
+acl is_parallel_network req.hdr(Matrix-Network-Id) -m reg ^[1-9][0-9]*$
 http-request silent-drop if is_parallel_network
 ```
 
 ###### Envoy
 
 ```yaml
-# Envoy route action configuration to terminate with local direct reply
+# Envoy route action configuration to terminate with local direct reply if parallel network ID is non-zero
 routes:
   - match:
       prefix: "/"
       headers:
         - name: "Matrix-Network-Id"
-          present_match: true
+          safe_regex_match:
+            google_re2: {}
+            regex: "^[1-9][0-9]*$"
     direct_response:
       status: 403
       body:
-        inline_string: "Parallel network traffic blocked."
+        inline_string: "Non-mainnet network traffic forbidden."
 ```
 
 ### Client & URI integration
