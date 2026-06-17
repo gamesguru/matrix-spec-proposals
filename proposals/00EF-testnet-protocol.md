@@ -126,9 +126,11 @@ Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
    - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead of `server`).
    - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead of `server`).
    - **Schema:** The JSON schema for these parallel `.well-known` endpoints MUST be strictly identical to the standard `/.well-known/matrix/server` file (e.g., returning an `m.server` key mapping to the target host and port).
+
 2. **Distinct SRV Records:**
    - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
    - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
+
 3. **Halt Discovery:** If discovery fails to resolve a valid destination via either the network-specific `.well-known` endpoint or the network-specific SRV record, the homeserver MUST immediately abort discovery and raise an error.
 4. **No Fallback:** Parallel network homeservers MUST NOT fall back to standard Mainnet `.well-known` paths (`/.well-known/matrix/server`), standard `mainnet` SRV records (`_matrix-fed._tcp`), or perform direct IP/port fallback connections on port `8448` or `443`.
 
@@ -140,13 +142,13 @@ _Why this works:_ If a `testnet` server accidentally targets `matrix.org`, it qu
 
 To prevent implementation divergence and ensure strict, consistent isolation during transient network disruptions, homeservers MUST handle discovery failures according to the following error classification:
 
-| Failure Mode               | Description / Type                                                                 | Expected Behavior     | Handling Details                                                                                                                                                                      |
-| :------------------------- | :--------------------------------------------------------------------------------- | :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **HTTP 404**               | Parallel network `.well-known` endpoint returns HTTP 404 (Not Found).              | **Halt Immediately**  | The requested parallel network is not supported. Homeserver MUST immediately abort discovery and raise an error; do not fall back.                                                    |
-| **HTTP 403 / 444 / TCP Reset** | Endpoint returns `403 Forbidden`, `444 No Response` (Nginx-specific drop), or connection is instantly reset/dropped at the TCP layer. | **Halt Immediately**  | The requested server has actively rejected parallel network traffic at the edge layer. Homeserver MUST immediately abort discovery and raise an error; do not retry.                 |
-| **HTTP 5xx / TCP Timeout** | Parallel network `.well-known` endpoint queries time out or return a server error. | **Retry with Limits** | Transient server-side issue. Homeserver MAY retry the query following standard exponential backoff (up to 3 times or for a maximum of 1 hour) before halting and raising an error.    |
-| **DNS NXDOMAIN**           | Parallel network SRV records query resolves to NXDOMAIN (non-existent domain).     | **Halt Immediately**  | The requested parallel network SRV records do not exist. Homeserver MUST immediately abort discovery and raise an error; do not fall back.                                            |
-| **DNS Timeout**            | DNS queries for SRV records or `.well-known` domains time out.                     | **Retry with Limits** | Transient network or DNS issue. Homeserver MAY retry the query following standard DNS resolver timeouts and retry limits (e.g., up to 3 retries) before halting and raising an error. |
+| Failure Mode                   | Description / Type                                                                                                                    | Expected Behavior     | Handling Details                                                                                                                                                                      |
+| :----------------------------- | :------------------------------------------------------------------------------------------------------------------------------------ | :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **HTTP 404**                   | Parallel network `.well-known` endpoint returns HTTP 404 (Not Found).                                                                 | **Halt Immediately**  | The requested parallel network is not supported. Homeserver MUST immediately abort discovery and raise an error; do not fall back.                                                    |
+| **HTTP 403 / 444 / TCP Reset** | Endpoint returns `403 Forbidden`, `444 No Response` (Nginx-specific drop), or connection is instantly reset/dropped at the TCP layer. | **Halt Immediately**  | The requested server has actively rejected parallel network traffic at the edge layer. Homeserver MUST immediately abort discovery and raise an error; do not retry.                  |
+| **HTTP 5xx / TCP Timeout**     | Parallel network `.well-known` endpoint queries time out or return a server error.                                                    | **Retry with Limits** | Transient server-side issue. Homeserver MAY retry the query following standard exponential backoff (up to 3 times or for a maximum of 1 hour) before halting and raising an error.    |
+| **DNS NXDOMAIN**               | Parallel network SRV records query resolves to NXDOMAIN (non-existent domain).                                                        | **Halt Immediately**  | The requested parallel network SRV records do not exist. Homeserver MUST immediately abort discovery and raise an error; do not fall back.                                            |
+| **DNS Timeout**                | DNS queries for SRV records or `.well-known` domains time out.                                                                        | **Retry with Limits** | Transient network or DNS issue. Homeserver MAY retry the query following standard DNS resolver timeouts and retry limits (e.g., up to 3 retries) before halting and raising an error. |
 
 ### Client-to-Server (C2S) discovery
 
