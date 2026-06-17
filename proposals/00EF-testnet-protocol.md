@@ -59,7 +59,7 @@ Homeservers federating over `testnet` or `stagenet` traffic MUST explicitly incl
 
 To ensure consistent network isolation and identify misconfigured nodes, homeservers MUST validate the `Matrix-Network-Id` header on all incoming federation requests as follows:
 
-- **Parallel Network (Testnet/Stagenet) Homeservers:** Upon receiving an incoming federation request lacking the `Matrix-Network-Id` header, or containing a header value that does not match their configured network ID, the homeserver MUST reject the request at the HTTP layer, returning an HTTP `400 Bad Request` with an `M_INVALID_NETWORK` error code. This prevents accidental mainnet or cross-network leaks before processing any payloads.
+- **Parallel Network (Testnet/Stagenet) Homeservers:** Upon receiving an incoming federation request lacking the `Matrix-Network-Id` header, or containing a header value that does not match their configured network ID, the homeserver MUST reject the request at the HTTP layer, returning an HTTP `400 Bad Request` with an `M_INVALID_NETWORK` error code (unstable: `org.matrix.mscXXXX.invalid_network`). This prevents accidental mainnet or cross-network leaks before processing any payloads.
 - **Mainnet Homeservers:** Because production traffic natively lacks this header, mainnet homeservers MUST NOT log warnings or reject requests when the header is absent. However, if a mainnet homeserver receives an incoming request containing a non-zero parallel network ID (e.g., `1` or `2`), it SHOULD log a rate-limited warning to assist operators in identifying misconfigured peer nodes.
 
 ### Application-layer isolation
@@ -202,8 +202,20 @@ server {
 
 ###### Apache HTTP Server
 
+For true connection termination/dropping, Apache requires ModSecurity (`mod_security`) with the `drop` action to instantly tear down the TCP connection. Alternatively, standard `mod_rewrite` can be used to return a `403 Forbidden` response, though it does not instantly drop the TCP connection.
+
+**Using ModSecurity (Recommended for dropping):**
+
 ```apache
-# Requires mod_rewrite. Returns a 403 Forbidden and drops the request
+# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection
+SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ." \
+    "id:100001,phase:1,drop,nolog,msg:'Parallel network traffic dropped'"
+```
+
+**Using mod_rewrite (Fallback, returns 403 Forbidden):**
+
+```apache
+# Requires mod_rewrite. Returns an HTTP 403 Forbidden response (does not terminate TCP)
 RewriteEngine On
 RewriteCond %{HTTP:Matrix-Network-Id} . [NC]
 RewriteRule ^ - [F]
@@ -299,6 +311,10 @@ During the draft and development phase, this proposal uses the following unstabl
 - **Stagenet Server Discovery:** `/.well-known/matrix/mscXXXX.stagenet-server`
 - **Testnet Client Discovery:** `/.well-known/matrix/mscXXXX.testnet-client`
 - **Stagenet Client Discovery:** `/.well-known/matrix/mscXXXX.stagenet-client`
+- **Error Code:** `org.matrix.mscXXXX.invalid_network` (stabilizes to `M_INVALID_NETWORK`)
+  - **HTTP Status:** `400 Bad Request`
+  - **Definition:** Indicates that an incoming federation request either lacks the `Matrix-Network-Id` header required by the configured parallel network or specifies an incorrect/mismatched network ID.
+  - **Justification:** Standard Matrix error codes (e.g., `M_UNSUPPORTED`, `M_INVALID_PARAM`, or `M_UNKNOWN`) are insufficient to clearly isolate network-routing or network-isolation violations from normal application-level parameter errors or unsupported features. Using a dedicated error code enables federating homeservers and client SDKs to explicitly detect network configuration issues, log them accurately, and prevent silent routing issues or misdiagnosed protocol/endpoint failures.
 
 Homeservers supporting this framework SHOULD advertise support to clients by adding `"org.matrix.mscXXXX": true` to the `unstable_features` dictionary of their `/_matrix/client/versions` endpoint response.
 
