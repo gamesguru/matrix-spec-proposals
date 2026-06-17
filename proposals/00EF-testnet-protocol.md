@@ -11,7 +11,7 @@
 
 As the Matrix ecosystem grows, developers and server administrators need globally federated, parallel networks to evaluate new features, scale-test homeservers, and debug federation issues without risking mainnet stability.
 
-This proposal introduces an extensible, parallel **Matrix Multi-Network Framework** designed to support both a highly chaotic **Testnet** (a developer playground) and a highly stable **Stagenet** (pre-production release candidate validation). To ensure zero cross-contamination with the mainnet, this MSC proposes strict application-layer isolation through network-specific room versions and distinct cryptographic trust roots, supplemented by strict, no-fallback server discovery and clean ingress defenses at the network layer.
+This proposal introduces an extensible, parallel **Matrix Multi-Network Framework** designed to support both a highly chaotic **Testnet** (a developer playground) and a highly stable **Stagenet** (pre-production release candidate validation). To ensure zero cross-contamination with the mainnet, this MSC proposes strict application-layer isolation through network-specific room versions and distinct cryptographic trust roots, supplemented by strict, no-fallback server/client discovery and clean ingress defenses at the network layer.
 
 ## Operational Philosophy
 
@@ -47,14 +47,14 @@ This MSC proposes a parallel network framework governed by the following technic
 
 ### Extensible Integer Network IDs
 
-To distinguish federation traffic across parallel networks, this proposal establishes an extensible integer-based **Network ID** passed via the custom HTTP header `X-Matrix-Network`:
+To distinguish federation traffic across parallel networks, this proposal establishes an extensible integer-based **Network ID** passed via the custom HTTP header `Matrix-Network-Id` (compliant with RFC 6648 deprecating the `X-` prefix):
 
 - `0` (or absent): **Mainnet** (Production)
 - `1`: **Testnet** (Chaos Playground)
 - `2`: **Stagenet** (Staging / Release Candidates)
 - `3+`: **Reserved / Private / Local Networks**
 
-Testnet and Stagenet homeservers MUST explicitly include their respective Network ID in the `X-Matrix-Network` HTTP header on all outgoing federation requests.
+Testnet and Stagenet homeservers MUST explicitly include their respective Network ID as an integer value in the `Matrix-Network-Id` HTTP header on all outgoing federation requests (e.g., `Matrix-Network-Id: 1` for the Testnet).
 
 ### Application-Layer Isolation
 
@@ -73,6 +73,12 @@ All rooms created or federated on parallel networks MUST use a room version stri
 - **Testnet/Stagenet Homeservers:** MUST reject standard mainnet room versions (e.g., `"10"`, `"11"`) and exclusively permit room versions matching their respective network prefix.
 
 _Impact:_ If an event accidentally leaks, mainnet homeservers parse the JSON natively but immediately reject processing the event upon seeing the unsupported room version, eliminating any risk of state corruption.
+
+#### Room Version Algorithmic Inheritance
+
+To preserve maximum test fidelity and avoid the "mutant codebase" problem, homeservers MUST natively alias network-specific room versions to their underlying mainnet algorithm.
+
+- **Behavior:** A homeserver MUST process a room version prefixed with `org.matrix.testnet-` or `org.matrix.stagenet-` using the exact same algorithmic state-resolution rules, event ID formats, and cryptographic signing schemas as its corresponding standard mainnet room version. For example, `org.matrix.testnet-v10` and `org.matrix.stagenet-v10` MUST be processed identically to standard mainnet Room Version `10`.
 
 #### Cryptographic Key Separation (Distinct Trust Roots)
 
@@ -95,6 +101,7 @@ Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 1. **Distinct `.well-known` path:**
    - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead of `server`).
    - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead of `server`).
+   - **Schema:** The JSON schema for these parallel `.well-known` endpoints MUST be strictly identical to the standard `/.well-known/matrix/server` file (e.g., returning an `m.server` key mapping to the target host and port).
 2. **Distinct SRV Records:**
    - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
    - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
@@ -103,20 +110,30 @@ Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 
 _Why this works:_ If a testnet server accidentally targets `matrix.org`, it queries the testnet `.well-known` (returning 404) and the testnet SRV (returning NXDOMAIN). Because the server cannot fall back to mainnet resolution paths, it immediately halts before opening a TCP connection to the mainnet server.
 
+### Client-to-Server (C2S) Discovery
+
+To allow clients to securely discover homeservers on parallel networks when triggered via network-specific URIs or custom Client settings:
+
+- **Distinct `.well-known` Client Paths:**
+  - Clients operating on the Testnet MUST query `/.well-known/matrix/testnet-client`.
+  - Clients operating on the Stagenet MUST query `/.well-known/matrix/stagenet-client`.
+  - **Schema:** The JSON schema for these endpoints MUST be strictly identical to the standard `/.well-known/matrix/client` file (e.g., returning homeserver base URLs and identity server addresses).
+- **No Fallback:** Clients MUST NOT fall back to querying the mainnet `/.well-known/matrix/client` endpoint when attempting discovery on a parallel network.
+
 #### Ingress Traffic Protection (Suggested Implementation Guides)
 
 Historically, the Matrix specification designated port `8448` for federation. However, **most modern deployments now federate over standard HTTPS port `443`** to easily bypass restrictive corporate and consumer ISP firewalls.
 
 Depending on an administrator's deployment strategy, three highly efficient ingress-dropping architectures can be used to isolate parallel network traffic:
 
-##### 1. Host-Level Isolation (Subdomains on Port `443` - Highly Recommended)
+##### Host-Level Isolation (Subdomains on Port `443` - Highly Recommended)
 
 Since modern servers multiplex federation over port `443`, the best practice is to separate networks by subdomain (e.g., `matrix.org` for mainnet, `testnet.matrix.org` for testnet, and `stagenet.matrix.org` for stagenet).
 
 - **Mechanism:** Nginx/reverse proxies evaluate the **Server Name Indication (SNI)** during the initial TLS handshake.
 - **Efficiency:** Attempts to send testnet traffic to `matrix.org` are rejected at the TLS handshake level before Nginx ever reads or parses HTTP headers or payload bytes, resulting in virtually zero CPU overhead.
 
-##### 2. Port-Level Isolation (Standardized Ports - Zero-Config Firewall Dropping)
+##### Port-Level Isolation (Standardized Ports - Zero-Config Firewall Dropping)
 
 If subdomains are not used and isolation is handled via ports, this MSC defines standard default ports for parallel networks:
 
@@ -127,7 +144,7 @@ If subdomains are not used and isolation is handled via ports, this MSC defines 
 - **Mechanism:** Mainnet homeservers do not listen on ports `8449` or `8450`.
 - **Efficiency:** The mainnet server's host firewall (e.g., iptables, nftables, or security groups) or OS kernel drops incoming packets immediately at the TCP layer with an `RST` (Reset) packet. This uses zero Nginx CPU cycles, generates zero log noise, and completely avoids user-space processing.
 
-##### 3. Header-Level Isolation (Shared Host/Port - Ultra-Simple Nginx Block)
+##### Header-Level Isolation (Shared Host/Port - Ultra-Simple Nginx Block)
 
 If same host and same port must be shared across parallel networks, administrators can implement a single-line Nginx directive to immediately close the connection upon detecting the parallel network header:
 
@@ -138,7 +155,7 @@ server {
 
     # If the parallel network header is present, close the TCP connection instantly
     # with zero HTTP response headers or body transmitted
-    if ($http_x_matrix_network) {
+    if ($http_matrix_network_id) {
         return 444;
     }
 }
@@ -157,6 +174,7 @@ To prevent users from clicking a testnet/stagenet link and having it open in the
 ### Ephemeral Lifespans
 
 - **Testnet Epochs:** To ensure volunteer node operators do not run out of disk space from extreme spam waves, the testnet operates on strict **6-month epochs**. Scheduled database resets and network-wide data wipes occur twice a year on **January 1st** and **July 1st** (coordinated as out-of-band community consensus). Upon epoch rollover, server administrators wipe local databases and start clean.
+- **Automated Epoch Signaling:** The active epoch integer and next scheduled wipe timestamp MUST be published as a DNS TXT record on the root of the testnet notary domain (e.g., querying `TXT _epoch.testnet.matrix.org` returns `"v=matrix-epoch; epoch=5; next_wipe=1782864000"`). Server administrators MAY query this record periodically; if the published integer exceeds the server's locally stored epoch state, automated local scripts can dynamically halt the daemon, trigger a database wipe, update the local state, and restart clean with zero human intervention.
 - **Stagenet Durability:** The Stagenet does not operate on scheduled epochs. Data is preserved indefinitely to support long-term migration testing, with resets occurring only during major specification milestones.
 
 ## Drawbacks
@@ -176,6 +194,20 @@ Furthermore, the combination of strict "No-Fallback" server discovery and the Ng
 - **TLD Restriction:** Restricting parallel networks to specific Top Level Domains (e.g., `.test` or `.local`). This was rejected because developers often need to test using real-world DNS routing and valid TLS certificates.
 - **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for stress testing.
 
+## Unstable Prefixes
+
+During the draft and development phase, this proposal uses the following unstable prefixes (replace `00EF` with the PR number once assigned):
+
+- **Testnet Room Versions:** `org.matrix.msc00ef.testnet-` (e.g., `org.matrix.msc00ef.testnet-v10`)
+- **Stagenet Room Versions:** `org.matrix.msc00ef.stagenet-` (e.g., `org.matrix.msc00ef.stagenet-v10`)
+- **HTTP Header:** `Matrix-MSC00EF-Network-Id`
+- **Testnet Server Discovery:** `/.well-known/matrix/msc00ef.testnet-server`
+- **Stagenet Server Discovery:** `/.well-known/matrix/msc00ef.stagenet-server`
+- **Testnet Client Discovery:** `/.well-known/matrix/msc00ef.testnet-client`
+- **Stagenet Client Discovery:** `/.well-known/matrix/msc00ef.stagenet-client`
+
+Once this MSC is approved and merged, these identifiers will be stabilized to their official names without the `msc00ef` namespace prefix.
+
 ## Unresolved Questions
 
-- What specific mechanism should the community use to signal epoch rollovers (e.g., a simple designated DNS TXT record or out-of-band mailing lists)?
+- None.
