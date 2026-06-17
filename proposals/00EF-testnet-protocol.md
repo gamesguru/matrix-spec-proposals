@@ -2,107 +2,179 @@
 
 **Authors:** [Your Name/Handle]
 **Date:** 2026-06-16
-**Version:** 1.2
+**Version:** 1.3
 **Status:** Draft
 
 ---
 
 ## Introduction
 
-As the Matrix ecosystem grows, developers and server administrators need a globally federated, standardized testnet to evaluate new features, scale-test homeservers, and debug federation issues without risking mainnet stability.
+As the Matrix ecosystem grows, developers and server administrators need globally federated, parallel networks to evaluate new features, scale-test homeservers, and debug federation issues without risking mainnet stability.
 
-This proposal introduces a parallel Matrix Testnet framework. It is explicitly designed as a **developer playground**—a chaotic, consequence-free environment to push the protocol to its absolute limits. To ensure zero cross-contamination with the mainnet during these high-stress operations, this MSC proposes strict application-layer isolation through testnet-specific room versions and distinct cryptographic trust roots, supplemented by strict, no-fallback server discovery and traffic bypass mechanisms at the network layer.
+This proposal introduces an extensible, parallel **Matrix Multi-Network Framework** designed to support both a highly chaotic **Testnet** (a developer playground) and a highly stable **Stagenet** (pre-production release candidate validation). To ensure zero cross-contamination with the mainnet, this MSC proposes strict application-layer isolation through network-specific room versions and distinct cryptographic trust roots, supplemented by strict, no-fallback server discovery and clean ingress defenses at the network layer.
 
-## Operational Philosophy: The Developer Playground
+## Operational Philosophy
 
-Before detailing the technical implementation, it is crucial to establish the social and operational expectations of this network. The Matrix Testnet operates under a strict "Wild West" philosophy:
+Before detailing the technical implementation, it is crucial to establish the social and operational expectations of these parallel networks.
+
+### The Testnet (Developer Playground - Network ID: `1`)
+
+The Matrix Testnet operates under a strict "Wild West" philosophy:
 
 - **Anything Goes:** This network is designed for abuse. Spam waves, intentional state-resolution forks, malicious federation payloads, and massive room-join floods are expected and permitted.
-- **No Take Backs:** There are no SLAs, no database recovery guarantees, and no administrative interventions to save a broken homeserver. If an experimental feature corrupts a testnet deployment's database, the accepted resolution is to: absolve local memberships (leave all rooms where possible), wipe the database, and restart.
-- **Record Incidents, Keep Moving:** The purpose of the chaos is discovery. Server admins are encouraged to aggressively log, profile, and record incidents (such as memory leaks caused by spam waves or state-reset vulnerabilities) to generate bug reports for mainnet implementations. However, the network itself will not be paused or moderated to address these incidents. Document the carnage, patch the software, and keep moving.
+- **No Take Backs:** There are no SLAs, no database recovery guarantees, and no administrative interventions. If an experimental feature corrupts a testnet deployment's database, the accepted resolution is to wipe the database and restart.
+- **Record Incidents, Keep Moving:** Server admins are encouraged to aggressively log, profile, and record incidents (such as memory leaks or state-reset vulnerabilities) to generate bug reports for mainnet implementations. Document the carnage, patch the software, and keep moving.
+
+### The Stagenet (Pre-Production Staging - Network ID: `2`)
+
+The Matrix Stagenet operates as a high-fidelity mirror of the production mainnet:
+
+- **Pre-Release Validation:** Used solely for validating release candidate software, migration scripts, and stable app integrations before mainnet deployment.
+- **Constructive Use Only:** DoS testing, intentional spamming, or malicious payload distribution are strictly prohibited.
+- **State Continuity:** State is preserved across software upgrades. Wipes are rare and coordinated only around major specification milestones.
 
 ## Motivation
 
 Currently, testing federation often involves running isolated local deployments (like Complement) or ad-hoc federations that risk leaking into the public Matrix network if improperly configured. If a test homeserver accidentally connects to a mainnet server during a deliberate spam wave or extreme load test, it can severely degrade mainnet performance and pollute production databases.
 
-A formal testnet requires strict isolation. Rather than modifying the fundamental identifiers (sigils) which introduces massive parser fragmentation and ecosystem-wide overhead, we can achieve absolute isolation by leveraging standard Matrix protocol-level validation barriers (room versions and cryptographic signatures) coupled with DNS and HTTP bypasses at the federation layer.
+A formal parallel network framework requires strict isolation. Rather than modifying the fundamental identifiers (sigils) which introduces massive parser fragmentation and ecosystem-wide overhead, we can achieve absolute isolation by leveraging standard Matrix protocol-level validation barriers (room versions and cryptographic signatures) coupled with DNS and HTTP bypasses at the federation layer.
 
-Additionally, to prevent CPU or network overhead on mainnet homeservers from processing junk HTTP requests, testnet-configured servers must fail early at the discovery layer before a TCP handshake or TLS negotiation ever occurs.
+Additionally, to prevent CPU or network overhead on mainnet homeservers from processing junk HTTP requests, mainnet deployments can easily drop parallel network traffic at the network or reverse-proxy layer using simple, standard infrastructure patterns.
 
 ## Proposal
 
-This MSC proposes a parallel network, "Matrix Testnet," governed by the following technical specifications:
+This MSC proposes a parallel network framework governed by the following technical specifications:
+
+### Extensible Integer Network IDs
+
+To distinguish federation traffic across parallel networks, this proposal establishes an extensible integer-based **Network ID** passed via the custom HTTP header `X-Matrix-Network`:
+
+- `0` (or absent): **Mainnet** (Production)
+- `1`: **Testnet** (Chaos Playground)
+- `2`: **Stagenet** (Staging / Release Candidates)
+- `3+`: **Reserved / Private / Local Networks**
+
+Testnet and Stagenet homeservers MUST explicitly include their respective Network ID in the `X-Matrix-Network` HTTP header on all outgoing federation requests.
 
 ### Application-Layer Isolation
 
-To guarantee that mainnet servers cleanly reject testnet payloads without mutating standard parsers, identifiers (sigils), or database schemas, the network utilizes native protocol-level boundaries.
+To guarantee that mainnet servers cleanly reject parallel network payloads without mutating standard parsers, identifiers (sigils), or database schemas, the framework utilizes native protocol-level boundaries.
 
-#### Testnet-Specific Room Versions
+#### Network-Specific Room Versions
 
-All rooms created or federated on the testnet MUST use a room version string prefixed with `org.matrix.testnet-` (e.g., `org.matrix.testnet-v10`).
+All rooms created or federated on parallel networks MUST use a room version string prefixed with their respective network identifier:
 
-- **Mainnet Homeservers:** MUST reject any room-creation or join request containing a room version with the `org.matrix.testnet-` prefix, returning an `M_UNSUPPORTED_ROOM_VERSION` error.
-- **Testnet Homeservers:** MUST reject standard mainnet room versions (e.g., `"10"`, `"11"`) and exclusively permit `org.matrix.testnet-` prefixed versions.
-- **Impact:** If a testnet event or room accidentally leaks to the mainnet, mainnet homeservers will parse the JSON natively but immediately reject processing the event upon seeing the unsupported room version, eliminating any risk of state corruption.
+- **Testnet Rooms:** MUST use room versions prefixed with `org.matrix.testnet-` (e.g., `org.matrix.testnet-v10`).
+- **Stagenet Rooms:** MUST use room versions prefixed with `org.matrix.stagenet-` (e.g., `org.matrix.stagenet-v10`).
+
+**Enforcement:**
+
+- **Mainnet Homeservers:** MUST reject any room-creation or join request containing a room version with the `org.matrix.testnet-` or `org.matrix.stagenet-` prefix, returning an `M_UNSUPPORTED_ROOM_VERSION` error.
+- **Testnet/Stagenet Homeservers:** MUST reject standard mainnet room versions (e.g., `"10"`, `"11"`) and exclusively permit room versions matching their respective network prefix.
+
+_Impact:_ If an event accidentally leaks, mainnet homeservers parse the JSON natively but immediately reject processing the event upon seeing the unsupported room version, eliminating any risk of state corruption.
 
 #### Cryptographic Key Separation (Distinct Trust Roots)
 
 Matrix federation relies on server keys (Ed25519) to sign and authenticate events.
 
-- Testnet homeservers MUST use distinct cryptographic key pairs that are not registered or published on mainnet key servers or DNS records.
-- Mainnet homeservers MUST NOT trust or fetch keys from testnet-only servers, and testnet homeservers MUST reject signatures from mainnet server keys, ensuring mutual cryptographic isolation.
-- **Default Testnet Notary Key-Server:** Because Matrix homeservers rely on key notaries to verify historical signing keys for offline or unreachable servers, testnet homeservers MUST NOT query mainnet key notaries (such as `matrix.org`). Instead, the testnet community will operate a default notary at `notary.testnet.matrix.org`. Testnet homeservers MUST configure this address as their exclusive fallback notary.
+- Testnet and Stagenet homeservers MUST use distinct cryptographic key pairs that are not registered or published on mainnet key servers or DNS records.
+- Mainnet homeservers MUST NOT trust or fetch keys from parallel network servers, and parallel network homeservers MUST reject signatures from mainnet server keys, ensuring mutual cryptographic isolation.
+- **Default Key Notaries:** Because Matrix homeservers rely on key notaries to verify historical signing keys for offline or unreachable servers, parallel network homeservers MUST NOT query mainnet key notaries. Instead, dedicated fallback notaries must be operated:
+  - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for Testnet)
+  - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for Stagenet)
 
 ### Network-Layer Traffic Bypassing & Strict Server Discovery
 
-To prevent mainnet servers from even attempting to parse testnet JSON during massive spam waves, federation traffic must bypass mainnet infrastructure entirely at the transport and DNS layer.
+To prevent mainnet servers from incurring any TCP handshake, TLS negotiation, or HTTP processing overhead due to accidental parallel network queries, strict discovery and ingress dropping are enforced.
 
 #### Strict "No-Fallback" Server Discovery
 
-To prevent mainnet servers from incurring any TCP handshake, TLS negotiation, or HTTP processing overhead due to accidental testnet queries, testnet homeservers MUST adhere to a strict discovery algorithm:
+Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 
-1. **Distinct `.well-known` path:** Instead of querying `/.well-known/matrix/server`, testnet homeservers MUST query `/.well-known/matrix/testnet-server`.
-2. **Halt Discovery:** If discovery fails to resolve a valid destination via either the `/.well-known/matrix/testnet-server` endpoint or the `_matrix-testnet-fed._tcp` SRV record, the homeserver MUST immediately abort discovery and raise an error.
-3. **No Fallback:** Testnet homeservers MUST NOT fall back to standard mainnet `.well-known` paths (`/.well-known/matrix/server`), standard mainnet SRV records (`_matrix-fed._tcp` or `_matrix._tcp`), or perform direct IP/port fallback connections on port 8448 or 443.
+1. **Distinct `.well-known` path:**
+   - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead of `server`).
+   - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead of `server`).
+2. **Distinct SRV Records:**
+   - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
+   - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
+3. **Halt Discovery:** If discovery fails to resolve a valid destination via either the network-specific `.well-known` endpoint or the network-specific SRV record, the homeserver MUST immediately abort discovery and raise an error.
+4. **No Fallback:** Parallel network homeservers MUST NOT fall back to standard mainnet `.well-known` paths (`/.well-known/matrix/server`), standard mainnet SRV records (`_matrix-fed._tcp`), or perform direct IP/port fallback connections on port 8448 or 443.
 
-_Why this works:_ If a testnet server accidentally targets a mainnet domain (e.g., `matrix.org`), it will query the testnet `.well-known` (returning 404) and the testnet SRV (returning NXDOMAIN). Because the server cannot fall back to mainnet resolution paths, it immediately halts. Zero TCP connections are opened, and zero HTTP overhead reaches mainnet servers.
+_Why this works:_ If a testnet server accidentally targets `matrix.org`, it queries the testnet `.well-known` (returning 404) and the testnet SRV (returning NXDOMAIN). Because the server cannot fall back to mainnet resolution paths, it immediately halts before opening a TCP connection to the mainnet server.
 
-#### Transport & Proxy Defense-in-Depth
+#### Ingress Traffic Protection (Suggested Implementation Guides)
 
-1. **Distinct SRV Records:** Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`. This allows server administrators to optionally isolate testnet traffic to a dedicated port (e.g., `TCP 8449`) at the DNS layer if desired, without mandating non-standard ports that could be blocked by firewalls.
-2. **Custom HTTP Header:** All testnet federation requests MUST include the HTTP header `X-Matrix-Network: testnet`.
-3. **Ingress Rejection:** Mainnet homeserver deployments can configure their reverse proxies (Nginx, Traefik, HAProxy) to immediately drop requests containing `X-Matrix-Network: testnet` with a `403 Forbidden` or `421 Misdirected Request` status, safeguarding the application layer.
+Historically, the Matrix specification designated port `8448` for federation. However, **most modern deployments now federate over standard HTTPS port `443`** to easily bypass restrictive corporate and consumer ISP firewalls.
 
-### Client & URI Integration (`matrix-testnet:`)
+Depending on an administrator's deployment strategy, three highly efficient ingress-dropping architectures can be used to isolate parallel network traffic:
 
-To prevent users from clicking a testnet link and having it open in their mainnet daily-driver client, this proposal introduces a distinct URI scheme for testnet resources.
+##### 1. Host-Level Isolation (Subdomains on Port `443` - Highly Recommended)
 
-- **URI Scheme:** The scheme `matrix-testnet:` MUST be used for testnet URIs (e.g., `matrix-testnet:r/someroom:example.com`).
-- **OS Resolution:** Since operating systems register handlers per URI scheme, this allows developers to install a dedicated testnet client (e.g., Element Nightly) which registers solely to `matrix-testnet:`, completely eliminating UX collisions.
+Since modern servers multiplex federation over port `443`, the best practice is to separate networks by subdomain (e.g., `matrix.org` for mainnet, `testnet.matrix.org` for testnet, and `stagenet.matrix.org` for stagenet).
 
-### Ephemeral Lifespans and Testnet Epochs
+- **Mechanism:** Nginx/reverse proxies evaluate the **Server Name Indication (SNI)** during the initial TLS handshake.
+- **Efficiency:** Attempts to send testnet traffic to `matrix.org` are rejected at the TLS handshake level before Nginx ever reads or parses HTTP headers or payload bytes, resulting in virtually zero CPU overhead.
 
-Given the ephemeral nature of a testnet, periodic database resets are necessary to prevent state bloat and performance degradation under heavy load-testing.
+##### 2. Port-Level Isolation (Standardized Ports - Zero-Config Firewall Dropping)
 
-- **No Protocol-Level Purge broadcasts:** Building an automated, protocol-level "purge" command introduces a critical remote execution or DoS vulnerability and is explicitly rejected.
-- **6-Month Testnet Epochs:** To ensure volunteer node operators do not run out of disk space from spam waves and state-resolution forks, the testnet operates on strict **6-month epochs**. Scheduled database resets and network-wide data wipes occur twice a year on **January 1st** and **July 1st** (coordinated as out-of-band community consensus). Upon epoch rollover, server administrators wipe local databases and restart with a clean slate.
+If subdomains are not used and isolation is handled via ports, this MSC defines standard default ports for parallel networks:
+
+- **Mainnet:** Port `443` or `8448`
+- **Testnet (ID `1`):** Port `8449`
+- **Stagenet (ID `2`):** Port `8450`
+
+- **Mechanism:** Mainnet homeservers do not listen on ports `8449` or `8450`.
+- **Efficiency:** The mainnet server's host firewall (e.g., iptables, nftables, or security groups) or OS kernel drops incoming packets immediately at the TCP layer with an `RST` (Reset) packet. This uses zero Nginx CPU cycles, generates zero log noise, and completely avoids user-space processing.
+
+##### 3. Header-Level Isolation (Shared Host/Port - Ultra-Simple Nginx Block)
+
+If same host and same port must be shared across parallel networks, administrators can implement a single-line Nginx directive to immediately close the connection upon detecting the parallel network header:
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name matrix.org;
+
+    # If the parallel network header is present, close the TCP connection instantly
+    # with zero HTTP response headers or body transmitted
+    if ($http_x_matrix_network) {
+        return 444;
+    }
+}
+```
+
+_Note on `return 444`:_ The non-standard status code `444` instructs Nginx to instantly teardown the TCP connection without sending standard HTTP error wrappers, saving CPU, egress bandwidth, and worker socket state under extreme testnet loads.
+
+### Client & URI Integration
+
+To prevent users from clicking a testnet/stagenet link and having it open in their mainnet daily-driver client, distinct URI schemes are introduced:
+
+- **Testnet URIs:** MUST use the scheme `matrix-testnet:` (e.g., `matrix-testnet:r/someroom:example.com`).
+- **Stagenet URIs:** MUST use the scheme `matrix-stagenet:` (e.g., `matrix-stagenet:r/someroom:example.com`).
+- **OS Resolution:** Since operating systems register handlers per URI scheme, this allows developers to install separate client builds (e.g., Element Nightly for Testnet, Element Beta for Staging) which register solely to their respective schemes, completely eliminating UX collisions.
+
+### Ephemeral Lifespans
+
+- **Testnet Epochs:** To ensure volunteer node operators do not run out of disk space from extreme spam waves, the testnet operates on strict **6-month epochs**. Scheduled database resets and network-wide data wipes occur twice a year on **January 1st** and **July 1st** (coordinated as out-of-band community consensus). Upon epoch rollover, server administrators wipe local databases and start clean.
+- **Stagenet Durability:** The Stagenet does not operate on scheduled epochs. Data is preserved indefinitely to support long-term migration testing, with resets occurring only during major specification milestones.
 
 ## Drawbacks
 
-- **Server-Side Configuration:** Server administrators must maintain separate configuration profiles for testnet and mainnet deployments (e.g., generating separate signing keys, configuring fallback key notaries, and defining testnet-specific room version support).
-- **Client Implementation:** Clients wishing to support the testnet must register a separate URI handler for `matrix-testnet:` and toggle their server selection accordingly.
+- **Server-Side Configuration:** Server administrators must maintain separate configuration profiles for parallel networks (e.g., generating separate signing keys, configuring distinct reverse proxy auto-bans, and defining network-specific room version support).
+- **Client Implementation:** Clients wishing to support parallel networks must register separate URI handlers (`matrix-testnet:` / `matrix-stagenet:`) and toggle their server selection accordingly.
 
 ## Security Considerations
 
-The primary security goal of this MSC is _containment_. By utilizing testnet-specific room versions, mainnet servers are cryptographically and logically protected from state-resolution attacks or malformed payloads originating from the testnet.
+The primary security goal of this MSC is _containment_. By utilizing network-specific room versions, mainnet servers are cryptographically and logically protected from state-resolution attacks or malformed payloads originating from parallel networks.
 
-Furthermore, the combination of strict "No-Fallback" server discovery and reverse-proxy dropping of `X-Matrix-Network: testnet` headers protects mainnet servers from resource-exhaustion, TCP connection starvation, or JSON-parsing attacks, preserving CPU and memory under extreme testnet loads.
+Furthermore, the combination of strict "No-Fallback" server discovery and the Nginx dynamic IP auto-ban configuration protects mainnet servers from resource-exhaustion, TCP connection starvation, or JSON-parsing attacks, preserving CPU and memory under extreme testnet loads.
 
 ## Alternatives
 
 - **Sigil Inversion (Draft 1.0):** Inverting sigils (e.g., `~` for users, `?` for rooms) was proposed to segregate namespaces. This was rejected because it introduces a "Mutant Codebase" problem—forcing homeservers and SDKs to use custom regex parsers, string validators, and DB schemas, which completely compromises test fidelity. It also carries astronomical ecosystem-wide refactoring overhead.
-- **TLD Restriction:** Restricting the testnet to specific Top Level Domains (e.g., `.test` or `.local`). This was rejected because developers often need to test using real-world DNS routing and valid TLS certificates.
-- **Appservices:** Simulating a testnet via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for stress testing.
+- **TLD Restriction:** Restricting parallel networks to specific Top Level Domains (e.g., `.test` or `.local`). This was rejected because developers often need to test using real-world DNS routing and valid TLS certificates.
+- **Appservices:** Simulating parallel networks via Application Services. This was rejected because it does not adequately replicate true server-to-server federation mechanics necessary for stress testing.
 
 ## Unresolved Questions
 
