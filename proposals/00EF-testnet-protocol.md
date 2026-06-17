@@ -18,7 +18,7 @@ This proposal introduces a parallel Matrix Testnet framework. It is explicitly d
 Before detailing the technical implementation, it is crucial to establish the social and operational expectations of this network. The Matrix Testnet operates under a strict "Wild West" philosophy:
 
 - **Anything Goes:** This network is designed for abuse. Spam waves, intentional state-resolution forks, malicious federation payloads, and massive room-join floods are expected and permitted.
-- **No Take Backs:** There are no SLAs, no database recovery guarantees, and no administrative interventions to save a broken homeserver. If an experimental feature corrupts a testnet deployment's database, the accepted resolution is to wipe the database and restart.
+- **No Take Backs:** There are no SLAs, no database recovery guarantees, and no administrative interventions to save a broken homeserver. If an experimental feature corrupts a testnet deployment's database, the accepted resolution is to: absolve local memberships (leave all rooms where possible), wipe the database, and restart.
 - **Record Incidents, Keep Moving:** The purpose of the chaos is discovery. Server admins are encouraged to aggressively log, profile, and record incidents (such as memory leaks caused by spam waves or state-reset vulnerabilities) to generate bug reports for mainnet implementations. However, the network itself will not be paused or moderated to address these incidents. Document the carnage, patch the software, and keep moving.
 
 ## Motivation
