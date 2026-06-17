@@ -1,5 +1,15 @@
 # MSCXXXX: Matrix Testnet Segregation via Room Versions and Traffic Bypassing
 
+<!--
+[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/guru/testnet-protocol/proposals/00EF-testnet-protocol.md)
+
+Server impl: **TBD**
+
+Complement tests: **TBD**
+
+Client changes limited/optional but recommended (register `matrix-testnet:` / `matrix-stagenet:` URI schemes and network-specific client discovery).
+-->
+
 As the Matrix ecosystem grows, developers and server administrators today increasingly rely on the production ecosystem to evaluate new features, scale-test homeservers, and debug federation issues in the aims of stability.
 
 This proposal introduces an extensible, parallel **multi-network framework** to support a `testnet` (a free-for-all developer playground) and a relatively stable `stagenet` (pre-production validation). To prevent cross-contamination with the `mainnet`, this MSC recommends strict application-layer isolation and clean ingress defenses at the network layer.
