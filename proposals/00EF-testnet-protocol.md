@@ -82,7 +82,7 @@ _Impact:_ If an event accidentally leaks, `mainnet` homeservers may parse the JS
 
 #### Room version semantics
 
-To preserve test fidelity and minimize the need for codebase refactors, homeservers MUST natively alias network-specific room versions to their underlying `mainnet` algorithm—you may only disregard this rule (reuse room version identifiers) up to a minor patch. Efforts must be made (especially in `stagenet`) to never alter primary or core room functionality under the _same_ room version identifier.
+To preserve test fidelity and minimize the need for codebase refactors, homeservers MUST natively alias network-specific room versions to their underlying `mainnet` algorithm—you may only disregard this rule (reuse room version identifiers) up to a minor patch. Efforts must be made (especially in `stagenet`) never to alter primary room functionality under the same room version identifier.
 
 ##### Standard room versions and adoption timeline
 
@@ -92,7 +92,7 @@ A homeserver MUST process a "standard" room version prefixed with `testnet-` or 
 
 ##### Custom PDU formats and room versions
 
-To allow for testing of radical or unstable features (e.g., experimental state resolution engines or customized PDU formats) where strict PDU format adherence is not possible, custom room version suffixes MAY be appended:
+To allow for testing of unstable features (e.g., experimental state resolution engines) where strict PDU format adherence is not possible, custom room version suffixes MAY be appended:
 
 - **Base Namespace Requirement (MUST):** Developers do not need to formally open an MSC to experiment. To prevent naming collisions without a central registry, the room version MUST begin with the network prefix followed by an active MSC identifier (e.g., `testnet-org.matrix.mscXXXX`) or an owned Reverse Domain Name Notation (rDNS) namespace (e.g., `testnet-org.continuwuity.hydra`).
 - **Git Commit/Release Suffix (MAY):** To facilitate rapid, uncoordinated iteration without updating the base namespace for every minor change, developers MAY append a git commit or release SHA to their base namespace using a `-git-[sha]` suffix (e.g., `testnet-org.continuwuity.hydra-git-abcdef12`). If this suffix is used, the referenced commit MUST be hosted in a publicly accessible repository and pushed to a durable branch (e.g., `main`, `master`, or a permanent release tag). It MUST NOT refer to an ephemeral, private, or local-only development branch. This ensures any participating peer can reliably locate, compile, and audit the exact codebase revision being tested.
@@ -245,113 +245,6 @@ This method is recommended for testing homeserver scale-limits, state-resolution
 - **DAG Rewriting:** An offline migration script takes a snapshot of a `mainnet` database and rewrites the room versions to their parallel network equivalents. Because event IDs are cryptographic hashes of the event content (which now contains a parallel room version), the script recalculates all event IDs in topological order, updating the `prev_events` and `auth_events` references down the chain.
 - **Trust Injection:** Rather than attempting to forge signatures for non-existent domains, the administrator injects dummy signing keys for the associated `mainnet` domains directly into their `testnet` homeserver's local key cache database (e.g., Synapse's `server_signature_keys` table). When the server validates the imported timeline, it finds the "cached" dummy keys locally, verifies the signatures, and completely bypasses any outbound DNS or notary lookups.
 
-## Appendix: Ingress protection (Implementation Guide)
-
-Historically, the Matrix specification designated port `8448` for federation. However, **most modern deployments now federate over standard HTTPS port `443`** to easily bypass restrictive corporate and consumer ISP firewalls.
-
-Depending on an administrator's deployment strategy, three highly efficient ingress-dropping architectures can be used to isolate parallel network traffic:
-
-### Host-level isolation (subdomains/HTTPS)
-
-Since modern servers multiplex federation over port `443`, the best practice is to separate networks by subdomain (e.g., `matrix.org` for `mainnet`, `testnet.matrix.org` for Testnet, and `stagenet.matrix.org` for Stagenet).
-
-- **Mechanism:** Nginx/reverse proxies evaluate the **server name (SNI)** during the initial TLS handshake.
-- **Efficiency:** Attempts to send `testnet` traffic to `matrix.org` are rejected at the TLS handshake level before Nginx ever reads or parses HTTP headers or payload bytes, resulting in virtually zero CPU overhead.
-
-### Port-level isolation (firewalls)
-
-If subdomains are not used and isolation is handled via ports, this MSC defines standard default ports for parallel networks:
-
-- **Mainnet:** Port `443` or `8448`
-- **Testnet (ID `1`):** Port `8449`
-- **Stagenet (ID `2`):** Port `8450`
-
-These port assignments are recommended defaults and administrative conventions, rather than strict protocol-level requirements. Administrators are free to configure alternative ports provided proper network-level isolation is maintained. Because core protocol-level containment (the `Matrix-Network-Id` header and strict discovery/room version validation) operates independently of port selection, full interoperability and network isolation are guaranteed regardless of the specific ports chosen.
-
-- **Mechanism:** Mainnet homeservers do not listen on ports `8449` or `8450`.
-- **Efficiency:** The `mainnet` server's host firewall (e.g., `iptables`, `nftables`, or security groups) or OS kernel drops incoming packets immediately at the TCP layer with an `RST` (Reset) packet. This uses zero Nginx CPU cycles, generates zero log noise, and completely avoids user-space processing.
-
-### Header-level isolation (web server)
-
-If the same host and port must be shared across parallel networks, administrators can implement header-filtering rules to immediately terminate incoming connections upon detecting a non-zero parallel network ID header.
-
-_Note on Nginx `return 444`:_ The non-standard status code `444` is an Nginx-specific directive instructing the server to instantly tear down the TCP connection without sending standard HTTP response headers or wrappers, saving CPU, egress bandwidth, and socket worker state under extreme parallel network loads.
-
-Depending on the edge reverse proxy, administrators can configure equivalent connection termination behaviors:
-
-#### Nginx
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name matrix.org;
-
-    # Terminate the connection if the network ID is a parallel network ID (non-zero).
-    # Nginx natively treats both empty string "" and the string "0" as false,
-    # so this naturally matches only non-zero IDs (1, 2, etc.) and drops them.
-    if ($http_matrix_network_id) {
-        return 444;
-    }
-}
-```
-
-#### Apache HTTP Server
-
-For true connection termination/dropping, Apache requires ModSecurity (`mod_security`) with the `drop` action to instantly tear down the TCP connection. Alternatively, standard `mod_rewrite` can be used to return a `403 Forbidden` response, though it does not instantly drop the TCP connection.
-
-**Using ModSecurity (Recommended for dropping):**
-
-```apache
-# Requires ModSecurity (mod_security). Instantly drops/tears down the TCP connection if the parallel network ID is non-zero
-SecRule REQUEST_HEADERS:Matrix-Network-Id "@rx ^[1-9][0-9]*$" \
-    "id:100001,phase:1,drop,nolog,msg:'Non-mainnet network traffic forbidden'"
-```
-
-**Using mod_rewrite (Fallback, returns 403 Forbidden):**
-
-```apache
-# Requires mod_rewrite. Returns an HTTP 403 Forbidden response if the parallel network ID is non-zero
-RewriteEngine On
-RewriteCond %{HTTP:Matrix-Network-Id} ^[1-9][0-9]*$
-RewriteRule ^ - [F]
-```
-
-#### Caddy
-
-```caddy
-# Match when the header value is a non-zero parallel network ID and abort instantly
-@parallel_traffic {
-    header_regexp Matrix-Network-Id ^[1-9][0-9]*$
-}
-abort @parallel_traffic
-```
-
-#### HAProxy
-
-```haproxy
-# Silent-drop / close connection at TCP layer if parallel network ID is non-zero
-acl is_parallel_network req.hdr(Matrix-Network-Id) -m reg ^[1-9][0-9]*$
-http-request silent-drop if is_parallel_network
-```
-
-#### Envoy
-
-```yaml
-# Envoy route action configuration to terminate with local direct reply if parallel network ID is non-zero
-routes:
-  - match:
-      prefix: "/"
-      headers:
-        - name: "Matrix-Network-Id"
-          safe_regex_match:
-            google_re2: {}
-            regex: "^[1-9][0-9]*$"
-    direct_response:
-      status: 403
-      body:
-        inline_string: "Non-mainnet network traffic forbidden."
-```
-
 ## Unresolved Questions
 
-- None.
+- Policy servers and notaries.
