@@ -1,4 +1,4 @@
-# MSC0F06: State accumulator endpoint and digests in transactions
+# MSC0F06: State accumulator endpoint and transaction digests
 
 Matrix is designed around **eventual consistency**. Servers build a decentralized
 DAG and use state resolution to converge on a shared state. However, federation
