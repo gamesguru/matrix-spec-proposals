@@ -408,7 +408,7 @@ The full reconciliation flow between two servers is:
          │                                         │
          │  POST /room_diff/{roomId}               │
          │  { mode: "extremity",                   │
-         │    local_pduleaves_id: [...] }   │
+         │    local_pduleaves_id: [...] }          │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { probably_missing: [...] }     │
@@ -416,7 +416,7 @@ The full reconciliation flow between two servers is:
          │                                         │
          │  POST /room_events/{roomId}             │
          │  { event_ids: [...],                    │
-         │    include_auth_chain: true }            │
+         │    include_auth_chain: true }           │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { events: [...],                │
