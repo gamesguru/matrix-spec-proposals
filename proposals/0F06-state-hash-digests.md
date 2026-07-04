@@ -87,7 +87,7 @@ PDUs included in the transaction to their respective `before` and `after` digest
   "pdus": [
     {
       "type": "m.room.message",
-      "event_id": "$abc123def456",
+      "event_id": "$sample_pduid_abc123def456",
       "sender": "@alice:example.com",
       "content": {
         "body": "Hello world",
@@ -96,7 +96,7 @@ PDUs included in the transaction to their respective `before` and `after` digest
     }
   ],
   "state_hashes": {
-    "$abc123def456": {
+    "$sample_pduid_abc123def456": {
       "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
       "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
     }
@@ -106,31 +106,29 @@ PDUs included in the transaction to their respective `before` and `after` digest
 
 ### Network efficiency
 
-Event bloat is a critical concern in Matrix federation. The full LtHash16 lattice
-state (2048 bytes) is **never transmitted over the network.**
+To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is
+**never transmitted over the network.**
 
-By transmitting only the collapsed 32-byte digests, the payload footprint is
-negligible. Adding both `before` and `after` hashes consumes approximately 160
-bytes of JSON overhead per PDU in the transaction.
+By transmitting only the collapsed 32-byte digest, payload footprints stay small.
+Adding both `before` and `after` hashes consumes approximately 160 unsigned bytes
+of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
 
-The receiving server independently maintains its own LtHash16 lattice in local
-storage.
+Each server independently maintains its own `LtHash16` lattice in local storage.
 
 1. It receives the `/send` transaction with the `state_hashes` payload.
-2. It collapses its own local lattice at the corresponding point in the DAG into
-   a 32-byte digest.
+2. It collapses its own local lattice at the corresponding point in the DAG via fast
+   bitmap operations and canonicalizes it over `BLAKE2b-256` into a 32-byte digest.
 3. It compares its local digest to the incoming digest.
-4. **Match:** The servers have mathematically proven they share the exact same
-   view of the room state.
-5. **Mismatch:** The receiver has instantly detected a state split. It can
-   automatically trigger a background `/get_missing_events` or state resync
-   operation to heal the split before it compounds.
+4. **Match:** The servers have proven they have the same view of the room state.
+5. **Mismatch:** The receiver detects a state split. It can automatically trigger
+   a background `/get_missing_events` or state resync operation to heal, while
+   also alerting the sender with a response including their digest value.
 
 Because the checks are advisory, if the hashes do not match, the PDU is _still
-accepted_ and processed according to standard Matrix rules. This prevents the
-network from stalling.
+accepted_ and processed according to standard Matrix rules.
+Returning a `M_INVALID_PARAM` seems excessive and a bit out of place here.
 
 ## Reconciliation (accumulator endpoint)
 
