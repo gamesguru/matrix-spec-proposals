@@ -29,7 +29,7 @@ out, unable to accept new messages.
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
 **replacing state group transitions** and naive BFS sweeps with a cheap,
-bitwise, commutative, invertible, collision-resistant 2048-bit `LtHash16`
+bitwise, commutative, invertible, collision-resistant 2048-byte `LtHash16`
 accumulator function.
 
 The accumulator under question may be called 'homomorphic' and solves the
@@ -38,7 +38,7 @@ input, how can we compute the hash of the new input with its update applied,
 without having to recompute the entire hash from scratch?"
 
 Should this proposal be accepted, homeserves must embed a canonical
-`BLAKE2b-256` digest (of their 2048-bit state accumulator integer) in the
+`BLAKE2b-256` digest (of their 2048-byte state accumulator integer) in the
 `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
@@ -63,7 +63,7 @@ To ensure an interoperability the algorithm is strictly defined as follows:
 2. **Domain Separation & Hashing:** The element string is hashed using
    `BLAKE2b-256`, prefixed with a domain separation tag:
    `BLAKE2b-256("msc0f06_lthash16" || element_encoding)`.
-3. **Accumulator Lattice (LtHash16):** The system uses LtHash16. The local state
+3. **Accumulator Lattice (`LtHash16`):** The system uses `LtHash16`. The local state
    is a lattice of 1024 16-bit integers (2048 bytes). The 32-byte element hash
    is mapped to this lattice and added using 16-bit wrapping addition.
 4. **Collapse Function:** The final 2048-byte lattice is collapsed into a
@@ -149,7 +149,7 @@ This proposal introduces a new federation endpoint:
 If Server B detects a mismatch from Server A:
 
 1. Server B calls the `state_accumulator` endpoint on Server A.
-2. Server A responds with its raw, uncollapsed 2048-byte LtHash16 lattice
+2. Server A responds with its raw, uncollapsed 2048-byte `LtHash16` lattice
    (Base64 encoded) for the state exactly at `event_id`.
 3. Server B decodes the lattice and performs 16-bit wrapping subtraction against
    its own local lattice:

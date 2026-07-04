@@ -379,8 +379,7 @@ a separate proposal. This was rejected because:
 2. The reconciliation algorithms are different (Bloom filter + merge-base
    walk vs. version-vector comparison).
 3. Separate proposals allow independent review and implementation timelines.
-4. The gossip scheduling parameters differ significantly between PDUs and
-   EDUs.
+4. Gossip scheduling parameters differ significantly between PDUs and EDUs.
 
 ## Security considerations
 
@@ -416,21 +415,11 @@ state has a higher version.
 
 The following mapping will be used for identifiers in this MSC during development:
 
-| Proposed final identifier           | Purpose  | Development identifier                                       |
-| ----------------------------------- | -------- | ------------------------------------------------------------ |
-| `/_matrix/federation/v1/edu_digest` | endpoint | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_digest` |
-| `/_matrix/federation/v1/edu_state`  | endpoint | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_state`  |
+| Proposed final identifier           | Development identifier                                       |
+| ----------------------------------- | ------------------------------------------------------------ |
+| `/_matrix/federation/v1/edu_digest` | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_digest` |
+| `/_matrix/federation/v1/edu_state`  | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_state`  |
 
 ## Dependencies
 
 This MSC has no hard dependencies on other unaccepted MSCs.
-
-It is designed to complement:
-
-- [MSC0F01](proposals/0F01-federation-room-gossip-reconciliation.md)
-  (Gossip-based federation room reconciliation) — MSC0F01 handles PDU
-  reconciliation; this MSC handles EDU reconciliation. Together they
-  provide complete federation state healing.
-- [MSC3706](https://github.com/matrix-org/matrix-spec-proposals/pull/3706)
-  (Partial state in send_join) — partial joins may miss EDU state for
-  users in the room; this MSC can repair that gap.

@@ -47,7 +47,9 @@ HTTP request verification.
 unreachable remote server can induce fetch storms if every inbound event or
 reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
-failed key fetches.
+failed key fetches. An inbound, correctly-authenticated federation request from
+a negatively cached server is proof of liveness; servers SHOULD clear the
+backoff state for that server and permit an immediate key fetch.
 
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
 database) rather than held only in memory. A server restart should not require
@@ -67,6 +69,14 @@ the direct fetch MUST override the provisional one. The server updates its cache
 to the direct-observed key body and MUST log the collision loudly. Bindings
 observed directly from the origin server are **permanent** (see below). Servers
 MUST NOT treat notary unavailability as a verification success.
+
+**Binding promotion.** A provisional (notary-observed) binding becomes permanent
+the first time a direct fetch from the origin confirms the same key body. Once
+permanent, the binding is subject to the standard First Seen Wins rule: a later
+direct fetch presenting a different key body for the same Key ID is a collision
+and MUST be rejected and logged. Direct-versus-direct conflicts are always
+resolved by First Seen Wins; the two-tier rule applies only to the
+notary-versus-direct case.
 
 ### Key ID Uniqueness Invariant
 
@@ -125,11 +135,13 @@ fails against the wrong key body), while peers that never cached the original
 key will accept them. This is an unavoidable consequence of out-of-band key
 resolution — different servers observe different key states at different times.
 This MSC does not and _cannot_ eliminate this divergence, because key fetching
-is not part of the room DAG consensus. What this MSC does is make the divergence
+is not part of the room DAG mainline. What this MSC does is make the divergence
 **deterministic, documented, and intentional**: it is the correct punishment for
 a protocol violation (Key ID reuse), and it creates immediate, visible failure
 that forces the administrator to fix their configuration rather than silently
 corrupting historical verification.
+
+Note that
 
 ### Key Rotation Procedure
 
@@ -265,6 +277,15 @@ anomalies, but explicitly does not touch room version consensus rules.
   of remote servers encountered. For a typical homeserver federating with a few
   thousand servers, this is negligible (a few megabytes of public key material).
 
+- **Two-tier binding does not weaken TOFU.** Allowing a direct fetch to override
+  a provisional notary binding means an attacker who can serve a direct
+  `/_matrix/key/v2/server` response (IP hijack, DNS spoofing) can displace a
+  notary-learned key. But such an attacker could equally have won the original
+  TOFU race; the override grants no capability beyond what baseline TOFU already
+  concedes. What the two-tier rule removes is the ability of a compromised
+  _notary_ to permanently ossify a poisoned binding — a strictly weaker
+  adversary gaining a strictly stronger outcome under the flat rule.
+
 - **Localized DAG divergence is unavoidable.** The First Seen Wins rule means
   that peers with different cache histories may disagree on events from a
   misconfigured server. This is an inherent property of out-of-band key
@@ -368,9 +389,7 @@ requirements that can be adopted immediately.
 ## Dependencies
 
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
-  today and will apply equally to `fn-dsa-512` keys if
-  [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) is
-  accepted.
+  today and will apply equally to `fn-dsa-512` keys if accepted into the spec.
 
 ## Backwards Compatibility
 
@@ -386,44 +405,3 @@ This proposal is fully backwards-compatible:
   reuse Key IDs with different key bodies will be rejected by peers implementing
   this MSC. This failure already occurs unpredictably today (depending on cache
   state); this MSC makes the behavior deterministic and well-documented.
-
----
-
-## MSC Checklist
-
-- [ ] Are
-      [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal)
-      specified in the MSC's PR description?
-- [x] Are all MSCs that this MSC depends on already accepted?
-- [ ] For each endpoint that is introduced or modified:
-  - [x] N/A — no endpoints are introduced or modified
-- [x] Will the MSC require a new room version, and if so, has that been made
-      clear?
-  - [x] No new room version required. This MSC operates at the Federation API
-        layer only.
-- [x] Are backwards-compatibility concerns appropriately addressed?
-- [x] An introduction exists and clearly outlines the problem being solved.
-      Ideally, the first paragraph should be understandable by a non-technical
-      audience.
-- [ ] All outstanding threads are resolved
-  - [ ] All feedback is incorporated into the proposal text itself, either as a
-        fix or noted as an alternative
-- [x] There is a dedicated "Security Considerations" section which detail any
-      possible attacks/vulnerabilities this proposal may introduce, even if this
-      is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
-      for things to think about, but in particular pay attention to the
-      [OWASP Top Ten](https://owasp.org/www-project-top-ten/).
-- [x] The other section headings in the template are optional, but even if they
-      are omitted, the relevant details should still be considered somewhere in
-      the text of the proposal. Those section headings are:
-  - [x] Introduction
-  - [x] Proposal text
-  - [x] Potential issues
-  - [x] Alternatives
-  - [x] Unstable prefix
-  - [x] Dependencies
-- [x] Stable identifiers are used throughout the proposal, except for the
-      unstable prefix section
-- [ ] Changes have applicable
-      [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off)
-      from all authors/editors/contributors
