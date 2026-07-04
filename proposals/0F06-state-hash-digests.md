@@ -16,18 +16,21 @@ where they diverged).
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
-**replacing state group transitions** and iterative BFS implementations with a
-cheap, bitwise, commutative, subtractable (supports element removal),
+**replacing state group transitions** and naive iterative BFS implementations
+with a cheap, bitwise, commutative, subtractable (supports element removal),
 collision-resistant 2048-byte `LtHash16` accumulator function.
 
+Avoiding diff chain reconstruction for point lookups will reduce Synapse's
+electricity bill across a wide range of API state endpoints.
+
 The accumulator under question may be called 'homomorphic' and solves the
-following problem: "Given the hash of an input, along with a small update to the
-input, how can we compute the hash of the new input with its update applied,
-without having to recompute the entire hash from scratch?"
+following encryption problem: "Given the hash of an input, along with a small
+update to the input, how can we compute the hash of the new input with its
+update applied, without having to recompute the entire hash from scratch?"
 
 Should this proposal be accepted, for the sake of federation clarity homeserves
-must embed a canonical `BLAKE2b-256` digest (of their 2048-byte state accumulator)
-in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
+must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
+accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
@@ -35,7 +38,7 @@ Rather than attaching hashes to individual events (which are routinely stripped,
 rewritten, or relayed by intermediate servers), this proposal places the hashes
 in the body of the federation transaction.
 
-When a homeserver sends a transaction over federation, it calculates the sum
+When a homeserver sends or relays a federated transaction, it calculates the sum
 accumulation of the room's state exactly at the DAG tip of each included PDU.
 
 It then collapses this vectorized state into a standard 32-byte digest and
@@ -204,17 +207,15 @@ different sets. MSC4499's accumulator covers the room's _current state set_ at
 arbitrary DAG positions. MSC4500's bloom digest and RMQ fall-back cover the
 _event set_ (full PDU timeline).
 
-<!-- Edit marker. -->
-
-Because state divergence almost always implies event-set divergence, the two
-proposals form a clean pipeline:
+Because state divergence implies event-set divergence (with the converse _often_
+also holding true), the two proposals nicely complement each other:
 
 1. **Detect (MSC4499, passive, free):** Every `/send` carries before/after
    digests. Active rooms get continuous state-consistency checks with zero extra
    round trips.
-2. **Localize (MSC4499, active):** On mismatch, bisection via the
-   `state_accumulator` endpoint isolates the divergence point.
-3. **Enumerate + Heal (MSC4500):** `room_diff` (with a `scope: "state"`
+2. **Bisect (MSC4499, active):** On mismatch, optional bisection via the
+   `/state_accumulator` endpoint alerts to the divergence point.
+3. **Reconcile (MSC4500):** `room_diff` (with a `scope: "state"`
    parameter) fetches what is missing, auth chains included.
 
 Because MSC4499 gives active rooms free passive detection, MSC4500's periodic
@@ -225,10 +226,13 @@ polling can back off significantly for rooms with recent inbound transactions.
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
 parent's lattice — O(1), no chain walk. Historical `state_accumulator` queries
-then reduce to the existing event → state group lookup plus a single row read.
-Servers without persisted lattices can compute one on demand in O(N) from
-materialized state and cache it; correctness does not depend on the storage
-strategy, only the algorithm above.
+then reduce to the existing event (state group lookup plus a single row read).
+
+<!-- Edit marker. -->
+
+Servers without persisted lattices can compute one on demand during legacy
+delta chain or BFS walk iteration (accumulating the already materialized state
+and caching the accumulator, thereby deprecating that state group).
 
 ## State identity and local DB optimizations
 
