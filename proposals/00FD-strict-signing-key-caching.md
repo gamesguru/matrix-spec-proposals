@@ -141,8 +141,6 @@ a protocol violation (Key ID reuse), and it creates immediate, visible failure
 that forces the administrator to fix their configuration rather than silently
 corrupting historical verification.
 
-Note that
-
 ### Key Rotation Procedure
 
 When a server rotates its signing key, the administrator MUST:

@@ -204,8 +204,9 @@ enumeration and healing are delegated to MSC4500's `room_diff` and
 ## Synergy with MSC4500 (Event Set Reconciliation)
 
 This proposal and MSC4500 (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4499's accumulator covers the room's _current state set_ at
-a specific DAG point. MSC4500's bloom digest covers the _event set_ (PDU timeline).
+different sets. MSC4499's accumulator covers the room's _current state set_ at a
+specific DAG point. MSC4500's bloom digest covers the _event set_ (PDU
+timeline).
 
 Because state divergence almost always implies event-set divergence, the two
 proposals form a clean pipeline:
@@ -345,6 +346,62 @@ set under `LtHash16` (a lattice problem believed hard at these parameters, per
 Bellare-Micciancio and the LtHash security analysis) or a second preimage /
 collision in the `BLAKE2b-256` collapse. Both are currently believed
 cryptographically infeasible.
+
+## Test vectors
+
+To assist implementers, the following test vectors are provided. They are
+generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
+`msc4502_lthash16\x00`), 16-bit little-endian wrapping lane
+addition/subtraction, and `BLAKE2b-256` collapse digest.
+
+### Empty State
+
+The starting lattice $S_0$ is 2048 bytes of all zeros.
+
+- Collapse digest:
+  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
+
+### Scenario 1: One Element (Addition)
+
+Add event `m.room.member` with state key `@alice:example.com` and event ID
+`$event_1`.
+
+- Raw encoded element:
+  `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f31`
+- Lattice $S_1$ (first 16 bytes): `bb622953b181356f0884390c7e309cf1`
+- Collapse digest:
+  `d8d3ac07b6152e0c6beddac611371082ff345c3ac1018aa8096fde848d0d0ebd`
+
+### Scenario 2: Add-then-remove (Element Removal)
+
+Subtracting the expanded element for `$event_1` from lattice $S_1$ returns the
+accumulator to the empty state.
+
+- Lattice $S_{\text{back}}$ (first 16 bytes): `00000000000000000000000000000000`
+- Collapse digest:
+  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
+
+### Scenario 3: Two Elements
+
+Starting from $S_1$, add event `m.room.name` with empty state key `""` and event
+ID `$event_2`.
+
+- Raw encoded element: `6d2e726f6f6d2e6e616d650000246576656e745f32`
+- Lattice $S_2$ (first 16 bytes): `384dd78be7edeff6c1e4027a656e437b`
+- Collapse digest:
+  `06457ed60e766a6caaa65804b92056b244ee7339850630b8dee69efc63e73b20`
+
+### Scenario 4: O(1) Replacement
+
+Starting from $S_2$, replace the membership event for `@alice:example.com` with
+event ID `$event_3`. This is performed by subtracting the expansion for
+`$event_1` and adding the expansion for `$event_3`.
+
+- Raw encoded element for `$event_3`:
+  `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f33`
+- Lattice $S_3$ (first 16 bytes): `87c317f1e6d4fe59f2bebc9326356734`
+- Collapse digest:
+  `4eee9f4aa350d1dde5529a445edbd6f0b95c47c9e73c5335a117115ee2235f10`
 
 ## Unstable prefix
 
