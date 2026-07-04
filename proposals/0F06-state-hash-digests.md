@@ -7,16 +7,16 @@
 Matrix is designed around **eventual consistency**. Servers build a
 decentralized DAG and use state resolution to converge on a shared state.
 However, federation lag, network partitions, or implementation bugs can cause
-servers to diverge in their view of a room's state.
+servers to diverge.
 
 When servers diverge, the result can be a serious nuisance. Matrix lacks an
-out-of-band or real-time mechanism to for state verification or re-alignment;
+out-of-band or real-time mechanism for state verification or re-alignment;
 servers often only learn of de-synchronization once they disagree on a much
 later authorization failure (e.g., another user's join is incorrectly rejected).
 
 I present an "early-warning system" which rapidly confirms incremental state
-consensus, or signals (with traceable proof) as to its divergence, so servers
-know they share the exact same view of a room at a given point in the DAG (or
+consensus, or signals (with approximate delta sizes) as to its divergence, so servers
+know they share the exact same view of a room at a given point in the DAG (or roughly
 where they diverged).
 
 It is tempting to enforce strict consensus by adding state hashes directly into
@@ -24,7 +24,7 @@ the signed payload of the PDU, but doing so is too rigid for the fundamentally
 dynamic "Matrix" model of eventual consistency. Administrative actions may win
 the topological power sort, shadowing or clobbering previously consolidated
 state groups. A server missing a single state event would be permanently forked
-out, unable to accept new messages.
+out, unable to accumulate accurate state or accept new messages.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
@@ -37,9 +37,9 @@ following problem: "Given the hash of an input, along with a small update to the
 input, how can we compute the hash of the new input with its update applied,
 without having to recompute the entire hash from scratch?"
 
-Should this proposal be accepted, homeserves must embed a canonical
-`BLAKE2b-256` digest (of their 2048-byte state accumulator) in the
-`PUT /_matrix/federation/v1/send/{txnId}` transaction body.
+Should this proposal be accepted, for the sake of federation clarity homeserves
+must embed a canonical `BLAKE2b-256` digest (of their 2048-byte state accumulator)
+in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
@@ -48,39 +48,43 @@ rewritten, or relayed by intermediate servers), this proposal places the hashes
 in the body of the federation transaction.
 
 When a homeserver sends a transaction over federation, it calculates the sum
-hash of the room's state exactly at the DAG tip of each included PDU.
+accumulation of the room's state exactly at the DAG tip of each included PDU.
 
 It then collapses this vectorized state into a standard 32-byte digest and
 includes it in the transaction payload.
 
 ### Algorithm specification
 
-To guarantee byte-identical interoperability, the algorithm is fixed. It is not
-negotiable and cannot be deferred to out-of-band agreement.
+To guarantee interoperability, the algorithm is as follows:
 
-1. **Element encoding.** Each entry in the room's resolved state map is
+1. **Input encoding.** Each entry in the room's resolved state map is
    serialized as the UTF-8 concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`.
-2. **Element expansion.** The encoded element, prefixed with the domain
+2. **Input expansion.** The encoded element, prefixed with the domain
    separation tag `msc4499_lthash16\x00`, is expanded to exactly 2048 bytes
    using the `BLAKE2Xb` extendable-output function (XOF):
    `expansion = BLAKE2Xb-2048("msc4499_lthash16\x00" || element)`. A fixed-width
    hash cannot fill the lattice; the XOF expansion is what makes the lane
    distribution uniform and implementation-identical.
-3. **Lattice addition.** The 2048-byte expansion is interpreted as 1024
+3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
    lane-wise wrapping addition.
 4. **Removal and replacement.** Removing an element is lane-wise wrapping
    subtraction of its expansion. Replacing the event for a `(type, state_key)`
    pair is one subtraction (old element) followed by one addition (new element)
-   — the O(1) update at the heart of this proposal.
-5. **Empty state.** The accumulator of the empty state set is 2048 zero bytes.
+   — the `O(1)` update at the heart of this proposal.
+5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
 6. **Collapse.** The wire digest is `BLAKE2b-256` over the raw 2048 lattice
    bytes, hex-encoded (64 characters).
 
-Note that elements bind the `event_id` only, never event content. Redacting an
-event does not change its event ID, so redactions have no effect on the
-accumulator.
+**NOTE:** elements bind the `event_id` only, never event content. Redacting an
+event therefore has no effect on the accumulator (having no effect on event ID).
+
+**NOTE:** It is the caller's responsibility to ensure the input is really a set.
+The digest allows deducting elements which were never added, and it allows adding
+the same element twice (producing different digests). The digest will roll-over
+if and only if the same element is applied `2^16` times. Thus pre-existence can
+be checked in under 65,536 accumulator iterations (fitting purely within L1/L2 cache).
 
 ### Transaction payload
 
@@ -141,20 +145,21 @@ Each server independently maintains its own `LtHash16` lattice in local storage.
    fast bitmap operations and canonicalizes it over `BLAKE2b-256` into a 32-byte
    digest.
 3. It compares its local digest to the incoming digest.
-4. **Match:** The servers have proven they have the same view of the room state.
+4. **Match:** The servers have the same proven view of the room state.
 5. **Mismatch:** The receiver detects a state split. It can automatically
    trigger a background `/get_missing_events` or state resync operation to heal,
    while also alerting the sender with a response including their digest value.
 
-Note that the receiver cannot verify `before` and `after` hashes until it has
-actually persisted and resolved the PDU. This check is asynchronous and MUST NOT
-block `/send` transaction processing (i.e. the transaction response is not an
-appropriate channel for signalling mismatches synchronously; verification
-happens after persistence).
+If the receiver cannot quickly and reliably validate the `before` and `after`
+hashes (i.e., from an in-memory LRU cache or with a single, minimal DB query),
+they MUST defer the verification (and optional healing) pipelines to remain agile.
 
 Because the checks are advisory, if the hashes do not match, the PDU is _still
-accepted_ and processed according to standard Matrix rules. This prevents the
-network from stalling.
+accepted_ and processed according to standard Matrix authorization/resolution rules.
+
+Whether or not homeservers implement an automated "healing" mechanism or merely
+defer warning messages to admin logs (perhaps with _no_ healing mechanism) is
+an implementation detail left to homeserver maintainers.
 
 ### Endpoint definition
 
@@ -184,16 +189,16 @@ requires `O(log N)` sequential calls, so a short burst allowance (e.g. 30
 requests) with a sustained rate of ~1/second is a reasonable default. The
 response is ~2.7 KB; amplification risk is negligible.
 
-## Reconciliation and Bisection
+## Reconciliation and bisecting forks
 
-When the 32-byte digest triggers a mismatch alarm, the receiving server knows it
-is desynchronized. The receiving server can then perform homomorphic subtraction
-against the sender's lattice.
+When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
+least one party is desynchronized. The receiver performs homomorphic subtraction
+against the sender's full accumulator lattice.
 
 The delta lattice tells you _that_ you've diverged and roughly _how much_, and
 lets you **bisect** to _where_. Because both servers can produce digests at
 historical DAG points, the receiver can query accumulators at $O(\log N)$ depth
-to find the earliest event where the digests diverged.
+(binary search over HTTP) to find the earliest event where the digests diverged.
 
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
@@ -201,12 +206,17 @@ collision-resistant). Once the exact divergence point is isolated via bisection,
 enumeration and healing are delegated to MSC4500's `room_diff` and
 `room_events`.
 
-## Synergy with MSC4500 (Event Set Reconciliation)
+Furthermore, this MSC cannot detect omissions in messages, redactions, or other
+non-state-altering events. For this capability, it fully defers to MSC4500.
+
+## Synergy with MSC4500 (event set reconciliation)
 
 This proposal and MSC4500 (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4499's accumulator covers the room's _current state set_ at a
-specific DAG point. MSC4500's bloom digest covers the _event set_ (PDU
-timeline).
+different sets. MSC4499's accumulator covers the room's _current state set_ at
+arbitrary DAG positions. MSC4500's bloom digest and RMQ fall-back cover the
+_event set_ (full PDU timeline).
+
+<!-- Edit marker. -->
 
 Because state divergence almost always implies event-set divergence, the two
 proposals form a clean pipeline:
