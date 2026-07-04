@@ -29,8 +29,8 @@ out, unable to accept new messages.
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
 **replacing state group transitions** and naive BFS sweeps with a cheap,
-bitwise, commutative, invertible, collision-resistant 2048-byte `LtHash16`
-accumulator function.
+bitwise, commutative, subtractable (supports element removal),
+collision-resistant 2048-byte `LtHash16` accumulator function.
 
 The accumulator under question may be called 'homomorphic' and solves the
 following problem: "Given the hash of an input, along with a small update to the
@@ -38,7 +38,7 @@ input, how can we compute the hash of the new input with its update applied,
 without having to recompute the entire hash from scratch?"
 
 Should this proposal be accepted, homeserves must embed a canonical
-`BLAKE2b-256` digest (of their 2048-byte state accumulator integer) in the
+`BLAKE2b-256` digest (of their 2048-byte state accumulator) in the
 `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
@@ -55,21 +55,32 @@ includes it in the transaction payload.
 
 ### Algorithm specification
 
-To ensure an interoperability the algorithm is strictly defined as follows:
+To guarantee byte-identical interoperability, the algorithm is fixed. It is not
+negotiable and cannot be deferred to out-of-band agreement.
 
-1. **Element Encoding:** For each active state event in the room, the element is
-   serialized as a UTF-8 string concatenation:
+1. **Element encoding.** Each entry in the room's resolved state map is
+   serialized as the UTF-8 concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`.
-2. **Domain Separation & Hashing:** The element string is hashed using
-   `BLAKE2b-256`, prefixed with a domain separation tag:
-   `BLAKE2b-256("msc0f06_lthash16" || element_encoding)`.
-3. **Accumulator Lattice (`LtHash16`):** The system uses `LtHash16`. The local state
-   is a lattice of 1024 16-bit integers (2048 bytes). The 32-byte element hash
-   is mapped to this lattice and added using 16-bit wrapping addition.
-4. **Collapse Function:** The final 2048-byte lattice is collapsed into a
-   32-byte digest using a final pass of `BLAKE2b-256` over the raw lattice
-   bytes. This 32-byte digest (represented as a 64-character hex string) is the
-   value transmitted over the network.
+2. **Element expansion.** The encoded element, prefixed with the domain
+   separation tag `msc4499_lthash16\x00`, is expanded to exactly 2048 bytes
+   using the `BLAKE2Xb` extendable-output function (XOF):
+   `expansion = BLAKE2Xb-2048("msc4499_lthash16\x00" || element)`. A fixed-width
+   hash cannot fill the lattice; the XOF expansion is what makes the lane
+   distribution uniform and implementation-identical.
+3. **Lattice addition.** The 2048-byte expansion is interpreted as 1024
+   little-endian unsigned 16-bit lanes and combined into the local lattice with
+   lane-wise wrapping addition.
+4. **Removal and replacement.** Removing an element is lane-wise wrapping
+   subtraction of its expansion. Replacing the event for a `(type, state_key)`
+   pair is one subtraction (old element) followed by one addition (new element)
+   — the O(1) update at the heart of this proposal.
+5. **Empty state.** The accumulator of the empty state set is 2048 zero bytes.
+6. **Collapse.** The wire digest is `BLAKE2b-256` over the raw 2048 lattice
+   bytes, hex-encoded (64 characters).
+
+Note that elements bind the `event_id` only, never event content. Redacting an
+event does not change its event ID, so redactions have no effect on the
+accumulator.
 
 ### Transaction payload
 
@@ -77,6 +88,12 @@ A new `state_hashes` dictionary is introduced at the root of the
 `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
 PDUs included in the transaction to their respective `before` and `after`
 digests.
+
+When a PDU lists multiple `prev_events`, the `before` state is the output of
+state resolution (v2) applied across the states at each of those events — i.e.
+the same resolved state the server would use to authorize the PDU. The `after`
+state is `before` with the PDU applied, if it is an accepted state event;
+otherwise `after` equals `before`.
 
 - `before`: The 32-byte digest of the room state evaluated exactly at the PDU's
   `prev_events`, excluding the current event.
@@ -129,35 +146,54 @@ Each server independently maintains its own `LtHash16` lattice in local storage.
    trigger a background `/get_missing_events` or state resync operation to heal,
    while also alerting the sender with a response including their digest value.
 
-Because the checks are advisory, if the hashes do not match, the PDU is _still
-accepted_ and processed according to standard Matrix rules. Returning a
-`M_INVALID_PARAM` seems excessive and a bit out of place here.
+Note that the receiver cannot verify `before` and `after` hashes until it has
+actually persisted and resolved the PDU. This check is asynchronous and MUST NOT
+block `/send` transaction processing (i.e. the transaction response is not an
+appropriate channel for signalling mismatches synchronously; verification
+happens after persistence).
 
-## Reconciliation (accumulator endpoint)
+Because the checks are advisory, if the hashes do not match, the PDU is _still
+accepted_ and processed according to standard Matrix rules. This prevents the
+network from stalling.
+
+### Endpoint definition
+
+`GET /_matrix/federation/v1/state_accumulator/{roomId}?event_id={eventId}`
+
+Returns the raw lattice for the room state immediately **after** `eventId` is
+applied (the `after` accumulator of that PDU).
+
+**Response (200):**
+
+```json
+{
+  "event_id": "$sample_pduid_abc123def456",
+  "algorithm": "lthash16",
+  "lattice": "<base64url, unpadded, 2048 raw bytes>",
+  "digest": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
+}
+```
+
+**Errors:** `404 M_NOT_FOUND` if the server does not hold resolved state at that
+event (unknown event, outlier, or purged history). `403 M_FORBIDDEN` if the
+requesting server is not a participant in the room or is denied by
+`m.room.server_acl` — identical semantics to other federation endpoints.
+
+**Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
+requires `O(log N)` sequential calls, so a short burst allowance (e.g. 30
+requests) with a sustained rate of ~1/second is a reasonable default. The
+response is ~2.7 KB; amplification risk is negligible.
+
+## Reconciliation and Bisection
 
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows it
-is desynchronized, but the digest itself cannot reveal _which_ events are
-missing. Historically, servers would fall back to `GET /state_ids`, exchanging
-lists of tens of thousands of event IDs to find a single missing state event.
+is desynchronized. The receiving server can then perform homomorphic subtraction
+against the sender's lattice.
 
-Because this proposal uses an additive accumulator, we can bypass this heavy
-lookup entirely using homomorphic subtraction.
-
-This proposal introduces a new federation endpoint:
-`GET /_matrix/federation/v1/state_accumulator/{room_id}?event_id={event_id}`
-
-If Server B detects a mismatch from Server A:
-
-1. Server B calls the `state_accumulator` endpoint on Server A.
-2. Server A responds with its raw, uncollapsed 2048-byte `LtHash16` lattice
-   (Base64 encoded) for the state exactly at `event_id`.
-3. Server B decodes the lattice and performs 16-bit wrapping subtraction against
-   its own local lattice:
-   $Lattice_{Delta} = Lattice_B - Lattice_A \pmod{2^{16}}$.
-4. The delta lattice tells you _that_ you've diverged and roughly _how much_,
-   and lets you **bisect** to _where_. Because both servers can produce digests
-   at historical DAG points, the receiver can query accumulators at $O(\log N)$
-   depth to find the earliest event where the digests diverged.
+The delta lattice tells you _that_ you've diverged and roughly _how much_, and
+lets you **bisect** to _where_. Because both servers can produce digests at
+historical DAG points, the receiver can query accumulators at $O(\log N)$ depth
+to find the earliest event where the digests diverged.
 
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
@@ -167,24 +203,33 @@ enumeration and healing are delegated to MSC4500's `room_diff` and
 
 ## Synergy with MSC4500 (Event Set Reconciliation)
 
-This proposal (MSC4502) and MSC4500 (`room_digest` / `room_diff`) solve
-fundamentally different sets. MSC4502's accumulator covers the room's _current
-state set_ at a specific DAG point. MSC4500's bloom digest covers the _event
-set_ (the timeline of PDUs).
+This proposal and MSC4500 (`room_digest` / `room_diff`) solve fundamentally
+different sets. MSC4499's accumulator covers the room's _current state set_ at
+a specific DAG point. MSC4500's bloom digest covers the _event set_ (PDU timeline).
 
 Because state divergence almost always implies event-set divergence, the two
 proposals form a clean pipeline:
 
-1. **Detect (MSC4502, passive, free):** Every `/send` carries before/after
+1. **Detect (MSC4499, passive, free):** Every `/send` carries before/after
    digests. Active rooms get continuous state-consistency checks with zero extra
    round trips.
-2. **Localize (MSC4502, active):** On mismatch, bisection via the
+2. **Localize (MSC4499, active):** On mismatch, bisection via the
    `state_accumulator` endpoint isolates the divergence point.
 3. **Enumerate + Heal (MSC4500):** `room_diff` (with a `scope: "state"`
    parameter) fetches what is missing, auth chains included.
 
-Because MSC4502 gives active rooms free passive detection, MSC4500's periodic
+Because MSC4499 gives active rooms free passive detection, MSC4500's periodic
 polling can back off significantly for rooms with recent inbound transactions.
+
+## Implementation notes
+
+The natural storage model is one 2048-byte lattice per state group. Creating a
+new state group from a delta is one subtraction plus one addition against the
+parent's lattice — O(1), no chain walk. Historical `state_accumulator` queries
+then reduce to the existing event → state group lookup plus a single row read.
+Servers without persisted lattices can compute one on demand in O(N) from
+materialized state and cache it; correctness does not depend on the storage
+strategy, only the algorithm above.
 
 ## State identity and local DB optimizations
 
@@ -295,9 +340,11 @@ degradation or diagnostic false alarm (triggering redundant state syncs), never
 a security breach or state corruption.
 
 Because the 32-byte digest is cryptographically secure (via `BLAKE2b-256`),
-finding a malicious state fork that produces the same hash as the honest state
-(forging agreement) requires a preimage attack against the underlying hash
-function, which is currently believed cryptographically infeasible.
+forging a different _state set_ with the same digest requires either a colliding
+set under `LtHash16` (a lattice problem believed hard at these parameters, per
+Bellare-Micciancio and the LtHash security analysis) or a second preimage /
+collision in the `BLAKE2b-256` collapse. Both are currently believed
+cryptographically infeasible.
 
 ## Unstable prefix
 
