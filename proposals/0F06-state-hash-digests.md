@@ -4,11 +4,6 @@
 [Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/guru/4499-state-hash-digests.md)
  -->
 
-Matrix is designed around **eventual consistency**. Servers build a
-decentralized DAG and use state resolution to converge on a shared state.
-However, federation lag, network partitions, or implementation bugs can cause
-servers to diverge.
-
 When servers diverge, the result can be a serious nuisance. Matrix lacks an
 out-of-band or real-time mechanism for state verification or re-alignment;
 servers often only learn of de-synchronization once they disagree on a much
@@ -18,13 +13,6 @@ I present an "early-warning system" which rapidly confirms incremental state
 consensus, or signals (with approximate delta sizes) as to its divergence, so servers
 know they share the exact same view of a room at a given point in the DAG (or roughly
 where they diverged).
-
-It is tempting to enforce strict consensus by adding state hashes directly into
-the signed payload of the PDU, but doing so is too rigid for the fundamentally
-dynamic "Matrix" model of eventual consistency. Administrative actions may win
-the topological power sort, shadowing or clobbering previously consolidated
-state groups. A server missing a single state event would be permanently forked
-out, unable to accumulate accurate state or accept new messages.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
