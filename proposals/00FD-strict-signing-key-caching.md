@@ -34,7 +34,7 @@ Servers MUST cache remote server signing keys obtained from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
 `fn-dsa-512` once
-[MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF) is
+[MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) is
 accepted).
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
@@ -43,14 +43,30 @@ verification failures during key rotation windows. Servers MUST NOT fall back to
 fetching keys from remote servers or notary servers for every individual PDU or
 HTTP request verification.
 
+**Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
+unreachable remote server can induce fetch storms if every inbound event or
+reference triggers a fresh network request. Servers MUST implement exponential
+backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
+failed key fetches.
+
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
 database) rather than held only in memory. A server restart should not require
 re-fetching every remote server's keys from the network.
 
-**Notary fallback.** When a required signing key is not present in the local
-cache and the remote server is unreachable, servers SHOULD query a configured
-notary server (`/_matrix/key/v2/query`). Servers MUST NOT treat notary
-unavailability as a verification success.
+**Notary fallback (Two-Tier Binding).** When a required signing key is not
+present in the local cache, servers typically query a configured notary server
+(`/_matrix/key/v2/query`). Because a notary is a relay, a direct fetch over
+validated TLS to the actual server name (`/_matrix/key/v2/server`) provides
+strictly stronger cryptographic evidence of ownership.
+
+To prevent a malicious or compromised notary from permanently ossifying a
+poisoned key binding, bindings first observed via a notary are **provisional**.
+They are used normally for verification, but if a subsequent _direct_ fetch from
+the origin server yields a key body that conflicts with the provisional binding,
+the direct fetch MUST override the provisional one. The server updates its cache
+to the direct-observed key body and MUST log the collision loudly. Bindings
+observed directly from the origin server are **permanent** (see below). Servers
+MUST NOT treat notary unavailability as a verification success.
 
 ### Key ID Uniqueness Invariant
 
@@ -61,12 +77,16 @@ specific cryptographic key; allowing multiple key bodies under the same ID
 defeats this purpose.
 
 **Permanent binding.** The cryptographic binding between a Key ID and its public
-key body is a **permanent record**, not a cache entry. While `valid_until_ts`
-dictates when a server should refresh the `/_matrix/key/v2/server` endpoint, the
-observed association between a Key ID and its key body MUST NOT be purged from
-the server's key database when `valid_until_ts` expires. Purging this binding
-would cause "collision amnesia" — the server would lose track of the original
-key body and blindly accept a colliding key body on the next fetch.
+key body is a **permanent record**, not a cache entry. This permanence governs
+_key-body identity_ only; it does not alter the validity-window semantics (e.g.,
+event signatures are still verified against the key's validity at the event's
+`origin_server_ts`, and federation requests still require a currently valid
+key). While `valid_until_ts` dictates when a server should refresh the
+`/_matrix/key/v2/server` endpoint, the observed association between a Key ID and
+its key body MUST NOT be purged from the server's key database when
+`valid_until_ts` expires. Purging this binding would cause "collision amnesia" —
+the server would lose track of the original key body and blindly accept a
+colliding key body on the next fetch.
 
 **Collision detection.** If a server observes a key response (whether fetched
 directly via `/_matrix/key/v2/server` or via a `/_matrix/key/v2/query` notary)
@@ -172,12 +192,15 @@ accommodate administrative mistakes.
 **Manual cache eviction.** Because the First Seen Wins policy permanently binds
 a Key ID, a successful TOFU poisoning attack (or a catastrophic remote
 misconfiguration with no recovery path) will result in permanent federation
-failure with that server. To allow recovery, homeserver implementations SHOULD
+failure with that server. To allow recovery, homeserver implementations MUST
 provide an administrative mechanism (e.g., an Admin API or CLI tool) to manually
 evict the cached key-body bindings for a specific remote server name, allowing a
-human operator to break the binding and re-initiate TOFU. This is an
-intentionally manual, operator-gated escape hatch — it must not be automatable
-or triggerable via federation traffic.
+human operator to break the binding and re-initiate TOFU.
+
+This manual eviction MUST be logged loudly by the homeserver, including both the
+server name and the fingerprints of the evicted keys. This is an intentionally
+manual, operator-gated escape hatch — it must not be automatable or triggerable
+via federation traffic.
 
 ### Historical Event Verification
 
@@ -185,11 +208,15 @@ Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
 is valid if the key identified by `algorithm:key_id` was active at time `T` —
 that is, the key's publication preceded `T` and `T` < `expired_ts` (or the key
-has no `expired_ts`, indicating it was active until replaced).
+has no `expired_ts`, indicating it was active until replaced). Servers MUST
+sanity-check `expired_ts` values in `old_verify_keys` (e.g., rejecting keys
+where `expired_ts` is in the future).
 
 The strict Key ID uniqueness invariant ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
-one public key body, and its validity window is well-defined.
+one public key body, and its validity window is well-defined. This permanent
+binding also acts as a forensic asset post-compromise: you can definitively
+prove which specific key body signed what event, and when.
 
 ## Why This MSC Does Not Propose Room Version Changes
 
@@ -342,7 +369,7 @@ requirements that can be adopted immediately.
 
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
   today and will apply equally to `fn-dsa-512` keys if
-  [MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF) is
+  [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) is
   accepted.
 
 ## Backwards Compatibility

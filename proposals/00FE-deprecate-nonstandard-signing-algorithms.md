@@ -15,7 +15,7 @@ The following signing algorithms are recognized for Matrix federation:
 | Algorithm    | Status      | Specification                                                             |
 | ------------ | ----------- | ------------------------------------------------------------------------- |
 | `ed25519`    | **Active**  | Matrix spec                                                               |
-| `fn-dsa-512` | **Pending** | [MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF) |
+| `fn-dsa-512` | **Pending** | [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) |
 
 All other algorithm identifiers — including but not limited to custom elliptic curves, RSA-based schemes, vendor-specific key types, and any algorithm not explicitly defined by an accepted MSC or the Matrix specification — are deprecated.
 
@@ -55,7 +55,7 @@ The following rules MUST NOT be enforced in existing room versions. They are gat
 In Room Version N:
 
 - Events whose `signatures` dictionary contains **only** unrecognized algorithm entries and no valid `ed25519` or `fn-dsa-512` signature from the expected origin server MUST be rejected as unauthorized.
-- The set of recognized algorithms for Room Version N is explicitly: `ed25519` and `fn-dsa-512` (if MSC 00FF is accepted by the time Room Version N is specified).
+- The set of recognized algorithms for Room Version N is explicitly: `ed25519` and `fn-dsa-512` (if MSC 00EF is accepted by the time Room Version N is specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a recognized algorithm fails.
 
 **Historical code caveat.** Because Matrix rooms are immutable DAGs, homeserver implementations cannot delete support for legacy algorithms entirely. Events in historical room versions (Room Version 1 through the version preceding N) must remain verifiable using whatever algorithm was valid at the time they were created. "Deprecation" in this context means strictly quarantining legacy verification code so it is _only_ invoked when processing historical room versions, while actively rejecting non-standard algorithms for Room Version N and above.
@@ -98,7 +98,7 @@ This MSC does not introduce new identifiers and does not require an unstable pre
 
 ## Dependencies
 
-- None. This MSC is independent of [MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF) (Post-Quantum Digital Signatures for Federation), although it is complementary. If MSC 00FF is accepted before Room Version N is finalized, `fn-dsa-512` is included in the recognized algorithm set.
+- None. This MSC is independent of [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) (Post-Quantum Digital Signatures for Federation), although it is complementary. If MSC 00EF is accepted before Room Version N is finalized, `fn-dsa-512` is included in the recognized algorithm set.
 
 ## Backwards Compatibility
 
