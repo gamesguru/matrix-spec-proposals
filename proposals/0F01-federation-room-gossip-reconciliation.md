@@ -74,7 +74,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
   "digest_bits": 32768,
   "digest_window": 5000,
   "event_count": 81247,
-  "extremity_event_ids": ["$abc123", "$def456"],
+  "pduleaves_id": ["$abc123", "$def456"],
   "depth_range": [1, 93841],
   "origin_server_ts_range": [1609459200000, 1716000000000]
 }
@@ -89,7 +89,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `digest_bits`            | integer            | Yes      | The bit-length of the Bloom filter. The server dynamically sizes this; see Digest Construction.                                         |
 | `digest_window`          | integer            | Yes      | The number of most-recent events (by topological depth) included in the digest. See Active Window.                                      |
 | `event_count`            | integer            | Yes      | The total number of non-outlier events the server holds for this room (including locally rejected events; see Rejected Event Handling). |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                      |
+| `pduleaves_id`           | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                      |
 | `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                               |
 | `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                              |
 
@@ -202,7 +202,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 ```json
 {
   "mode": "extremity",
-  "local_extremity_event_ids": ["$abc123", "$def456"],
+  "local_pduleaves_id": ["$abc123", "$def456"],
   "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
   "local_event_count": 81000,
   "limit": 1000
@@ -223,16 +223,16 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                                                         |
-| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities ("want" — what it's trying to reach).                           |
-| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                            |
-| `max_depth_walk`            | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000.                              |
-| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
+| Field                | Type     | Required          | Description                                                                                                         |
+| -------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `mode`               | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
+| `local_pduleaves_id` | [string] | If mode=extremity | The requesting server's current forward extremities ("want" — what it's trying to reach).                           |
+| `have_event_ids`     | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
+| `local_digest`       | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
+| `digest_type`        | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
+| `local_event_count`  | integer  | Yes               | The requesting server's total event count for this room.                                                            |
+| `max_depth_walk`     | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000.                              |
+| `limit`              | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
 
 **Response:**
 
@@ -240,7 +240,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
   "remote_event_count": 81247,
-  "remote_extremity_event_ids": ["$abc123", "$pqr678"],
+  "remote_pduleaves_id": ["$abc123", "$pqr678"],
   "truncated": false
 }
 ```
@@ -251,16 +251,16 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | ---------------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `probably_missing_event_ids` | [string] | Yes      | Event IDs that the responding server has but the requesting server likely does not. In `bloom` mode these may include false positives; in `extremity` mode these are exact. |
 | `remote_event_count`         | integer  | Yes      | The responding server's total event count.                                                                                                                                  |
-| `remote_extremity_event_ids` | [string] | Yes      | The responding server's current forward extremities.                                                                                                                        |
+| `remote_pduleaves_id`        | [string] | Yes      | The responding server's current forward extremities.                                                                                                                        |
 | `truncated`                  | bool     | Yes      | Whether the result was truncated due to `limit`. If true, the requesting server should make additional requests.                                                            |
 
 **Diff Computation — Mode Selection:**
 
 Servers SHOULD select the diff mode based on the `room_digest` comparison:
 
-- If the remote server's `extremity_event_ids` contain event IDs the local server does not
+- If the remote server's `pduleaves_id` contain event IDs the local server does not
   recognize → use `extremity` mode (frontier lag; the merge-base walk will find the delta).
-- If the remote server's `extremity_event_ids` all match locally, but `event_count` differs →
+- If the remote server's `pduleaves_id` all match locally, but `event_count` differs →
   use `bloom` mode (interior gap; extremities match but events are missing inside the DAG).
 - If both extremities diverge AND event counts differ → use `extremity` mode first (to resolve
   the frontier), then `bloom` mode (to patch interior gaps).
@@ -275,7 +275,7 @@ packfile negotiation protocol:
    - The responder finds the `local_depth` of these events.
    - `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`
    - If `delta > max_depth_walk`, the responder MUST immediately return an empty result with `truncated: true`. This guarantees the server only ever walks bounded, recent history.
-2. Build the `have` set: the union of `local_extremity_event_ids` and `have_event_ids`. These
+2. Build the `have` set: the union of `local_pduleaves_id` and `have_event_ids`. These
    represent events the requester already possesses. The combined `have` set MUST NOT exceed
    256 entries; requests exceeding this MUST be rejected with HTTP 400.
 3. Identify forward extremities the responder has that are NOT in the `have` set — these are the
@@ -408,7 +408,7 @@ The full reconciliation flow between two servers is:
          │                                         │
          │  POST /room_diff/{roomId}               │
          │  { mode: "extremity",                   │
-         │    local_extremity_event_ids: [...] }   │
+         │    local_pduleaves_id: [...] }   │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { probably_missing: [...] }     │
@@ -428,7 +428,7 @@ The full reconciliation flow between two servers is:
          │                                         │
 ```
 
-**Short-circuit optimization:** If the `room_digest` response shows identical `extremity_event_ids`
+**Short-circuit optimization:** If the `room_digest` response shows identical `pduleaves_id`
 and `event_count` values, the requesting server MAY skip the diff and event fetch phases entirely.
 
 ### Gossip Scheduling
@@ -478,10 +478,10 @@ The ETag MUST NOT be derived from the Bloom filter digest (which would require c
 filter just to evaluate the conditional request, defeating the purpose of a fast 304 check).
 Instead, the ETag MUST be computed as:
 
-> `Base64(room_xor_sum || XXH3-64(sorted(extremity_event_ids)))`
+> `Base64(room_xor_sum || XXH3-64(sorted(pduleaves_id)))`
 
 - The `room_xor_sum` is computed as the XOR-sum of all event IDs currently in the room's event store. This is commutative and associative, allowing it to be updated in O(1) during event persistence or purging.
-- The `sorted(extremity_event_ids)` part ensures frontier divergence is detected.
+- The `sorted(pduleaves_id)` part ensures frontier divergence is detected.
 
 Because the Matrix DAG is append-only, if the `room_xor_sum` and the extremities are identical,
 the underlying event set is mathematically guaranteed to be identical. This allows the server to
