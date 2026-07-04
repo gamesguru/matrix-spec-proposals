@@ -1,14 +1,5 @@
 # MSC0F06: Advisory State Hashing in Federation Transactions
 
-**Authors:** [Your Name/Handle]
-**Date:** 2026-07-04
-**Version:** 1.0
-**Status:** Draft
-
----
-
-## Introduction
-
 Matrix is designed around **Eventual Consistency**. Servers build a decentralized
 Directed Acyclic Graph (DAG) of events and use State Resolution (e.g., State Res
 v2) to converge on a shared state. However, federation lag, network partitions,
@@ -71,9 +62,9 @@ A new `state_hashes` dictionary is introduced at the root of the
 `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
 PDUs included in the transaction to their respective `before` and `after` digests.
 
-* `before`: The 32-byte digest of the room state evaluated exactly at the PDU's
+- `before`: The 32-byte digest of the room state evaluated exactly at the PDU's
   `prev_events`, excluding the current event.
-* `after`: The 32-byte digest of the room state after the current PDU is applied.
+- `after`: The 32-byte digest of the room state after the current PDU is applied.
   (For non-state events, this will be identical to `before`).
 
 ```json
@@ -123,8 +114,8 @@ storage.
    automatically trigger a background `/get_missing_events` or state resync
    operation to heal the split before it compounds.
 
-Because the checks are advisory, if the hashes do not match, the PDU is *still
-accepted* and processed according to standard Matrix rules. This prevents the
+Because the checks are advisory, if the hashes do not match, the PDU is _still
+accepted_ and processed according to standard Matrix rules. This prevents the
 network from stalling.
 
 ## State Identity and Local Database Optimization
@@ -136,7 +127,7 @@ Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," utilizing delta chains (pointers and changes) because generating a hash
 of an entire room state is an $O(N)$ operation.
 
-With an $O(1)$ additive accumulator, the mathematical state digest *is* the state
+With an $O(1)$ additive accumulator, the mathematical state digest _is_ the state
 group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
@@ -189,10 +180,10 @@ payload of the event, enforcing it as a protocol-level requirement.
 
 **Disadvantages:**
 
-* **Breaks Eventual Consistency:** Matrix relies on servers being slightly out
+- **Breaks Eventual Consistency:** Matrix relies on servers being slightly out
   of sync. Enforcing strict consensus on every event would cause massive
   fork-locking across the federation.
-* **Bureaucracy:** Modifying the signed PDU alters the event's reference hash.
+- **Bureaucracy:** Modifying the signed PDU alters the event's reference hash.
   This would require a massive global Room Version Upgrade and deprecate all
   older homeservers.
 
@@ -206,9 +197,9 @@ dictionary of the PDU.
 
 **Disadvantages:**
 
-* **Tampering:** The `unsigned` dictionary is not covered by any signature,
+- **Tampering:** The `unsigned` dictionary is not covered by any signature,
   allowing silent modification in transit.
-* **Survival:** Like transaction-level hashes, `unsigned` data is frequently
+- **Survival:** Like transaction-level hashes, `unsigned` data is frequently
   stripped by relays or backfill endpoints, offering no structural advantage over
   transaction-level hashes.
 
