@@ -28,8 +28,8 @@ out, unable to accumulate accurate state or accept new messages.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
-**replacing state group transitions** and naive BFS sweeps with a cheap,
-bitwise, commutative, subtractable (supports element removal),
+**replacing state group transitions** and iterative BFS implementations with a
+cheap, bitwise, commutative, subtractable (supports element removal),
 collision-resistant 2048-byte `LtHash16` accumulator function.
 
 The accumulator under question may be called 'homomorphic' and solves the
