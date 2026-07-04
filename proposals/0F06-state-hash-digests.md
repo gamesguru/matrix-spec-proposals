@@ -1,5 +1,9 @@
 # MSC0F06: State accumulator endpoint and transaction digests
 
+<!--
+[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/guru/4499-state-hash-digests.md)
+ -->
+
 Matrix is designed around **eventual consistency**. Servers build a decentralized
 DAG and use state resolution to converge on a shared state. However, federation
 lag, network partitions, or implementation bugs can cause servers to diverge in
@@ -38,36 +42,35 @@ digest (of their 2048-bit state accumulator integer) in the
 
 ## Proposal
 
-This proposal leverages global grand sum accumulators. Rather than attaching
-hashes to individual events (which are routinely stripped, rewritten, or relayed
-by intermediate servers), this proposal places the hashes in the body of the
-federation transaction.
+Rather than attaching hashes to individual events (which are routinely stripped,
+rewritten, or relayed by intermediate servers), this proposal places the hashes
+in the body of the federation transaction.
 
-When a homeserver sends a transaction over federation, it calculates the $O(1)$
-sum hash of the room's state exactly at the DAG tip of each included PDU.
-It then collapses this mathematical state into a standard 32-byte digest and
+When a homeserver sends a transaction over federation, it calculates the sum hash
+of the room's state exactly at the DAG tip of each included PDU.
+
+It then collapses this vectorized state into a standard 32-byte digest and
 includes it in the transaction payload.
 
-### Algorithm Specification
+### Algorithm specification
 
-To ensure an interop mechanism where all implementations byte-identically agree,
-the algorithm cannot be deferred or negotiated. It is strictly defined as follows:
+To ensure an interoperability the algorithm is strictly defined as follows:
 
 1. **Element Encoding:** For each active state event in the room, the element is
    serialized as a UTF-8 string concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`.
 2. **Domain Separation & Hashing:** The element string is hashed using
-   BLAKE2b-256, prefixed with a domain separation tag:
+   `BLAKE2b-256`, prefixed with a domain separation tag:
    `BLAKE2b-256("msc0f06_lthash16" || element_encoding)`.
 3. **Accumulator Lattice (LtHash16):** The system uses LtHash16. The local state
    is a lattice of 1024 16-bit integers (2048 bytes). The 32-byte element hash is
    mapped to this lattice and added using 16-bit wrapping addition.
 4. **Collapse Function:** The final 2048-byte lattice is collapsed into a 32-byte
-   digest using a final pass of BLAKE2b-256 over the raw lattice bytes. This
+   digest using a final pass of `BLAKE2b-256` over the raw lattice bytes. This
    32-byte digest (represented as a 64-character hex string) is the value
    transmitted over the network.
 
-### The Transaction Payload
+### Transaction payload
 
 A new `state_hashes` dictionary is introduced at the root of the
 `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
@@ -101,7 +104,7 @@ PDUs included in the transaction to their respective `before` and `after` digest
 }
 ```
 
-### Network Payload Efficiency
+### Network efficiency
 
 Event bloat is a critical concern in Matrix federation. The full LtHash16 lattice
 state (2048 bytes) is **never transmitted over the network.**
@@ -110,7 +113,7 @@ By transmitting only the collapsed 32-byte digests, the payload footprint is
 negligible. Adding both `before` and `after` hashes consumes approximately 160
 bytes of JSON overhead per PDU in the transaction.
 
-### Receiver Behavior
+### Receiver contract
 
 The receiving server independently maintains its own LtHash16 lattice in local
 storage.
@@ -125,14 +128,14 @@ storage.
    automatically trigger a background `/get_missing_events` or state resync
    operation to heal the split before it compounds.
 
-Because the checks are advisory, if the hashes do not match, the PDU is *still
-accepted* and processed according to standard Matrix rules. This prevents the
+Because the checks are advisory, if the hashes do not match, the PDU is _still
+accepted_ and processed according to standard Matrix rules. This prevents the
 network from stalling.
 
-## Surgical Reconciliation (The Lattice Endpoint)
+## Reconciliation (accumulator endpoint)
 
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows it
-is desynchronized, but the digest itself cannot reveal *which* events are
+is desynchronized, but the digest itself cannot reveal _which_ events are
 missing. Historically, servers would fall back to `GET /state_ids`, exchanging
 lists of tens of thousands of event IDs to find a single missing state event.
 
@@ -154,16 +157,16 @@ If Server B detects a mismatch from Server A:
    this delta, identifying the missing or conflicting events instantly without
    exchanging full state dictionaries.
 
-## State Identity and Local Database Optimization
+## State identity and local DB optimizations
 
-While this proposal primarily addresses federation, the adoption of a global
+While this proposal primarily addresses federation, the adoption of a
 grand sum accumulator profoundly optimizes local homeserver architecture.
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," utilizing delta chains (pointers and changes) because generating a hash
 of an entire room state is an $O(N)$ operation.
 
-With an $O(1)$ sum accumulator, the mathematical state digest *is* the state
+With an $O(1)$ sum accumulator, the mathematical state digest _is_ the state
 group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
@@ -182,7 +185,7 @@ simply to determine state equality.
 
 ## Potential issues
 
-### 1. Direct-Hop Survival (Topology Constraints)
+### Direct-hop survival (ease of audit)
 
 Because the hashes are attached to the transaction body rather than the individual
 PDUs, they only survive the direct origin-to-first-hop transmission. If an event
@@ -193,7 +196,7 @@ where real-time early-warning detection is most valuable to prevent split-brain
 rooms. The `unsigned` dictionary on individual PDUs suffers from similar survival
 issues, as it is routinely stripped or rewritten by intermediate servers.
 
-### 2. False Alarms (Denial of Service)
+### 2. False alarms (DoS)
 
 If a malicious server intentionally forwards spoofed hashes in the transaction,
 it could force the receiving server to continually trigger state resync
@@ -201,11 +204,12 @@ operations, acting as a minor Denial of Service (DoS) vector.
 
 **Mitigations:**
 
-1. **Rate-Limiting:** Receiving servers MUST heavily rate-limit out-of-band
+1. **Rate-limiting:** Receiving servers SHOULD rate-limit out-of-band
    state sync requests triggered by mismatching hints.
 2. **Reputation:** Servers SHOULD track the reliability of peers. If a peer
    consistently sends mismatching hashes that do not reflect the actual resolved
-   state, the receiver should temporarily ignore hints from that peer.
+   state, the receiver should temporarily decrement that peer's reputability
+   and the worthiness of their hints.
 
 ## Alternatives
 
@@ -258,7 +262,7 @@ room remains mathematically secure. The worst-case outcome is a performance
 degradation or diagnostic false alarm (triggering redundant state syncs), never
 a security breach or state corruption.
 
-Because the 32-byte digest is cryptographically secure (via BLAKE2b-256), finding
+Because the 32-byte digest is cryptographically secure (via `BLAKE2b-256`), finding
 a malicious state fork that produces the same hash as the honest state (forging
 agreement) requires a preimage attack against the underlying hash function, which
 is currently believed cryptographically infeasible.
