@@ -1,39 +1,49 @@
-# MSC0F06: Advisory State Hashing in Federation Transactions
+# MSC0F06: State accumulator endpoint and digests in transactions
 
-Matrix is designed around **Eventual Consistency**. Servers build a decentralized
-Directed Acyclic Graph (DAG) of events and use State Resolution (e.g., State Res
-v2) to converge on a shared state. However, federation lag, network partitions,
-or implementation bugs can cause servers to diverge in their view of a room's
-state.
+Matrix is designed around **eventual consistency**. Servers build a decentralized
+DAG and use state resolution to converge on a shared state. However, federation
+lag, network partitions, or implementation bugs can cause servers to diverge in
+their view of a room's state.
 
-When servers diverge, the result is often a "split-brain" room or a state reset.
-Because Matrix lacks an out-of-band mechanism to rapidly verify state alignment,
-servers often only realize they are desynchronized long after the divergence
-occurred—typically when an authorization failure happens (e.g., a user is
-incorrectly rejected from joining).
+When servers diverge, the result can be a serious nuisance. Matrix lacks
+an out-of-band or real-time mechanism to for state verification or re-alignment;
+servers often only learn of de-synchronization once they disagree on a much later
+authorization failure (e.g., another user's join is incorrectly rejected).
 
-We need an "early-warning system" to mathematically prove that servers share
-the exact same view of the room state at a specific point in the DAG.
+I present an "early-warning system" which rapidly confirms incremental state
+consensus, or signals (with traceable proof) as to its divergence, so servers
+know they share the exact same view of a room at a given point in the DAG.
 
-While it is tempting to enforce strict consensus by adding state hashes directly
-into the signed payload of the Protocol Data Unit (PDU), doing so would
-fundamentally break Matrix's eventual consistency model. A server missing a
-single state event would be permanently "fork-locked," unable to accept new
-messages.
+It is tempting to enforce strict consensus by adding state hashes directly
+into the signed payload of the PDU, but doing so is too rigid for the
+fundamentally dynamic "Matrix" model of eventual consistency. Administrative
+actions may win the topological power sort, shadowing or clobbering previously
+consolidated state groups. A server missing a single state event would be
+permanently forked out, unable to accept new messages.
 
-This proposal introduces an advisory, non-blocking state verification mechanism
-by embedding a global grand additive accumulator (LtHash16) into the
+This proposal does not impose any verification requirements on PDU handling.
+It seeks to act as a secondary state convergence mechanism, while simultaneously
+**replacing state group transitions** and naive BFS sweeps with a cheap, bitwise,
+commutative, invertible, collision-resistant 2048-bit `LtHash16` accumulator function.
+
+The accumulator under question may be called 'homomorphic' and solves the
+following problem: "Given the hash of an input, along with a small update to
+the input, how can we compute the hash of the new input with its update applied,
+without having to recompute the entire hash from scratch?"
+
+Should this proposal be accepted, homeserves must embed a canonical `BLAKE2b-256`
+digest (of their 2048-bit state accumulator integer) in the
 `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
-This proposal leverages global grand additive accumulators. Rather than attaching
+This proposal leverages global grand sum accumulators. Rather than attaching
 hashes to individual events (which are routinely stripped, rewritten, or relayed
 by intermediate servers), this proposal places the hashes in the body of the
 federation transaction.
 
 When a homeserver sends a transaction over federation, it calculates the $O(1)$
-additive hash of the room's state exactly at the DAG tip of each included PDU.
+sum hash of the room's state exactly at the DAG tip of each included PDU.
 It then collapses this mathematical state into a standard 32-byte digest and
 includes it in the transaction payload.
 
@@ -121,13 +131,13 @@ network from stalling.
 ## State Identity and Local Database Optimization
 
 While this proposal primarily addresses federation, the adoption of a global
-grand additive accumulator profoundly optimizes local homeserver architecture.
+grand sum accumulator profoundly optimizes local homeserver architecture.
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," utilizing delta chains (pointers and changes) because generating a hash
 of an entire room state is an $O(N)$ operation.
 
-With an $O(1)$ additive accumulator, the mathematical state digest _is_ the state
+With an $O(1)$ sum accumulator, the mathematical state digest _is_ the state
 group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
@@ -225,7 +235,7 @@ a security breach or state corruption.
 Because the 32-byte digest is cryptographically secure (via BLAKE2b-256), finding
 a malicious state fork that produces the same hash as the honest state (forging
 agreement) requires a preimage attack against the underlying hash function, which
-is cryptographically infeasible.
+is currently believed cryptographically infeasible.
 
 ## Unstable prefix
 
@@ -234,4 +244,4 @@ unstable identifier: `org.matrix.msc0F06.state_hashes`
 
 ## Dependencies
 
-This proposal has no unaccepted dependencies.
+This proposal currently has no known dependencies, blockers, or open questions.
