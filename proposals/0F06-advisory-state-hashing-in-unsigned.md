@@ -27,8 +27,7 @@ hash) into the `unsigned` dictionary of an event.
 
 ## Proposal
 
-This proposal leverages global grand additive accumulators (such as Zobrist
-hashing defined in MSC0F05 or LtHash).
+This proposal leverages global grand additive accumulators (such as LtHash).
 
 When a homeserver sends an event over federation, it calculates the $O(1)$
 additive hash of the room's state at the moment the event is created. It then
@@ -56,8 +55,8 @@ Two new keys are introduced inside the `unsigned` object of a PDU:
   },
   "unsigned": {
     "age": 42,
-    "org.matrix.msc0F06.state_hash_before": "8f2a1b3c...[64 chars]...9e4d",
-    "org.matrix.msc0F06.state_hash_after": "8f2a1b3c...[64 chars]...9e4d"
+    "org.matrix.msc0F06.state_hash_before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+    "org.matrix.msc0F06.state_hash_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
   }
 }
 ```
