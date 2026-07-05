@@ -24,12 +24,14 @@ to an annoying loophole where key collisions in the wild can cause state splits.
 
 ### Key caching requirements
 
+**TODO:** What about specifying that notaries begin caching the 8-char hex checksum?
+
 Servers MUST cache remote server signing keys obtained from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
-`fn-dsa-512` once
-[MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) is
-accepted).
+any future signing algorithms, like `fn-dsa-512`).
+
+<!-- Edit marker.  -->
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before the `valid_until_ts` expiry to avoid
