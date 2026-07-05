@@ -241,8 +241,6 @@ Server-Server APIs.
 
 ## Reconciliation (bisecting forks)
 
-<!-- Proofread marker. cfbc888d  -->
-
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
 against the sender's full accumulator lattice.
@@ -270,7 +268,7 @@ non-state-altering events. For this capability, it fully defers to MSC4501.
 
 This proposal and MSC4501 (`room_digest` / `room_diff`) solve fundamentally
 different sets. MSC4500's accumulator covers the room's _current state set_ at
-arbitrary DAG positions. MSC4501's bloom digest and RMQ fall-back cover the
+arbitrary DAG positions. MSC4501's bloom digest and LCA/RMQ fall-back cover the
 _event set_ (full PDU timeline).
 
 Because state divergence implies event-set divergence (with the converse _often_
@@ -282,12 +280,14 @@ also holding true), the two proposals nicely complement each other:
 2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
 3. **Reconcile (MSC4501):** `room_diff` (with a `scope: "state"` parameter)
-   fetches what is missing, auth chains included.
+   fetches omissions, auth chains included, triggering state re-resolution.
 
 Because MSC4500 gives active rooms free passive detection, MSC4501's periodic
 polling can back off significantly for rooms with recent inbound transactions.
 
 ## Implementation notes
+
+<!-- Proofread marker. cfbc888d  -->
 
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
