@@ -1,5 +1,7 @@
 # MSC 4500: State accumulator endpoint and transaction digests
 
+<!-- Proofread marker. cfbc888d  -->
+
 Matrix servers replicate a room as a DAG of events and rely on state resolution
 to eventually converge on a shared state. When servers diverge, the result can
 be a serious nuisance. Matrix lacks an out-of-band or real-time mechanism for
