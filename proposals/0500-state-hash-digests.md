@@ -371,8 +371,6 @@ entirely decoupled from delta chains or full state materialization.
 
 ### Direct-hop survival (ease of audit)
 
-<!-- Proofread marker. cfbc888d -->
-
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
 If an event is relayed, or fetched later via `/backfill`, the hashes are
@@ -384,10 +382,12 @@ The `unsigned` dictionary on individual PDUs suffers from similar survival
 issues, as it is routinely stripped or rewritten by intermediate servers, making
 it prone to replication drift and structural or semantic ambiguity.
 
-### False alarms (DoS)
+### False alarms (federation signal noise and DoS vectors)
 
-If a malicious or pathological server forwards wrong hashes in the transaction,
-it could trigger the receiving server to continually force state resyncs.
+<!-- Proofread marker. cfbc888d -->
+
+If a malicious, misconfigured, or malfunctioning server forwards wrong hashes in
+the transaction, it could trigger the receiver into a loop of state resyncs.
 
 **Mitigations:**
 
