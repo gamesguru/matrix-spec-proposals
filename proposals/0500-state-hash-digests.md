@@ -309,6 +309,8 @@ accumulator notably optimizes local homeserver operation.
 Currently, homeservers like Synapse track room states using unique IDs called
 'state groups' and comparing two state groups to see if they contain identical
 state requires expensive graph traversals or full state materialization.
+Conduwuit-based derivatives slightly optimize read-time reconstruction by
+incurring `ShortStateHash`-associated write-time amplification.
 
 With a sum accumulator, the state digest _is_ the state group identifier.
 
