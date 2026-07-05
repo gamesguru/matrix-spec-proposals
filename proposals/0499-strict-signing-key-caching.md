@@ -163,8 +163,6 @@ Wins** policy. The first public key body observed for a given
 the future, once key IDs are reduced to collision-resistant canonical checksums
 of the key body (rather than admin-supplied near arbitrary strings).
 
-<!-- Proofread marker. 52b5887a  -->
-
 **Local impact.** The First Seen Wins rule causes a **localized DAG divergence**
 for the misconfigured server: peers that cached the original key will reject new
 events from the server (signature verification fails against the wrong key
@@ -184,6 +182,8 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 
 ### Key rotation procedure
 
+<!-- Proofread marker. 52b5887a  -->
+
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
@@ -198,6 +198,10 @@ Reusing a key ID with a different key body is a **protocol violation**. This
 most commonly occurs when an administrator wipes a server's database,
 regenerates signing keys, but leaves the server configuration set to the same
 key ID (e.g., the default `ed25519:auto`).
+
+If this happens, administrators must rotate to a fresh key ID immediately. They
+should further take efforts to correct membership or state drifts that occurred
+during the period when an invalid, duplicated key was used to sign PDUs.
 
 ### Admin startup guardrails
 
