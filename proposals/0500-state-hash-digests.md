@@ -380,7 +380,8 @@ missing.
 However, this is an acceptable constraint. The direct `/send` hop is precisely
 where real-time early-warning detection is most valuable to prevent split-brain.
 The `unsigned` dictionary on individual PDUs suffers from similar survival
-issues, as it is routinely stripped or rewritten by intermediate servers.
+issues, as it is routinely stripped or rewritten by intermediate servers and
+suffers generally from replication drift and underspecification / ambiguity.
 
 ### False alarms (DoS)
 
