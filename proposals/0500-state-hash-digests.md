@@ -10,9 +10,8 @@ servers often only learn of de-synchronization once they disagree on a much
 later authorization failure (e.g., another user's join is incorrectly rejected).
 
 I present an "early-warning system" which rapidly confirms incremental state
-consensus, or signals (with approximate delta sizes) as to its divergence, so
-servers know they share the exact same view of a room at a given point in the
-DAG (or roughly where they diverged).
+consensus, or signals that divergence exists, so servers know they share the
+exact same view of a room at a given point in the DAG.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
@@ -50,28 +49,17 @@ To guarantee interoperability, the algorithm is as follows:
 
 1. **Input encoding.** Each entry in the room's resolved state map is serialized
    as the UTF-8 concatenation:
-   `type || "\x00" || state_key || "\x00" || event_id`.
+   `type || "\x00" || state_key || "\x00" || event_id`. Homeservers MUST reject
+   or escape any `\x00` bytes present in the `type` or `state_key` prior to
+   encoding to prevent null-byte injection collisions.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
    tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
-   `BLAKE2Xb` extendable-output function (XOF):
-   `expansion = BLAKE2Xb-2048("msc4500_lthash16\x00" || element)`.
-
-   To guarantee interoperability across different cryptographic libraries, the
-   `BLAKE2Xb-2048` function MUST be parameterized strictly according to the
-   official BLAKE2X specification. Specifically:
-   - The initial 64-byte parameter block $H_0$ MUST set `digest_length = 64`,
-     `key_length = 0`, `fanout = 0`, `depth = 0`, `leaf_length = 64`,
-     `node_depth = 0`, `inner_length = 64`, and pack the 32-bit XOF digest length
-     field (value `2048`) into the high 4 bytes of the `node_offset` field.
-   - Each subsequent expansion block $B_2(i)$ MUST set `digest_length = 64` (as
-     the output length `2048` is a multiple of 64), `key_length = 0`,
-     `fanout = 0`, `depth = 0`, `leaf_length = 64`, `node_depth = 0`,
-     `inner_length = 64`, and configure `node_offset` with the block index
-     counter $i$ (low 4 bytes) and target digest length `2048` (high 4 bytes).
-   - This matches standard BLAKE2Xb XOF implementations (such as Go's
-     `golang.org/x/crypto/blake2b` package via `NewXOF(2048, nil)`). A
-     fixed-width hash cannot fill the lattice; this uniform XOF expansion is
-     essential for identical lane distribution.
+   `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
+   `expansion = SHAKE256("msc4500_lthash16\x00" || element, 2048)`. A
+   fixed-width hash cannot fill the lattice; this uniform XOF expansion is
+   essential for identical lane distribution. `SHAKE256` is natively supported
+   across virtually all cryptographic libraries without custom parameter block
+   requirements.
 
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
@@ -89,17 +77,19 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 
 **NOTE:** It is the caller's responsibility to ensure the input is really a set.
 The digest allows deducting elements which were never added, and it allows
-adding the same element twice (producing different digests). The digest will
-roll-over if and only if the same element is applied `2^16` times. Thus
-pre-existence can be checked in under 65,536 accumulator iterations (fitting
-purely within L1/L2 cache).
+adding the same element twice (producing different digests). The accumulator is
+strictly a one-way comparative tool; homeserver databases remain responsible for
+managing actual set element membership.
 
 ### Transaction payload
 
-A new `state_hashes` dictionary is introduced at the root of the
+A new OPTIONAL `state_hashes` dictionary is introduced at the root of the
 `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
 PDUs included in the transaction to their respective `before` and `after`
-digests.
+digests. Network overhead for duplicate digests (e.g. across multiple non-state
+PDUs in a batch) is entirely mitigated by standard Matrix federation HTTP
+compression (gzip/brotli), which reduces the highly repetitive strings to
+negligible bytes.
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of
 state resolution (v2) applied across the states at each of those events — i.e.
@@ -156,7 +146,14 @@ If the local digest matches the incoming one, all systems are nominal.
 If digests mismatch, servers MUST log an error or warning message of the state
 split. The receiver can automatically trigger a background `/get_missing_events`
 or perform a state bisection with an authoritative server, while replying to the
-sender with the mismatched digest.
+sender with the mismatched digest. Note that if a receiving server **rejects**
+an incoming state event due to auth/power-level rules, their `after` hash will
+instantly (and correctly) mismatch the sender's `after` hash. This mechanism
+instantly detects split-brain authorization failures.
+
+Homeservers operating in a Partial State regime (MSC3706) MUST silently defer
+hash validation for that room and MUST NOT emit warnings or trigger bisection
+until the room state is fully synchronized.
 
 If the receiver cannot quickly and reliably validate the `before` and `after`
 hashes (i.e., from an in-memory LRU cache or with a single, minimal DB query),
@@ -206,29 +203,17 @@ The introduction of a mathematically verifiable state accumulator enables
 several zero-cost optimizations across the existing Matrix Client-Server and
 Server-Server APIs.
 
-- **`GET /_matrix/federation/v1/state/{roomId}` and
-  `/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must fully
-  materialize the room state to serve these endpoints, which is an expensive
-  $O(N)$ operation for large rooms. With the accumulator, homeservers can
-  quickly provide a state _delta_ using a single homomorphic subtraction between
-  two lattice digests. The formal specification of a dedicated state-delta
-  endpoint is deferred to a follow-up MSC, but the foundation is laid here.
-
-- **`GET /_matrix/federation/v1/state_ids/{roomId}`** This endpoint becomes
-  instantly cacheable via standard HTTP semantics. Requesters SHOULD include the
-  32-byte accumulator digest in the `If-None-Match` header. The receiving server
-  simply compares this against its own $O(1)$ local digest for the requested
-  event. If they match, the server immediately returns `304 Not Modified`,
-  entirely bypassing the database traversal and JSON serialization of tens of
-  thousands of event IDs.
-
-- **Room Upgrades** Upgrading a room requires duplicating the entire state map
-  into a new room version. The state accumulator provides a verifiable,
-  deterministic checkpoint for this migration. Homeservers can cryptographically
-  prove that the pre-upgrade state and the post-upgrade state are identical
-  (modulo the tombstone and creation events) simply by verifying the lattice
-  digests, ensuring consensus is perfectly preserved across the version
-  boundary.
+- **`GET /_matrix/federation/v1/state/{roomId}`**,
+  **`GET /_matrix/federation/v1/state_ids/{roomId}`**, and
+  **`/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must
+  fully materialize the room state to serve these endpoints, which is an
+  expensive $O(S)$ operation for large rooms. These endpoints become instantly
+  cacheable via standard HTTP semantics. Requesters SHOULD include the 32-byte
+  accumulator digest in the `If-None-Match` header. The receiving server simply
+  compares this against its own $O(1)$ local digest for the requested event. If
+  they match, the server immediately returns `304 Not Modified`, entirely
+  bypassing the database traversal and JSON serialization of tens of thousands
+  of state events.
 
 ## Reconciliation (bisecting forks)
 
@@ -236,10 +221,11 @@ When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
 against the sender's full accumulator lattice.
 
-The delta lattice tells you _that_ you've diverged and roughly _how much_, and
-lets you **bisect** to _where_. Because both servers can produce digests at
-historical DAG points, the receiver can query accumulators at $O(\log ΔD)$ depth
-(binary search over HTTP) to find the earliest event where the digests diverged.
+The delta lattice tells you _that_ you've diverged and lets you **bisect** to
+_where_. Because both servers can produce digests at historical DAG points, the
+receiver can query accumulators at $O(\log \Delta D)$ depth (topological
+bisection—similar to `git bisect`—over the known `prev_events` graph or auth
+chain) to find the earliest event where the digests diverged.
 
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
@@ -405,16 +391,15 @@ currently believed to be computationally intractable.
 ## Test vectors
 
 To assist implementers, the following test vectors are provided. They are
-generated using the standard `BLAKE2Xb-2048` element expansion (prefixed with the
-domain separation tag `msc4500_lthash16\x00`), 16-bit little-endian wrapping lane
+generated using the `SHAKE256` element expansion (prefixed with the domain
+separation tag `msc4500_lthash16\x00`), 16-bit little-endian wrapping lane
 addition/subtraction, and standard `BLAKE2b-256` collapse digest.
 
 ### Empty state
 
 The starting lattice $S_0$ is 2048 bytes of all zeros.
 
-- Lattice $S_0$ prefix (first 16 bytes):
-  `00000000000000000000000000000000`
+- Lattice $S_0$ prefix (first 16 bytes): `00000000000000000000000000000000`
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
@@ -425,12 +410,12 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
 
 - Raw encoded element:
   `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f31`
-- Element 1 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_1)$):
-  `0677bb5dc57ea99a32fb5dda44dcf128`
-- Lattice $S_1$ prefix (first 16 bytes):
-  `0677bb5dc57ea99a32fb5dda44dcf128`
+- Element 1 expansion prefix (first 16 bytes of
+  $SHAKE256(\text{tag} \parallel \text{el}_1)$):
+  `7f67472f95b708be0b6ff8794d6a4e6f`
+- Lattice $S_1$ prefix (first 16 bytes): `7f67472f95b708be0b6ff8794d6a4e6f`
 - Collapse digest:
-  `92214d869fea850032a5fcb61ca27acf12abf8f3896d7deb50da40e8151e194e`
+  `1c51ead276c255b5054025ef47b0c78f69259df45b9de9abc3c79a40ee3afa24`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -447,14 +432,13 @@ accumulator to the empty state.
 Starting from $S_1$, add event `m.room.name` with empty state key `""` and event
 ID `$event_2`.
 
-- Raw encoded element:
-  `6d2e726f6f6d2e6e616d650000246576656e745f32`
-- Element 2 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_2)$):
-  `388985bf961e9f7c4e4c8fa2dea5e624`
-- Lattice $S_2$ prefix (first 16 bytes):
-  `3e00401d5b9d48178047ec7c2282d74d`
+- Raw encoded element: `6d2e726f6f6d2e6e616d650000246576656e745f32`
+- Element 2 expansion prefix (first 16 bytes of
+  $SHAKE256(\text{tag} \parallel \text{el}_2)$):
+  `6b09141708e2fae839bd632d8bc771ff`
+- Lattice $S_2$ prefix (first 16 bytes): `ea705b469d9902a7442c5ba7d831bf6e`
 - Collapse digest:
-  `ee9ac7c11d86f3bc77c9d3a32c81016cb8c05e69da46a9b3771034158deb2c8b`
+  `b95fb7fc915d6d3dda12981340d73137d2d6cf22ac7d5966a96502a28442b676`
 
 ### Scenario 4: instant replacement
 
@@ -464,12 +448,12 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 
 - Raw encoded element for `$event_3`:
   `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f33`
-- Element 3 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_3)$):
-  `31b990301dc8e2faf3e252178af4c10b`
-- Lattice $S_3$ prefix (first 16 bytes):
-  `694215f0b3e68177412fe1b9689aa730`
+- Element 3 expansion prefix (first 16 bytes of
+  $SHAKE256(\text{tag} \parallel \text{el}_3)$):
+  `967af517a6581417a02f28604554f067`
+- Lattice $S_3$ prefix (first 16 bytes): `0184092fae3a0e00d9ec8b8dd01b6167`
 - Collapse digest:
-  `6fdb7e1cde07e6bf500d5e930095e2e519a16677fe6a1f9e4d210a3a38c1e36c`
+  `7e46baafcd5cde7ee2583a91bd7f5be3b682cd5d682186b232383c148b7dbc56`
 
 ## Unstable prefix
 
