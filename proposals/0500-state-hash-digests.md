@@ -287,22 +287,24 @@ polling can back off significantly for rooms with recent inbound transactions.
 
 ## Implementation notes
 
-<!-- Proofread marker. cfbc888d  -->
-
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
-parent's lattice — O(1), no chain walk. Historical `/state_accumulator` queries
-then reduce to the existing event (state group lookup plus a single row read).
+parent's lattice — O(1), no chain walk and no full state materialization.
+Historical `/state_accumulator` queries then reduce to the existing event (state
+group lookup plus a single row read).
 
-Servers without persisted lattices can compute one on demand during legacy delta
-chain or BFS walk iteration (accumulating the already materialized state and
-caching the accumulator, thereby obviating the need for traversals of that delta
-chain during any future point lookup).
+Servers without persisted lattices can compute them on demand per-event during
+naive delta chain traversals or iterative BFS sweeps (accumulating the already
+materialized state in CPU cache and persisting the accumulator, thereby
+obviating any need for traversals of that delta chain during future point
+lookups or state group transitions).
 
 ### State identity and local DB optimizations
 
 While this proposal primarily addresses federation, the adoption of a grand sum
-accumulator profoundly optimizes local homeserver architecture.
+accumulator notably optimizes local homeserver operation.
+
+<!-- Proofread marker. cfbc888d  -->
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," using delta chains (pointers and changes) because generating a hash of
