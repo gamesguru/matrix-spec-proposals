@@ -306,10 +306,9 @@ accumulator notably optimizes local homeserver operation.
 
 <!-- Proofread marker. cfbc888d  -->
 
-Currently, homeservers like Synapse manage state by storing a graph of "state
-groups," using delta chains (pointers and changes) because generating a hash of
-an entire room state, specifically materializing the state, is an $O(S)$
-operation.
+Currently, homeservers like Synapse track room states using unique IDs called
+'state groups' and comparing two state groups to see if they contain identical
+state requires expensive graph traversals or full state materialization.
 
 With an $O(1)$ sum accumulator, the state digest _is_ the state group
 identifier.
