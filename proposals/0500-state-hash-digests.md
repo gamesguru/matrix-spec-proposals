@@ -121,36 +121,37 @@ otherwise `after` equals `before`.
 ### Network efficiency
 
 To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
-transmitted over the network.**
+explicitly transmitted over transactions.**
 
-By transmitting only the collapsed 32-byte digest, payload footprints stay
-small. Adding both `before` and `after` hashes consumes approximately 160
-unsigned bytes of JSON overhead per PDU in the transaction.
+Transmitting only the collapsed 32-byte digest keeps payload footprints small.
+Adding both `before` and `after` hashes consumes approximately 160 unsigned bytes
+of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
-1. It receives the `/send` transaction with the `state_hashes` payload.
-2. It collapses its own local lattice at the corresponding point in the DAG via
-   fast bitmap operations and canonicalizes it over `BLAKE2b-256` into a 32-byte
-   digest.
-3. It compares its local digest to the incoming digest.
-4. **Match:** The servers have the same proven view of the room state.
-5. **Mismatch:** The receiver detects a state split. It can automatically
-   trigger a background `/get_missing_events` or state resync operation to heal,
-   while also alerting the sender with a response including their digest value.
+When a server catches a `/send` transaction containing the `state_hashes` payload,
+it collapses its own local lattice at that exact DAG point using fast bitmap
+operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
+If the local digest matches the incoming one, all systems are nominal.
+
+If digests mismatch, servers MUST log an error or warning message of the state split.
+The receiver can automatically trigger a background `/get_missing_events` or perform
+a state bisection with an authoritative server, while replying to the sender with
+the mismatched digest.
 
 If the receiver cannot quickly and reliably validate the `before` and `after`
 hashes (i.e., from an in-memory LRU cache or with a single, minimal DB query),
 they MUST defer the verification (and optional healing) pipelines to remain agile.
 
-Because the checks are advisory, if the hashes do not match, the PDU is _still
-accepted_ and processed according to standard Matrix authorization/resolution rules.
+The critical rule here is agility: if you cannot validate the `before` and `after`
+hashes instantly (e.g., from an in-memory LRU cache or a single database read),
+you defer the verification pipeline.
 
-Whether or not homeservers implement an automated "healing" mechanism or merely
-defer warning messages to admin logs (perhaps with _no_ healing mechanism) is
-an implementation detail left to homeserver maintainers.
+A mismatched or deferred hash does not block the PDU; it is still processed under
+standard rules. Whether your homeserver implements an automated healing pipeline
+or merely logs the divergence for the admin is left as an implementation detail.
 
 ### Endpoint definition
 
@@ -185,12 +186,12 @@ response is ~2.7 KB; amplification risk is negligible.
 **TODO:** finish drafting this.
 
 - `/state`
-  + Homeservers will be able to provide state _deltas_ quickly for little CPU.
-  + The formalizing of the delta endpoint is deferred to a follow-up MSC.
+  - Homeservers will be able to provide state _deltas_ quickly for little CPU.
+  - The formalizing of the delta endpoint is deferred to a follow-up MSC.
 
 - `/state_ids`
-  + query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
-  + Unchanged/cache quick return: `304 Not Modified`
+  - query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
+  - Unchanged/cache quick return: `304 Not Modified`
 
 - **Room upgrades:** more reliable convergence/consensus and migration.
 
@@ -262,6 +263,7 @@ With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier
    exact same state (very common occurrence), their 32-byte accumulator
    digests will perfectly match. The homeserver instantly deduplicates them into
    a single State Group ID without expanding or comparing dictionaries.
+
 2. **$O(1)$ Equality Checks:** During State Resolution v2/v2.1, determining if
    diverging branches have different states becomes an instant 32-byte integer
    comparison rather than a complex graph traversal and dictionary comparison.
@@ -296,6 +298,7 @@ it could trigger the receiving server to continually force state resyncs.
 1. **Rate-limiting:** Receiving servers implementing automated remediation methods
    SHOULD rate-limit out-of-band state sync requests triggered by mismatching hints
    Repetitive warning logs are unnecessary and may be subject to a cool-down period.
+
 2. **Reputation:** Servers implementing Bandit-based peer scoring on manually or
    heavily federated endpoints SHOULD factor state into their weighting. If a peer
    consistently sends mismatching hashes that do not reflect the actual resolved
@@ -344,25 +347,23 @@ headers, providing free tamper-resistance on the primary hop.
 
 ## Security considerations
 
-This proposal reminds implementers that **state hints are strictly advisory**.
+Homeservers should never use the accumulator hash as a source of truth to
+construct or authorize state. State resolution must continue unaltered.
 
-Homeservers MUST NEVER use the accumulator hash as a source of truth to
-construct, replace, or authorize state. All state resolution and authorization
-rules MUST continue to rely strictly on signed, immutable event data.
+The hashes are purely diagnostic tools and performance boosters. Servers should
+only implement changes in federation behavior to the extent they are comfortable,
+since needless complication can easily backfire and the benefits of reconciliation
+remain (at this point) purely investigative or speculative.
 
-The hashes are diagnostic tools. Even if a hash is tampered with, the room stays
-secure. The worst-case outcome is a performance degradation or false alarm.
+Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
+state set with an identical digest requires either breaking `LtHash16` (finding
+a lattice collision, which is computationally hard at these parameters)
+or finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors
+are currently believed to be computationally intractable.
 
-Because the 32-byte digest is cryptographically secure (via `BLAKE2b-256`),
-forging a different _state set_ with the same digest requires either a colliding
-set under `LtHash16` (a lattice problem believed hard at these parameters, per
-Bellare & Micciancio, 1997 and the `LtHash` security analysis) or a second
-preimage / collision in the `BLAKE2b-256` collapse. Both attacks are currently
-believed computationally intractable.
+**TODO:** references `Bellare & Micciancio, 1997`
 
 ## Test vectors
-
-<!-- Edit marker. -->
 
 To assist implementers, the following test vectors are provided. They are
 generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
@@ -433,3 +434,17 @@ following unstable identifiers:
 ## Dependencies
 
 This proposal currently has no known dependencies, blockers, or open questions.
+
+## References
+
+1. **Bellare, M., & Micciancio, D. (1997).**
+   _A New Paradigm for Collision-free Hashing: Incrementality at Reduced Cost._
+   Advances in Cryptology — EUROCRYPT '97.
+   Lecture Notes in Computer Science, vol 1233. Springer, Berlin, Heidelberg.
+
+2. **Meta Engineering. (2019).**
+   _Open-sourcing homomorphic hashing to secure update propagation._
+   Available at: https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/
+
+3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._
+   Available at: https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html
