@@ -51,7 +51,7 @@ To guarantee interoperability, the algorithm is as follows:
    as the UTF-8 concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`. Homeservers MUST reject
    or escape any `\x00` bytes present in the `type` or `state_key` prior to
-   encoding to prevent null-byte injection collisions.
+   encoding to dissuade null-byte injection collisions.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
    tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
    `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
