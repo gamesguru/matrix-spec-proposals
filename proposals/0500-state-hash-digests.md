@@ -184,9 +184,9 @@ Homeservers operating under Partial State (MSC3706) MUST silently defer hash
 validation for that room. They cannot compare state to emit warnings or trigger
 bisection (until the room state is fully synchronized).
 
-The emphasis here is on agility: if a receiver cannot validate the `before` and
-`after` hashes instantly (e.g., from an in-memory LRU cache or a single database
-read), they MUST defer the verification pipeline.
+The critical rule here is agility: if a receiver cannot validate the `before`
+and `after` hashes readily (e.g., from an in-memory LRU cache or a single
+database read), they MUST defer the verification pipeline.
 
 <!-- Proofread marker. cfbc888d  -->
 
