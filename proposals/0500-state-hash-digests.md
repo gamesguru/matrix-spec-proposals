@@ -75,12 +75,9 @@ implemented as follows:
    pair is one subtraction (old element) followed by one addition (new element)
    — the `O(1)` update at the heart of this proposal.
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
-6. **Collapse.** Append the cardinality $N$ of the state set (the total count of
-   state events, encoded as an 8-byte/64-bit little-endian unsigned integer) to
-   the 2048-byte sum lattice $S$, yielding a 2056-byte buffer. Compute the final
-   32-byte digest $D$ by hashing this 2056-byte buffer using `BLAKE2b-256`,
-   hex-encoded (64 characters):
-   $$D = \text{BLAKE2b-256}(S \mathbin{\Vert} \text{uint64\_le}(N))$$
+6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
+   2048-byte sum lattice $S$ using `BLAKE2b-256`, hex-encoded (64 characters):
+   $$D = \text{BLAKE2b-256}(S)$$
 
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
@@ -90,10 +87,10 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 adding the same element twice (producing different digests). Due to the wrapping
 math of the 16-bit lanes, adding the exact same element $2^{16}$ ($65,536$)
 times will roll the accumulator's lanes back to zero, returning to the starting
-digest. The cardinality binding in step 6 additionally catches the $2^{16}$-fold
-wrap degenerate, since the two states would differ in $N$ by 65,536. The
-accumulator is strictly a one-way comparative tool; homeserver databases MUST
-remain responsible for managing actual set element membership.
+digest. This degenerate state is materially unattainable when the input domain
+is a resolved state map (a set whose elements all have a multiplicity of 1). The
+inbound accumulator is strictly a one-way _comparative_ tool; homeserver
+databases MUST remain responsible for _managing_ actual set element membership.
 
 ### Transaction payload
 
@@ -226,14 +223,13 @@ applied (the `after` accumulator of that PDU).
   "algorithm": "lthash16",
   "lattice": "<base64url, unpadded, 2048 raw bytes>",
   "n_state_events": 2,
-  "digest": "1684b87211bd34155125a960a0ee4c037b0261d497ddda1865377e9e78ca2e9f"
+  "digest": "99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c"
 }
 ```
 
-The receiver MUST verify that
-`BLAKE2b-256(lattice || uint64_le(n_state_events))` equals `digest` before using
-the lattice; a mismatch indicates the response is malformed or tampered with,
-and MUST be discarded.
+The receiver MUST verify that `BLAKE2b-256(lattice)` equals `digest` before
+using the lattice; a mismatch indicates the response is malformed or tampered
+with, and MUST be discarded.
 
 **Errors:** `404 M_NOT_FOUND` if the server does not hold resolved PDU state at
 that event (unknown event, outlier, purged history, bug). `403 M_FORBIDDEN` if
@@ -509,8 +505,8 @@ $2^{16}$; massive rooms are fully supported.
 
 The `n_before` and `n_after` payload fields are diagnostic only — they help a
 receiver gauge the magnitude of a divergence when choosing between bisection,
-full resync, and inaction. They MUST NOT be used as a validation shortcut: digest comparison
-is the sole equality check, and it already binds $N$.
+full resync, and inaction. They MUST NOT be used as a validation shortcut:
+digest comparison is the sole equality check.
 
 ## Test vectors
 
@@ -525,7 +521,7 @@ The starting lattice $S_0$ is 2048 bytes of all zeros.
 
 - Lattice $S_0$ prefix (first 16 bytes): `00000000000000000000000000000000`
 - Collapse digest:
-  `c389b152897d025d96b6ebeb3e5b710327f253463616bc045575a0e04b9bd2d4`
+  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
 ### Scenario 1: one element (addition)
 
@@ -539,7 +535,7 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
   `d72df88a72ff61da6b2287649ff6001c`
 - Lattice $S_1$ prefix (first 16 bytes): `d72df88a72ff61da6b2287649ff6001c`
 - Collapse digest:
-  `3abebf9db51f7e8779a77e950a9575da7a1925c02f1c9d90c60d485efa9ac055`
+  `3bcd9f595b4b5c7095b300ec5cf37ff1ff3f79400643f7ba66171e150ddb6606`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -549,7 +545,7 @@ accumulator to the empty state.
 - Lattice $S_{\text{back}}$ prefix (first 16 bytes):
   `00000000000000000000000000000000`
 - Collapse digest:
-  `c389b152897d025d96b6ebeb3e5b710327f253463616bc045575a0e04b9bd2d4`
+  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
 ### Scenario 3: two elements
 
@@ -562,7 +558,7 @@ ID `$event_2`.
   `8c9d4997da61e28d7e6b83255fff064e`
 - Lattice $S_2$ prefix (first 16 bytes): `63cb41224c614368e98d0a8afef5066a`
 - Collapse digest:
-  `1684b87211bd34155125a960a0ee4c037b0261d497ddda1865377e9e78ca2e9f`
+  `99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c`
 
 ### Scenario 4: instant replacement
 
@@ -577,7 +573,7 @@ event ID `$event_3`. This is performed by subtracting the expansion for
   `9dd1af20e6ee125f8e98969793b8c650`
 - Lattice $S_3$ prefix (first 16 bytes): `296ff8b7c050f4ec0c0419bdf2b7cc9e`
 - Collapse digest:
-  `3815b45cc1f1bff19d2dcd2ade545821c89b449985137f68b5f3d697d5c53e6b`
+  `8b611750bb056a38f9e3f9fcc74ae1f0771f12ade0daecc6963e302d15f8e67f`
 
 ## Unstable prefix
 
