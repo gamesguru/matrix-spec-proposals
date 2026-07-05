@@ -324,8 +324,8 @@ consumption and write-time I/O amplification:
   state change.
 
 With an `LtHash16` accumulator, the 32-byte collapsed digest acts as a
-deterministic, **cryptographically secure natural fingerprint** for the state
-dictionary. This mathematically resolves these architectural bottlenecks:
+deterministic, cryptographically-secure natural fingerprint for the resolved
+state dictionary. This solves multiple architectural bottlenecks:
 
 1. **$O(1)$ State Progression (Write-path acceleration):** To compute the state
    fingerprint for a newly arriving event, the homeserver no longer needs to
