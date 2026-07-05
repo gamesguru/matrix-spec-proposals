@@ -17,14 +17,16 @@ key or the first one which works (trial verification).
 
 While existing implementations such as Synapse effectively enforce a unique
 `(server_name, key_id)` constraint at the storage layer, the protocol itself
-does not mandate this behavior. This ambiguity leads to an annoying loophole
-where key collisions in the wild can cause room state DAG divergence (divergent
-event acceptance/rejection across peers), and introduces a potential
-CPU-exhaustion DoS vector for any implementation that attempts to gracefully
-handle them.
+remains underspecified and does not mandate this behavior.
+
+This ambiguity leads to an annoying loophole where key collisions in the wild
+can cause room state DAG divergence (divergent event acceptance/rejection across
+peers), and introduces a potential CPU-exhaustion DoS vector for any
+implementation that attempts to gracefully handle them.
 
 This MSC standardizes signing key caching requirements, introduces a strict
 **first seen wins** rule for key IDs, and lays the groundwork for future work.
+<!-- Proofread marker.  -->
 
 ## Proposal
 

@@ -3,6 +3,7 @@
 <!--
 [Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/proposals/4500-state-hash-digests.md)
 -->
+<!-- Proofread marker.  -->
 
 When servers diverge, the result can be a serious nuisance. Matrix lacks an
 out-of-band or real-time mechanism for state verification or re-alignment;
