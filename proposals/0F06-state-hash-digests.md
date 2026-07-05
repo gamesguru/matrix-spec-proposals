@@ -186,8 +186,8 @@ response is ~2.7 KB; amplification risk is negligible.
 
 - `/state`
 - `/state_ids`
-   + query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
-   + Unchanged/cache quick return: `304 Not Modified`
+  - query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
+  - Unchanged/cache quick return: `304 Not Modified`
 - Room upgrades more reliable convergence/consensus.
 
 ## Reconciliation and bisecting forks
@@ -277,14 +277,12 @@ during fast-path "state equality" checks.
 
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
-If an event is relayed, or fetched later via `/backfill`, the hashes will not be
-present.
+If an event is relayed, or fetched later via `/backfill`, the hashes are missing.
 
 However, this is an acceptable constraint. The direct `/send` hop is precisely
-where real-time early-warning detection is most valuable to prevent split-brain
-rooms. The `unsigned` dictionary on individual PDUs suffers from similar
-survival issues, as it is routinely stripped or rewritten by intermediate
-servers.
+where real-time early-warning detection is most valuable to prevent split-brain.
+The `unsigned` dictionary on individual PDUs suffers from similar survival issues,
+as it is routinely stripped or rewritten by intermediate servers.
 
 ### False alarms (DoS)
 
