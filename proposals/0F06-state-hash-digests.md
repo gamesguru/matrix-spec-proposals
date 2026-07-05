@@ -273,7 +273,6 @@ during fast-path "state equality" checks.
 
 ### Direct-hop survival (ease of audit)
 
-
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
 If an event is relayed, or fetched later via `/backfill`, the hashes are missing.
@@ -284,16 +283,17 @@ The `unsigned` dictionary on individual PDUs suffers from similar survival issue
 as it is routinely stripped or rewritten by intermediate servers.
 
 ### False alarms (DoS)
-<!-- Edit marker. -->
 
-If a malicious server intentionally forwards spoofed hashes in the transaction,
-it could force the receiving server to continually trigger state resyncs.
+If a malicious or pathological server forwards wrong hashes in the transaction,
+it could trigger the receiving server to continually force state resyncs.
 
 **Mitigations:**
 
-1. **Rate-limiting:** Receiving servers SHOULD rate-limit out-of-band state sync
-   requests triggered by mismatching hints. Repetitive warning logs are unnecessary.
-2. **Reputation:** Servers SHOULD track the reliability of peers. If a peer
+1. **Rate-limiting:** Receiving servers implementing automated remediation methods
+   SHOULD rate-limit out-of-band state sync requests triggered by mismatching hints
+   Repetitive warning logs are unnecessary and may be subject to a cool-down period.
+2. **Reputation:** Servers implementing Bandit-based peer scoring on manually or
+   heavily federated endpoints SHOULD factor state into their weighting. If a peer
    consistently sends mismatching hashes that do not reflect the actual resolved
    state or differ too wildly from the majority, the receiver should temporarily
    decrement that peer's reputability and the worthiness of their hints.
@@ -307,20 +307,24 @@ payload of the event, enforcing it as a protocol-level requirement.
 
 **Disadvantages:**
 
-- **Breaks Eventual Consistency:** Matrix relies on servers being slightly out
-  of sync. Enforcing strict consensus on every event would cause massive
-  fork-locking across the federation.
-- **Bureaucracy:** Modifying the signed PDU alters the event's reference hash.
-  This would require a massive global Room Version Upgrade and deprecate all
-  older homeservers.
+- **PDU bloat:** PDUs already suffer from excessive meta-data.
+- **Leads to confusion:** Matrix allows for servers being slightly out of sync.
+  Implying consensus on every event leads to ambiguity (situations even arise
+  where administrative power events can rewrite formerly correct state).
+- **Compatibility:** Modifying the signed PDU alters the event's reference hash
+  (unless the definition of "canonical event JSON" is further complicated).
+  This requires a global room version upgrade and excludes older homeservers.
+  It is possible this approach will be interleaved with MSC4242, which _does_
+  make intentional PDU format changes intended for a new room version.
 
-The transaction-level approach achieves the same diagnostic goal with zero
-breakage and seamless backward compatibility.
+The transaction-level approach achieves the same diagnostic goal with no friction.
 
 ### Hashes in the `unsigned` dictionary
 
-Earlier iterations of this concept proposed placing the hashes in the `unsigned`
-dictionary of the PDU.
+**Advantages:**
+
+- **Accessibility and persistence:** Generally, `unsigned` is more durable.
+  This allows some degree of trustworthy relaying of the origin's viewpoint.
 
 **Disadvantages:**
 
@@ -332,30 +336,27 @@ dictionary of the PDU.
 
 By moving the hashes to the `PUT /send` request body, the hashes are
 automatically protected by the sending server's $X-Matrix$ authorization
-headers, providing tamper-resistance on the primary hop for free.
+headers, providing free tamper-resistance on the primary hop.
 
 ## Security considerations
 
-The core security principle of this proposal is that **state hints are strictly
-advisory**.
+This proposal reminds implementers that **state hints are strictly advisory**.
 
 Homeservers MUST NEVER use the accumulator hash as a source of truth to
-construct, replace, or authorize state. All state resolution (State Res v2) and
-DAG authorization rules MUST continue to rely strictly on signed, immutable
-event data.
+construct, replace, or authorize state. All state resolution and authorization
+rules MUST continue to rely strictly on signed, immutable event data.
 
-The hashes are diagnostic tools. If a hash is tampered with (which is protected
-against on the primary hop by the transaction signature), the actual state of
-the room remains mathematically secure. The worst-case outcome is a performance
-degradation or diagnostic false alarm (triggering redundant state syncs), never
-a security breach or state corruption.
+The hashes are diagnostic tools. Even if a hash is tampered with, the room stays
+secure. The worst-case outcome is a performance degradation or false alarm.
+
+<!-- Edit marker. -->
 
 Because the 32-byte digest is cryptographically secure (via `BLAKE2b-256`),
 forging a different _state set_ with the same digest requires either a colliding
 set under `LtHash16` (a lattice problem believed hard at these parameters, per
-Bellare-Micciancio and the LtHash security analysis) or a second preimage /
-collision in the `BLAKE2b-256` collapse. Both are currently believed
-cryptographically infeasible.
+Bellare & Micciancio, 1997 and the `LtHash` security analysis) or a second
+preimage / collision in the `BLAKE2b-256` collapse. Both attacks are currently
+believed computationally intractable.
 
 ## Test vectors
 
