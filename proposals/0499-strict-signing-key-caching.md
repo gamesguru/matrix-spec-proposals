@@ -15,17 +15,28 @@ developers may design flexible caches that store multiple key bodies for a
 single Key ID and perform verification either with the most recently observed
 key or the first one which works (trial verification).
 
-While some legacy implementations (like Synapse) avoid this purely due to rigid
-database schemas that happen to enforce a unique `(server_name, key_id)`
-constraint, the protocol itself does not forbid the loop. This ambiguity leads
-to an annoying loophole where key collisions in the wild can cause state splits,
-and introduces a potential CPU-exhaustion DoS vector for any implementation
-that attempts to gracefully handle them.
+While existing implementations such as Synapse effectively enforce a unique
+`(server_name, key_id)` constraint at the storage layer, the protocol itself
+does not mandate this behavior. This ambiguity leads to an annoying loophole
+where key collisions in the wild can cause room state DAG divergence (divergent
+event acceptance/rejection across peers), and introduces a potential
+CPU-exhaustion DoS vector for any implementation that attempts to gracefully
+handle them.
 
 This MSC standardizes signing key caching requirements, introduces a strict
 **first seen wins** rule for key IDs, and lays the groundwork for future work.
 
 ## Proposal
+
+### Relationship to existing specification
+
+This MSC strengthens and supersedes the existing key caching and verification
+rules defined in the Matrix specification (specifically the
+[Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.13/server-server-api/#retrieving-server-keys)
+and the notary query endpoint). In particular, this proposal upgrades the
+existing `SHOULD` caching guidance to `MUST`, formalizes the `valid_until_ts`
+7-day validity clamp as a normative cache constraint, and replaces any implicit
+"trial verification" logic with a strict 1:1 Key ID uniqueness invariant.
 
 ### Key caching requirements
 
@@ -34,55 +45,66 @@ Servers MUST cache remote server signing keys obtained from
 The following requirements apply to all signing algorithm types (`ed25519`, and
 any future signing algorithms, like `fn-dsa-512`).
 
-**Notary internal indexing (Checksum tracking).** Notary servers act as massive
-aggregation points for federation keys. To prevent them from becoming distribution
-vectors for collisions, notaries MUST also enforce the First Seen Wins rule
-internally. However, to preserve a forensic trail of misconfigurations, notary
-implementations SHOULD internally index observed key bodies by a checksum (e.g.,
-the first 8 unpadded base64 characters of the SHA-256 fingerprint). This allows
-the notary to safely store historical collisions without database constraint
-violations, even if it only serves the "first seen" key via the active API.
-
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before the `valid_until_ts` expiry to avoid
-verification failures during key rotation windows. Servers MUST NOT fall back to
-fetching keys from remote servers or notary servers for every individual PDU or
-HTTP request verification.
+verification failures during key rotation windows. Re-fetching a key and
+observing the same key body with updated `valid_until_ts` or `expired_ts`
+metadata is a normal refresh, and the cache metadata MUST be updated
+accordingly. Servers MUST NOT bypass the cache by fetching keys per-PDU or
+per-request when a valid cached binding exists.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can induce fetch storms if every inbound event or
 reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
-failed key fetches. An inbound, correctly-authenticated federation request from
-a negatively cached server is proof of liveness; servers SHOULD clear the
-backoff state for that server and permit an immediate key fetch.
+failed key fetches. An inbound federation request whose authentication
+_requires_ a key fetch for the backoff-listed server SHOULD permit one immediate
+(rate-limited) fetch attempt; if that fetch succeeds and the request
+authenticates, servers SHOULD clear the backoff state.
 
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
 database) rather than held only in memory. A server restart should not require
 re-fetching every remote server's keys from the network.
 
+**Notary internal indexing.** Notary servers act as massive aggregation points
+for federation keys. To prevent them from becoming distribution vectors for
+collisions, notaries MUST also enforce the First Seen Wins rule internally.
+However, to preserve a forensic trail of misconfigurations, notary
+implementations SHOULD internally index observed key bodies by their full
+SHA-256 digest. This allows the notary to safely store historical collisions
+without database constraint violations, even if it only serves the "first seen"
+key via the active API.
+
 **Notary fallback (Two-Tier Binding).** When a required signing key is not
 present in the local cache, servers typically query a configured notary server
 (`/_matrix/key/v2/query`). Because a notary is a relay, a direct fetch over
 validated TLS to the actual server name (`/_matrix/key/v2/server`) provides
-strictly stronger cryptographic evidence of ownership.
+strictly stronger cryptographic evidence of ownership (importing WebPKI trust,
+since Matrix federation otherwise avoids it; notary responses carry the origin's
+own signature over the original key response, but this provides no additional
+TOFU assurance as it is signed by the key in the payload).
 
 To prevent a malicious or compromised notary from permanently ossifying a
 poisoned key binding, bindings first observed via a notary are **provisional**.
 They are used normally for verification, but if a subsequent _direct_ fetch from
 the origin server yields a key body that conflicts with the provisional binding,
 the direct fetch MUST override the provisional one. The server updates its cache
-to the direct-observed key body and MUST log the collision loudly. Bindings
-observed directly from the origin server are **permanent** (see below). Servers
-MUST NOT treat notary unavailability as a verification success.
+to the direct-observed key body and MUST log the collision loudly. The server
+SHOULD log which events (or at minimum which rooms/time window) were verified
+under the displaced binding, and MAY re-verify recent events. Bindings observed
+directly from the origin server are **permanent** (see below). Servers MUST NOT
+treat notary unavailability as a verification success.
 
 **Binding promotion.** A provisional (notary-observed) binding becomes permanent
-the first time a direct fetch from the origin confirms the same key body. Once
-permanent, the binding is subject to the standard First Seen Wins rule: a later
-direct fetch presenting a different key body for the same Key ID is a collision
-and MUST be rejected and logged. Direct-versus-direct conflicts are always
-resolved by First Seen Wins; the two-tier rule applies only to the
-notary-versus-direct case.
+the first time a direct fetch from the origin confirms the same key body.
+Servers SHOULD attempt a prompt direct fetch after learning any binding via a
+notary, to promote the binding and close the provisional window. Once permanent,
+the binding is subject to the standard First Seen Wins rule: a later direct
+fetch presenting a different key body for the same Key ID is a collision and
+MUST be rejected and logged. Direct-versus-direct conflicts are always resolved
+by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
+case. Notary-versus-notary conflicts (or the same notary at two different times)
+are also resolved by First Seen Wins among provisional observations.
 
 ### Key ID uniqueness invariant
 
@@ -111,8 +133,10 @@ key `A` is now associated with a different public key `B`, the receiving server
 MUST:
 
 1. **Retain the previously observed key.** The original key body remains
-   authoritative for that Key ID. The conflicting key response MUST NOT replace
-   it.
+   authoritative for that Key ID, unless the existing binding is provisional and
+   the new observation is a direct fetch, in which case the two-tier override
+   rule applies (see Notary fallback). In all other cases, the conflicting
+   response MUST NOT replace it.
 2. **Log the collision.** The server SHOULD log the Key ID collision at warning
    level, including the remote server name, the Key ID, and the SHA-256
    fingerprints of both the cached and conflicting public keys. This alerts the
@@ -125,14 +149,16 @@ MUST:
 **Intra-payload rejection.** A single key response payload MUST NOT contain
 multiple different public key bodies for the same Key ID (e.g., across
 `verify_keys` and `old_verify_keys`, or duplicated within the same dictionary).
-If a receiving server detects a Key ID collision within a single HTTP response,
-the entire response MUST be rejected as malformed.
+The same key body appearing under one Key ID in both `verify_keys` and
+`old_verify_keys` is legal. If a receiving server detects a Key ID collision
+within a single HTTP response, the entire response MUST be rejected as
+malformed.
 
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
-`(server_name, algorithm, key_id)` tuple is the permanent binding. This is a
-direct consequence of Matrix's Trust-On-First-Use (TOFU) model for server key
-discovery.
+`(server_name, algorithm, key_id)` tuple (whether found in `verify_keys` or
+`old_verify_keys`) is the permanent binding. This is a direct consequence of
+Matrix's Trust-On-First-Use (TOFU) model for server key discovery.
 
 **Localized impact acknowledgement.** The First Seen Wins rule will cause a
 **localized DAG divergence** for the misconfigured server: peers that cached the
@@ -168,10 +194,10 @@ Key ID (e.g., the default `ed25519:auto`).
 
 Homeserver implementations SHOULD detect Key ID reuse at startup. If the
 server's configured signing key has a different key body than what was
-previously persisted for that Key ID, the server MUST refuse to start and emit
-a clear error message instructing the administrator to either restore the
-original key or assign a new Key ID. This prevents the misconfiguration from
-propagating to the federation in the first place.
+previously persisted for that Key ID, the server MUST refuse to start and emit a
+clear error message instructing the administrator to either restore the original
+key or assign a new Key ID. This prevents the misconfiguration from propagating
+to the federation in the first place.
 
 Because local startup guardrails cannot detect collisions if the server's
 database has been entirely wiped (the most common cause of Key ID reuse),
@@ -223,10 +249,13 @@ via federation traffic.
 Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
 is valid if the key identified by `algorithm:key_id` was active at time `T` —
-that is, the key's publication preceded `T` and `T` < `expired_ts` (or the key
-has no `expired_ts`, indicating it was active until replaced). Servers MUST
-sanity-check `expired_ts` values in `old_verify_keys` (e.g., rejecting keys
-where `expired_ts` is in the future).
+that is, `T` < `expired_ts` (or the key has no `expired_ts`, indicating it was
+active until replaced). Servers MUST sanity-check `expired_ts` values in
+`old_verify_keys`. A future `expired_ts` (beyond a small clock-skew allowance)
+MUST be treated as malformed for that specific key entry, but does not poison
+the rest of the response payload. Consistent with the existing spec,
+verification MUST also restrict the validity window to the lesser of
+`valid_until_ts` and 7 days from the time the key was fetched.
 
 The strict Key ID uniqueness invariant ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
@@ -281,14 +310,14 @@ anomalies, but explicitly does not touch room version consensus rules.
   of remote servers encountered. For a typical homeserver federating with a few
   thousand servers, this is negligible (a few megabytes of public key material).
 
-- **Two-tier binding does not weaken TOFU.** Allowing a direct fetch to override
+- **Two-tier binding and the TOFU window.** Allowing a direct fetch to override
   a provisional notary binding means an attacker who can serve a direct
   `/_matrix/key/v2/server` response (IP hijack, DNS spoofing) can displace a
-  notary-learned key. But such an attacker could equally have won the original
-  TOFU race; the override grants no capability beyond what baseline TOFU already
-  concedes. What the two-tier rule removes is the ability of a compromised
-  _notary_ to permanently ossify a poisoned binding — a strictly weaker
-  adversary gaining a strictly stronger outcome under the flat rule.
+  notary-learned key. While this extends the window of vulnerability beyond the
+  initial TOFU race, requiring servers to attempt a prompt direct fetch upon
+  learning a notary binding bounds this window. The override primarily removes
+  the ability of a compromised _notary_ to permanently ossify a poisoned
+  binding.
 
 - **Localized DAG divergence is unavoidable.** The First Seen Wins rule means
   that peers with different cache histories may disagree on events from a
@@ -371,17 +400,16 @@ anomalies, but explicitly does not touch room version consensus rules.
   server to fetch and permanently store millions of unique Key IDs. Homeserver
   implementations SHOULD mitigate this by enforcing a reasonable maximum limit
   on the number of cached Key IDs per remote server name (e.g., 1,000 keys). If
-  a remote server reaches this quota, receiving servers MUST ignore new Key IDs
-  for that domain. As with TOFU poisoning, recovering from an exhausted quota
-  requires the administrator to use the manual cache eviction escape hatch.
-  Implementations MUST rely on existing federation rate-limiting to discard junk
-  traffic before allocating database records. In practice, legitimate servers
-  publish single-digit numbers of active keys at any given time; a server
-  claiming thousands of Key IDs is unambiguously hostile. To optimize database
-  performance and minimize index footprint on high-volume production
-  deployments, homeserver implementations SHOULD utilize partial index
-  constraints (e.g., `WHERE is_compromised = FALSE` in PostgreSQL) when indexing
-  the cached signing keys.
+  a remote server reaches this quota, receiving servers SHOULD ignore new Key
+  IDs for that domain. Servers SHOULD exempt or prioritize Key IDs appearing in
+  the current `verify_keys` of a direct fetch when enforcing the quota, ensuring
+  a legitimate current key cannot be crowded out by junk. As with TOFU
+  poisoning, recovering from an exhausted quota requires the administrator to
+  use the manual cache eviction escape hatch. Implementations MUST rely on
+  existing federation rate-limiting to discard junk traffic before allocating
+  database records. In practice, legitimate servers publish single-digit numbers
+  of active keys at any given time; a server claiming thousands of Key IDs is
+  unambiguously hostile.
 
 ## Unstable prefix
 
