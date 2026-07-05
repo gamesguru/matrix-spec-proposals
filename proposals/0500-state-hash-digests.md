@@ -54,9 +54,25 @@ To guarantee interoperability, the algorithm is as follows:
 2. **Input expansion.** The encoded element, prefixed with the domain separation
    tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
    `BLAKE2Xb` extendable-output function (XOF):
-   `expansion = BLAKE2Xb-2048("msc4500_lthash16\x00" || element)`. A fixed-width
-   hash cannot fill the lattice; the XOF expansion is what makes the lane
-   distribution uniform and implementation-identical.
+   `expansion = BLAKE2Xb-2048("msc4500_lthash16\x00" || element)`.
+
+   To guarantee interoperability across different cryptographic libraries, the
+   `BLAKE2Xb-2048` function MUST be parameterized strictly according to the
+   official BLAKE2X specification. Specifically:
+   - The initial 64-byte parameter block $H_0$ MUST set `digest_length = 64`,
+     `key_length = 0`, `fanout = 0`, `depth = 0`, `leaf_length = 64`,
+     `node_depth = 0`, `inner_length = 64`, and pack the 32-bit XOF digest length
+     field (value `2048`) into the high 4 bytes of the `node_offset` field.
+   - Each subsequent expansion block $B_2(i)$ MUST set `digest_length = 64` (as
+     the output length `2048` is a multiple of 64), `key_length = 0`,
+     `fanout = 0`, `depth = 0`, `leaf_length = 64`, `node_depth = 0`,
+     `inner_length = 64`, and configure `node_offset` with the block index
+     counter $i$ (low 4 bytes) and target digest length `2048` (high 4 bytes).
+   - This matches standard BLAKE2Xb XOF implementations (such as Go's
+     `golang.org/x/crypto/blake2b` package via `NewXOF(2048, nil)`). A
+     fixed-width hash cannot fill the lattice; this uniform XOF expansion is
+     essential for identical lane distribution.
+
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
    lane-wise wrapping addition.
@@ -389,17 +405,16 @@ currently believed to be computationally intractable.
 ## Test vectors
 
 To assist implementers, the following test vectors are provided. They are
-generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
-`msc4500_lthash16\x00`), 16-bit little-endian wrapping lane
-addition/subtraction, and `BLAKE2b-256` collapse digest.
-
-Reference implementation available at https://github.com/gamesguru/rezzy
-(currently under `src/state/delta.rs`, likely to survive named `impl LtHash`).
+generated using the standard `BLAKE2Xb-2048` element expansion (prefixed with the
+domain separation tag `msc4500_lthash16\x00`), 16-bit little-endian wrapping lane
+addition/subtraction, and standard `BLAKE2b-256` collapse digest.
 
 ### Empty state
 
 The starting lattice $S_0$ is 2048 bytes of all zeros.
 
+- Lattice $S_0$ prefix (first 16 bytes):
+  `00000000000000000000000000000000`
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
@@ -410,16 +425,20 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
 
 - Raw encoded element:
   `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f31`
-- Lattice $S_1$ (first 16 bytes): `bb622953b181356f0884390c7e309cf1`
+- Element 1 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_1)$):
+  `0677bb5dc57ea99a32fb5dda44dcf128`
+- Lattice $S_1$ prefix (first 16 bytes):
+  `0677bb5dc57ea99a32fb5dda44dcf128`
 - Collapse digest:
-  `d8d3ac07b6152e0c6beddac611371082ff345c3ac1018aa8096fde848d0d0ebd`
+  `92214d869fea850032a5fcb61ca27acf12abf8f3896d7deb50da40e8151e194e`
 
 ### Scenario 2: add-then-remove (element removal)
 
 Subtracting the expanded element for `$event_1` from lattice $S_1$ returns the
 accumulator to the empty state.
 
-- Lattice $S_{\text{back}}$ (first 16 bytes): `00000000000000000000000000000000`
+- Lattice $S_{\text{back}}$ prefix (first 16 bytes):
+  `00000000000000000000000000000000`
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
@@ -428,10 +447,14 @@ accumulator to the empty state.
 Starting from $S_1$, add event `m.room.name` with empty state key `""` and event
 ID `$event_2`.
 
-- Raw encoded element: `6d2e726f6f6d2e6e616d650000246576656e745f32`
-- Lattice $S_2$ (first 16 bytes): `384dd78be7edeff6c1e4027a656e437b`
+- Raw encoded element:
+  `6d2e726f6f6d2e6e616d650000246576656e745f32`
+- Element 2 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_2)$):
+  `388985bf961e9f7c4e4c8fa2dea5e624`
+- Lattice $S_2$ prefix (first 16 bytes):
+  `3e00401d5b9d48178047ec7c2282d74d`
 - Collapse digest:
-  `06457ed60e766a6caaa65804b92056b244ee7339850630b8dee69efc63e73b20`
+  `ee9ac7c11d86f3bc77c9d3a32c81016cb8c05e69da46a9b3771034158deb2c8b`
 
 ### Scenario 4: instant replacement
 
@@ -441,9 +464,12 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 
 - Raw encoded element for `$event_3`:
   `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f33`
-- Lattice $S_3$ (first 16 bytes): `87c317f1e6d4fe59f2bebc9326356734`
+- Element 3 expansion prefix (first 16 bytes of $BLAKE2Xb(\text{tag} \parallel \text{el}_3)$):
+  `31b990301dc8e2faf3e252178af4c10b`
+- Lattice $S_3$ prefix (first 16 bytes):
+  `694215f0b3e68177412fe1b9689aa730`
 - Collapse digest:
-  `4eee9f4aa350d1dde5529a445edbd6f0b95c47c9e73c5335a117115ee2235f10`
+  `6fdb7e1cde07e6bf500d5e930095e2e519a16677fe6a1f9e4d210a3a38c1e36c`
 
 ## Unstable prefix
 
