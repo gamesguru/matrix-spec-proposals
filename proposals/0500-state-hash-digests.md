@@ -5,10 +5,12 @@
 -->
 <!-- Proofread marker. 52b5887a -->
 
-When servers diverge, the result can be a serious nuisance. Matrix lacks an
-out-of-band or real-time mechanism for state verification or re-alignment;
-servers often only learn of de-synchronization once they disagree on a much
-later authorization failure (e.g., another user's join is incorrectly rejected).
+Matrix servers replicate a room as a DAG of events and rely on state resolution
+to eventually converge on a shared state. When servers diverge, the result can
+be a serious nuisance. Matrix lacks an out-of-band or real-time mechanism for
+state verification or re-alignment; servers often only learn of
+de-synchronization once they disagree on a much later authorization failure
+(e.g., another user's join is incorrectly rejected).
 
 I present an "early-warning system" which rapidly confirms incremental state
 consensus, or signals that divergence exists, so servers know they share the
@@ -16,19 +18,19 @@ exact same view of a room at a given point in the DAG.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
-**replacing state group transitions** and naive iterative BFS implementations
-with a cheap, bitwise, commutative, subtractable (supports element removal),
-collision-resistant 2048-byte `LtHash16` accumulator function.
+**relegating state group transitions** and naive iterative BFS implementations
+to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
+element removal), collision-resistant 2048-byte `LtHash16` accumulator function.
 
 Avoiding diff chain reconstruction for point lookups will reduce Synapse's
 electricity bill across a wide range of API state endpoints.
 
 The accumulator under question may be called 'homomorphic' and solves the
-following encryption problem: "Given the hash of an input, along with a small
+following hashing problem: "Given the hash of an input, along with a small
 update to the input, how can we compute the hash of the new input with its
 update applied, without having to recompute the entire hash from scratch?"
 
-Should this proposal be accepted, for the sake of federation clarity homeserves
+Should this proposal be accepted, for the sake of federation clarity homeservers
 must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
 accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
@@ -49,10 +51,14 @@ includes it in the transaction payload.
 To guarantee interoperability, the algorithm is as follows:
 
 1. **Input encoding.** Each entry in the room's resolved state map is serialized
-   as the UTF-8 concatenation:
-   `type || "\x00" || state_key || "\x00" || event_id`. Homeservers MUST reject
-   or escape any `\x00` bytes present in the `type` or `state_key` prior to
-   encoding to dissuade null-byte injection collisions.
+   as: `len(type) || type || len(state_key) || state_key || event_id` where each
+   `len()` is an unsigned 16-bit little-endian byte count of the UTF-8 field
+   that follows. The `event_id` is appended raw with no length prefix (it is the
+   final field, so the two prefixes already make decoding unambiguous). Length
+   prefixes make the encoding injective for arbitrary field contents — including
+   embedded null bytes — with no rejection or escaping rules needed. Two bytes
+   per length is sufficient since no field in a valid PDU can exceed the
+   65,536-byte event size limit.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
    tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
    `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
@@ -87,10 +93,12 @@ managing actual set element membership.
 A new OPTIONAL `state_hashes` dictionary is introduced at the root of the
 `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
 PDUs included in the transaction to their respective `before` and `after`
-digests. Network overhead for duplicate digests (e.g. across multiple non-state
-PDUs in a batch) is entirely mitigated by standard Matrix federation HTTP
-compression (gzip/brotli), which reduces the highly repetitive strings to
-negligible bytes.
+digests. The `state_hashes` values always represent the transaction sender's
+local resolved state, not necessarily the origin server's (meaning relays
+forward their own view, which is expected and proper). Network overhead for
+duplicate digests (e.g. across multiple non-state PDUs in a batch) is entirely
+mitigated by standard Matrix federation HTTP compression (gzip/brotli), which
+reduces the highly repetitive strings to negligible bytes.
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of
 state resolution (v2) applied across the states at each of those events — i.e.
@@ -144,10 +152,13 @@ payload, it collapses its own local lattice at that exact DAG point using fast
 bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
 
-If digests mismatch, servers MUST log an error or warning message of the state
+If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a background `/get_missing_events`
 or perform a state bisection with an authoritative server, while replying to the
-sender with the mismatched digest. Note that if a receiving server **rejects**
+sender with the mismatched digest. Mismatch handling SHOULD be deduplicated per
+room (i.e. the first detection triggers logging/bisection, but subsequent
+mismatching transactions within a reasonable cooldown period are ignored to
+prevent log spam or fetch storms). Note that if a receiving server **rejects**
 an incoming state event due to auth/power-level rules, their `after` hash will
 instantly (and correctly) mismatch the sender's `after` hash. This mechanism
 instantly detects split-brain authorization failures.
@@ -156,14 +167,9 @@ Homeservers operating in a Partial State regime (MSC3706) MUST silently defer
 hash validation for that room and MUST NOT emit warnings or trigger bisection
 until the room state is fully synchronized.
 
-If the receiver cannot quickly and reliably validate the `before` and `after`
-hashes (i.e., from an in-memory LRU cache or with a single, minimal DB query),
-they MUST defer the verification (and optional healing) pipelines to remain
-agile.
-
-The critical rule here is agility: if you cannot validate the `before` and
-`after` hashes instantly (e.g., from an in-memory LRU cache or a single database
-read), you defer the verification pipeline.
+The critical rule here is agility: if a receiver cannot validate the `before`
+and `after` hashes instantly (e.g., from an in-memory LRU cache or a single
+database read), they MUST defer the verification pipeline.
 
 A mismatched or deferred hash does not block the PDU; it is still processed
 under standard rules. Whether your homeserver implements an automated healing
@@ -385,9 +391,7 @@ Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
 state set with an identical digest requires either breaking `LtHash16` (finding
 a lattice collision, which is computationally hard at these parameters) or
 finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
-currently believed to be computationally intractable.
-
-**TODO:** references `Bellare & Micciancio, 1997`
+currently believed to be computationally intractable [1].
 
 ## Test vectors
 
@@ -410,13 +414,13 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
 `$event_1`.
 
 - Raw encoded element:
-  `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f31`
+  `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
 - Element 1 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_1)$):
-  `7f67472f95b708be0b6ff8794d6a4e6f`
-- Lattice $S_1$ prefix (first 16 bytes): `7f67472f95b708be0b6ff8794d6a4e6f`
+  `d72df88a72ff61da6b2287649ff6001c`
+- Lattice $S_1$ prefix (first 16 bytes): `d72df88a72ff61da6b2287649ff6001c`
 - Collapse digest:
-  `1c51ead276c255b5054025ef47b0c78f69259df45b9de9abc3c79a40ee3afa24`
+  `3bcd9f595b4b5c7095b300ec5cf37ff1ff3f79400643f7ba66171e150ddb6606`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -433,13 +437,13 @@ accumulator to the empty state.
 Starting from $S_1$, add event `m.room.name` with empty state key `""` and event
 ID `$event_2`.
 
-- Raw encoded element: `6d2e726f6f6d2e6e616d650000246576656e745f32`
+- Raw encoded element: `0b006d2e726f6f6d2e6e616d650000246576656e745f32`
 - Element 2 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_2)$):
-  `6b09141708e2fae839bd632d8bc771ff`
-- Lattice $S_2$ prefix (first 16 bytes): `ea705b469d9902a7442c5ba7d831bf6e`
+  `8c9d4997da61e28d7e6b83255fff064e`
+- Lattice $S_2$ prefix (first 16 bytes): `63cb41224c614368e98d0a8afef5066a`
 - Collapse digest:
-  `b95fb7fc915d6d3dda12981340d73137d2d6cf22ac7d5966a96502a28442b676`
+  `99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c`
 
 ### Scenario 4: instant replacement
 
@@ -448,13 +452,13 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 `$event_1` and adding the expansion for `$event_3`.
 
 - Raw encoded element for `$event_3`:
-  `6d2e726f6f6d2e6d656d6265720040616c6963653a6578616d706c652e636f6d00246576656e745f33`
+  `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f33`
 - Element 3 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_3)$):
-  `967af517a6581417a02f28604554f067`
-- Lattice $S_3$ prefix (first 16 bytes): `0184092fae3a0e00d9ec8b8dd01b6167`
+  `9dd1af20e6ee125f8e98969793b8c650`
+- Lattice $S_3$ prefix (first 16 bytes): `296ff8b7c050f4ec0c0419bdf2b7cc9e`
 - Collapse digest:
-  `7e46baafcd5cde7ee2583a91bd7f5be3b682cd5d682186b232383c148b7dbc56`
+  `8b611750bb056a38f9e3f9fcc74ae1f0771f12ade0daecc6963e302d15f8e67f`
 
 ## Unstable prefix
 
@@ -464,6 +468,16 @@ following unstable identifiers:
 - The transaction payload key: `tk.nutra.msc4500.state_hashes`
 - The reconciliation endpoint:
   `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`
+
+## Backwards compatibility
+
+This proposal is fully backwards-compatible:
+
+- Unknown transaction keys (`state_hashes`) are silently ignored by existing
+  servers, per current federation behavior.
+- The unstable reconciliation endpoint returns a `404 Not Found` on
+  non-implementing servers, which callers treat as an "unsupported" signal.
+- No room version consensus rules are modified.
 
 ## Dependencies
 
@@ -476,9 +490,9 @@ This proposal currently has no known dependencies, blockers, or open questions.
    '97. Lecture Notes in Computer Science, vol 1233. Springer, Berlin,
    Heidelberg.
 
-2. **Meta Engineering. (2019).** _Open-sourcing homomorphic hashing to secure
-   update propagation._ Available at:
-   https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/
+2. **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
+   Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
+   2019/227. Available at: https://eprint.iacr.org/2019/227
 
 3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
    https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html
