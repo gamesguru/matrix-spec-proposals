@@ -241,8 +241,8 @@ While this proposal primarily addresses federation, the adoption of a grand sum
 accumulator profoundly optimizes local homeserver architecture.
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
-groups," utilizing delta chains (pointers and changes) because generating a hash
-of an entire room state is an $O(S)$ operation.
+groups," using delta chains (pointers and changes) because generating a hash of
+an entire room state, specifically materializing the state, is an $O(S)$ operation.
 
 With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier.
 
