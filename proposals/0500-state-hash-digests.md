@@ -351,13 +351,13 @@ state dictionary. This solves multiple architectural bottlenecks:
    (e.g., via a relational `UNIQUE` index or a key-value point lookup map),
    without ever expanding or comparing dictionaries.
 
-3. **Short-circuiting state resolution:** During state resolution v2/v2.1, a
-   very expensive initial step is determining if diverging DAG tips actually
-   contain different states (before building a conflict set). With the
-   accumulator, this historically expensive check is amortized across a single
-   32-byte integer comparison. If the diverging branches possess identical
-   digests, the server knows with confidence that there is no conflict set, and
-   largely bypasses the costs of the state resolution algorithm.
+3. **Fast-path state resolution:** During state resolution v2/v2.1, an expensive
+   early step is determining if diverging DAG tips actually contain different
+   states (before building a conflict set). With the accumulator, this
+   historically expensive check is amortized across a single 32-byte integer
+   comparison. If the diverging branches possess identical digests, the server
+   knows with confidence that there is no conflict set, and largely bypasses the
+   costs of the state resolution algorithm.
 
 <!-- Proofread marker. cfbc888d -->
 
