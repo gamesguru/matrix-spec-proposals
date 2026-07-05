@@ -359,19 +359,18 @@ state dictionary. This solves multiple architectural bottlenecks:
    server knows with cryptographic assurance that there is no conflict set, and
    can safely bypass the state resolution algorithm.
 
-<!-- Proofread marker. cfbc888d -->
-
 While relational delta chains (pointers to parent state groups) are still
 required to materialize state into memory for client APIs and to isolate actual
 conflict sets during resolution (since a homomorphic hash cannot be inverted to
 name its constituent events), the accumulator relegates these structures purely
 to storage compression and certain cases of read-path retrievals. The
-latency-critical write-path and fast-path equality checks are entirely freed
-from chain-walking.
+latency-critical write-path and fast-path equality checks are entirely freed.
 
 ## Potential issues
 
 ### Direct-hop survival (ease of audit)
+
+<!-- Proofread marker. cfbc888d -->
 
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
