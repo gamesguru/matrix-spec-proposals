@@ -31,8 +31,6 @@ accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
-<!-- Proofread marker. cfbc888d  -->
-
 Rather than attaching hashes to individual events (which are routinely stripped,
 rewritten, or relayed by intermediate servers), this proposal places the hashes
 in the body of the federation transaction.
@@ -40,12 +38,13 @@ in the body of the federation transaction.
 When a homeserver sends or relays a federated transaction, it calculates the sum
 accumulation of the room's state exactly at the DAG tip of each included PDU.
 
-It then collapses this vectorized state into a standard 32-byte digest and
-includes it in the transaction payload.
+It then collapses each PDU's vectorized state into a standard 32-byte digest and
+includes them in the transaction payload as an array.
 
 ### Algorithm specification
 
-To guarantee interoperability, the algorithm MUST be implemented as follows:
+To guarantee interoperability and collision resistance, the algorithm MUST be
+implemented as follows:
 
 1. **Input encoding.** Each entry in the room's resolved state map is serialized
    as: `len(type) || type || len(state_key) || state_key || event_id` where each
@@ -54,8 +53,8 @@ To guarantee interoperability, the algorithm MUST be implemented as follows:
    final field, so the two prefixes already make decoding unambiguous). Length
    prefixes make the encoding injective for arbitrary field contents — including
    embedded null bytes — with no rejection or escaping rules needed. Two bytes
-   per length is sufficient since no field in a valid PDU can exceed the
-   65,536-byte event size limit.
+   per length is sufficient since no field in a valid PDU can exceed the global
+   65 KB event size limit.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
    tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
    `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
@@ -82,29 +81,30 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 **NOTE:** It is the caller's responsibility to ensure the input is really a set.
 The digest allows deducting elements which were never added, and it allows
 adding the same element twice (producing different digests). The accumulator is
-strictly a one-way comparative tool; homeserver databases remain responsible for
-managing actual set element membership.
+strictly a one-way comparative tool; homeserver databases MUST remain
+responsible for managing actual set element membership.
 
 ### Transaction payload
 
-A new OPTIONAL `state_hashes` dictionary is introduced at the root of the
-`PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs of the
-PDUs included in the transaction to their respective `before` and `after`
+Servers implementing this MSC MUST embed a `state_hashes` dictionary at the root
+of the `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs
+of the PDUs included in the transaction to their respective `before` and `after`
 digests. The `state_hashes` values always represent the transaction sender's
 local resolved state, not necessarily the origin server's (meaning relays
-forward their own view, which is expected and proper). Network overhead for
-duplicate digests (e.g. across multiple non-state PDUs in a batch) is entirely
-mitigated by standard Matrix federation HTTP compression (gzip/brotli), which
-reduces the highly repetitive strings to negligible bytes.
+forward their own view).
+
+Network overhead for duplicate digests (e.g. across multiple non-state PDUs in a
+batch) is collapsed by standard federation HTTP compression (gzip/brotli).
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of
 state resolution (v2) applied across the states at each of those events — i.e.
 the same resolved state the server would use to authorize the PDU. The `after`
 state is `before` with the PDU applied, if it is an accepted state event;
-otherwise `after` equals `before`.
+otherwise `after` equals `before`. If a server does not know about a PDU in the
+given `prev_events`, they shall omit it entirely from the dictionary.
 
-- `before`: The 32-byte digest of the room state evaluated exactly at the PDU's
-  `prev_events`, excluding the current event.
+- `before`: The 32-byte digest of the room state evaluated exactly at the given
+  PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
   applied. (For non-state events, this will be identical to `before`).
 
@@ -141,6 +141,8 @@ Adding both `before` and `after` hashes consumes approximately 160 unsigned
 bytes of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
+
+<!-- Proofread marker. cfbc888d  -->
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
