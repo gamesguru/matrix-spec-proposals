@@ -455,7 +455,10 @@ broader auditability of major servers that frequently act as relays.
 ## Security considerations
 
 Homeservers should never use the accumulator hash as a source of truth to
-construct or authorize state. State resolution must continue, as usual.
+construct or authorize state. State resolution must proceed normally, as the
+sole authoritative driver of state convergence.
+
+<!-- Proofread marker. cfbc888d -->
 
 The hashes are purely diagnostic tools and performance boosters. Servers must
 still rely exclusively on their internal state to judge soft-failures. Servers
@@ -469,18 +472,64 @@ a lattice collision, which is computationally hard at these parameters) or
 finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
 currently believed to be computationally intractable [^1], [^2].
 
+**The State-Isolation Guarantee (Collision Immunity):** Even in the theoretical
+event of a successful second preimage or collision attack, the security of the
+room's state remains unaffected. Because receiving servers never use the
+accumulator digests to construct, modify, or authorize their local state maps,
+an attacker cannot inject forged state into a peer's database. At worst, a
+successful collision would only fool the receiver into a "false sync" state
+(preventing a mismatch alarm from sounding), leaving the legitimate local state
+completely uncorrupted.
+
 <!-- Proofread marker. cfbc888d -->
 
 **Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
 cryptographic collision resistance for set sizes up to $N \approx 50,000$
 elements. For extreme outliers exceeding 65,536 state elements, theoretical
 resistance against structured collision attacks decreases proportionally to
-lane-wrapping [^4]. However, this MSC actively mitigates this degradation: by
-requiring the explicit element counts (`n_before` and `n_after`) in the payload
-alongside the digest, an attacker is forced to construct a collision of the
-exact same subset size. This length-exact constraint complicates an attacker's
-efforts to exploit lane-wrapping, returning the attack complexity back to
+lane-wrapping [^4].
+
+However, this MSC actively mitigates this degradation: by requiring the explicit
+element counts (`n_before` and `n_after`) in the payload alongside the digest,
+an attacker is mathematically forced to construct a lattice collision of the
+exact same subset cardinality ($N$). This length-exact constraint completely
+neutralizes modular lane-wrapping attacks. Because `LtHash16` lanes operate
+modulo $2^{16}$ ($65,536$), an attacker attempting to forge a collision by
+wrapping the lanes must add or subtract vectors that sum to zero modulo
+$2^{16}$. Doing so inherently requires adding or removing multiples of 65,536
+decoy elements, which would immediately violate the strict, independently
+validated cardinality check ($N \neq N \pm 65,536$).
+
+Furthermore, this constraint reduces the general Subset Sum Problem to the
+**Exact-Length Subset Sum Problem (ELSSP)**, eliminating generalized
+birthday/k-list attacks (e.g., Wagner's algorithm) which rely on varying the
+subset size to find collisions. This returns the attack complexity back to
 computationally intractable levels regardless of total room size.
+
+An attacker cannot evade this constraint by lying about these counts, as the
+receiver independently calculates its own state cardinality from its local
+database and will immediately trigger a mismatch alarm if the counts do not
+align.
+
+In cases of genuine, extreme state divergence where server resolved sizes differ
+(e.g., due to long-term network partitions), the resulting size mismatches are
+legitimate signals of desync, which appropriately trigger the reconciliation
+protocol to heal the partition.
+
+**Warning against implementation tolerance (Grace Windows):** Because temporary
+state size discrepancies of $\pm 1\%$ to $10\%$ are common in the wild due to
+asynchronous federation lag, developers may be tempted to implement "grace
+windows" or "fuzzy matching" (e.g., ignoring size differences under $5\%$ to
+avoid triggering bisection loops).
+
+Implementations **MUST NOT** permit any size tolerance. Any size discrepancy,
+even by a single element, **MUST** be treated as a hard mismatch that disables
+the fast-path and triggers bisection. Permitting a size tolerance window (e.g.,
+$\pm K$ elements) completely destroys the Exact-Length Subset Sum Problem
+(ELSSP) cryptographic shield—giving an attacker $2K$ degrees of freedom to
+construct modular lane-wrapping collisions within that allowed window. If
+servers are diverged by even a single element, they must fall back to the secure
+slow-path (bisection).
 
 ## Test vectors
 
