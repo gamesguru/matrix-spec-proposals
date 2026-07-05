@@ -15,7 +15,8 @@ This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
 **relegating state group transitions** and naive iterative BFS implementations
 to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
-element removal), collision-resistant 2048-byte `LtHash16` accumulator function.
+element removal), collision-resistant 2048-byte `LtHash16` accumulator function
+[^3].
 
 Avoiding diff chain reconstruction for point lookups will reduce Synapse's
 electricity consumption across a wide range of API state endpoints.
@@ -78,11 +79,13 @@ implemented as follows:
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
 
-**NOTE:** It is the caller's responsibility to ensure the input is really a set.
-The digest allows deducting elements which were never added, and it allows
-adding the same element twice (producing different digests). The accumulator is
-strictly a one-way comparative tool; homeserver databases MUST remain
-responsible for managing actual set element membership.
+**NOTE:** It is the caller's responsibility to ensure the input is really a set
+[^3]. The digest allows deducting elements which were never added, and it allows
+adding the same element twice (producing different digests). Due to the wrapping
+math of the 16-bit lanes, adding the exact same element $2^{16}$ ($65,536$)
+times will roll the accumulator's lanes back to zero, returning to the starting
+digest. The accumulator is strictly a one-way comparative tool; homeserver
+databases MUST remain responsible for managing actual set element membership.
 
 ### Transaction payload
 
@@ -460,7 +463,7 @@ Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
 state set with an identical digest requires either breaking `LtHash16` (finding
 a lattice collision, which is computationally hard at these parameters) or
 finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
-currently believed to be computationally intractable [1].
+currently believed to be computationally intractable [^1], [^2].
 
 **Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
 cryptographic collision resistance for set sizes up to $N \approx 50,000$
@@ -566,14 +569,17 @@ This proposal currently has no known dependencies, blockers, or open questions.
 
 ## References
 
-1. **Bellare, M., & Micciancio, D. (1997).** _A New Paradigm for Collision-free
-   Hashing: Incrementality at Reduced Cost._ Advances in Cryptology — EUROCRYPT
-   '97. Lecture Notes in Computer Science, vol 1233. Springer, Berlin,
-   Heidelberg.
+[^1]:
+    **Bellare, M., & Micciancio, D. (1997).** _A New Paradigm for Collision-free
+    Hashing: Incrementality at Reduced Cost._ Advances in Cryptology — EUROCRYPT
+    '97. Lecture Notes in Computer Science, vol 1233. Springer, Berlin,
+    Heidelberg.
 
-2. **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
-   Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
-   2019/227. Available at: <https://eprint.iacr.org/2019/227>
+[^2]:
+    **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
+    Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
+    2019/227. Available at: <https://eprint.iacr.org/2019/227>
 
-3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
-   <https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html>
+[^3]:
+    **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
+    <https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html>
