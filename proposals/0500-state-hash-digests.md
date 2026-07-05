@@ -107,11 +107,11 @@ given `prev_events`, they shall omit it entirely from the dictionary.
   PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
   applied. (For non-state events, this will be identical to `before`).
-- `before_size`: An unsigned integer representing the exact number of elements
-  in the room's resolved state map at the `before` DAG point.
-- `after_size`: An unsigned integer representing the exact number of elements in
+- `n_before`: An unsigned integer representing the exact number of elements in
+  the room's resolved state map at the `before` DAG point.
+- `n_after`: An unsigned integer representing the exact number of elements in
   the room's resolved state map at the `after` DAG point (identical to
-  `before_size` for non-state events).
+  `n_before` for non-state events).
 
 ```json
 {
@@ -131,7 +131,8 @@ given `prev_events`, they shall omit it entirely from the dictionary.
     "$sample_pduid_abc123def456": {
       "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
       "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-      "state_size": 2
+      "n_before": 2,
+      "n_after": 2
     }
   }
 }
@@ -295,9 +296,9 @@ polling can back off significantly for rooms with recent inbound transactions.
 
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
-parent's lattice — O(1), no chain walk and no full state materialization.
+parent's lattice — `O(1)`, no chain walk and no full state materialization.
 Historical `/state_accumulator` queries then reduce to the existing event (state
-group lookup plus a single row read).
+group lookup plus a single row or cache read).
 
 Servers without persisted lattices can compute them on demand per-event during
 naive delta chain traversals or iterative BFS sweeps (accumulating the already
@@ -342,8 +343,8 @@ state dictionary. This solves multiple architectural bottlenecks:
    identity of a new state group in a massive room is a microsecond operation
    strictly independent of the room's total size or the fork's depth.
 
-2. **Topological Commutativity (Instant Deduplication):** Because Matrix history
-   is a Directed Acyclic Graph (DAG), concurrent branches frequently apply
+2. **Maintaining commutativity (fast deduplication):** Because Matrix history is
+   a Directed Acyclic Graph (DAG), concurrent branches frequently apply
    independent state changes in different orders (e.g., Server A sees event $X$
    then $Y$; Server B sees $Y$ then $X$). Because the accumulator relies on
    commutative modulo addition, `Base + X + Y` produces the exact same lattice
@@ -352,7 +353,7 @@ state dictionary. This solves multiple architectural bottlenecks:
    (e.g., via a `UNIQUE` database index), without ever expanding or comparing
    dictionaries.
 
-3. **Short-circuiting State Resolution:** During State Resolution v2/v2.1, the
+3. **Short-circuiting state resolution:** During State Resolution v2/v2.1, the
    most expensive initial step is determining if diverging DAG tips actually
    contain different states before building a conflict set. With the
    accumulator, this historically expensive check is reduced to a zero-cost
@@ -462,11 +463,12 @@ cryptographic collision resistance for set sizes up to $N \approx 50,000$
 elements. For extreme outliers exceeding 65,536 state elements, theoretical
 resistance against structured collision attacks decreases proportionally to
 lane-wrapping. However, this MSC actively mitigates this degradation: by
-requiring the explicit element count (`state_size`) in the payload alongside the
-digest, an attacker is mathematically forced to construct a lattice collision of
-the exact same subset length. This length-exact constraint nullifies the
-attacker's ability to exploit lane-wrapping, returning the attack complexity
-back to computationally intractable levels regardless of total room size.
+requiring the explicit element counts (`n_before` and `n_after`) in the payload
+alongside the digest, an attacker is mathematically forced to construct a
+lattice collision of the exact same subset length. This length-exact constraint
+nullifies the attacker's ability to exploit lane-wrapping, returning the attack
+complexity back to computationally intractable levels regardless of total room
+size.
 
 ## Test vectors
 
