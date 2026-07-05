@@ -390,7 +390,7 @@ currently believed to be computationally intractable.
 
 To assist implementers, the following test vectors are provided. They are
 generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
-`msc4502_lthash16\x00`), 16-bit little-endian wrapping lane
+`msc4500_lthash16\x00`), 16-bit little-endian wrapping lane
 addition/subtraction, and `BLAKE2b-256` collapse digest.
 
 Reference implementation available at https://github.com/gamesguru/rezzy
