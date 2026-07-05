@@ -469,7 +469,7 @@ currently believed to be computationally intractable [^1], [^2].
 cryptographic collision resistance for set sizes up to $N \approx 50,000$
 elements. For extreme outliers exceeding 65,536 state elements, theoretical
 resistance against structured collision attacks decreases proportionally to
-lane-wrapping. However, this MSC actively mitigates this degradation: by
+lane-wrapping [^4]. However, this MSC actively mitigates this degradation: by
 requiring the explicit element counts (`n_before` and `n_after`) in the payload
 alongside the digest, an attacker is mathematically forced to construct a
 lattice collision of the exact same subset length. This length-exact constraint
@@ -573,7 +573,7 @@ This proposal currently has no known dependencies, blockers, or open questions.
     **Bellare, M., & Micciancio, D. (1997).** _A New Paradigm for Collision-free
     Hashing: Incrementality at Reduced Cost._ Advances in Cryptology — EUROCRYPT
     '97. Lecture Notes in Computer Science, vol 1233. Springer, Berlin,
-    Heidelberg.
+    Heidelberg. Available at: <https://doi.org/10.1007/3-540-69053-0_13>
 
 [^2]:
     **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
@@ -583,3 +583,9 @@ This proposal currently has no known dependencies, blockers, or open questions.
 [^3]:
     **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
     <https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html>
+
+[^4]:
+    **Micciancio, D. (2002).** _Generalized Compact Knapsacks, Cyclic Lattices,
+    and Efficient One-Way Functions._ Proceedings of the 43rd Annual IEEE
+    Symposium on Foundations of Computer Science (FOCS '02). Available at:
+    <https://cseweb.ucsd.edu/~daniele/papers/Cyclic.pdf>
