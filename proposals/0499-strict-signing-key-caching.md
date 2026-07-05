@@ -182,8 +182,6 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 
 ### Key rotation procedure
 
-<!-- Proofread marker. 52b5887a  -->
-
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
@@ -210,19 +208,24 @@ server's configured signing key has a different key body than what was
 previously persisted for that key ID, the server MUST refuse to start and emit a
 clear error message instructing the administrator to either restore the original
 key or assign a new key ID. This prevents the misconfiguration from propagating
-to the federation in the first place.
+to the federation in the first place. Ideally the server should also check for
+pre-existing keys under that ID with its configured notaries (but if they abide
+by the paragraph below, this is a largely unnecessary precaution).
 
 Because local startup guardrails cannot detect collisions if the server's
 database has been entirely wiped (the most common cause of key ID reuse),
 homeserver implementations SHOULD ensure that default key ID generation
 incorporates a timestamp or high-entropy component (e.g., `ed25519:a7B_93k`
-rather than the default `ed25519:auto`). This ensures that if an administrator
-regenerates keys after a total state loss, a novel key ID is structurally
-guaranteed.
+rather than the default `ed25519:auto` or `ed25519:1`). This ensures that if an
+administrator regenerates keys after a total state loss, a novel key ID is
+structurally guaranteed. It also protects against a new server owner unwittingly
+re-registering under a domain which formerly ran a Conduit server.
+
+<!-- Proofread marker. 52b5887a  -->
 
 This is the most effective mitigation because it eliminates the root cause: it
-stops the bad key from ever being published, avoiding the federation-wide
-collision detection and localized divergence entirely.
+all but certainly stops the bad key from ever being published and sidesteps the
+federation-wide collision detection and localized divergence entirely.
 
 ### Recovery from key loss
 
