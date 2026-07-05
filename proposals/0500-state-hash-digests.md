@@ -188,11 +188,9 @@ The emphasis here is on agility: if a receiver cannot validate the `before` and
 `after` hashes readily (e.g., from an in-memory LRU cache or a point database
 lookup), they MUST defer the verification pipeline.
 
-<!-- Proofread marker. cfbc888d  -->
-
 A mismatched or deferred hash does not block the PDU; it is still processed
-under standard rules. Whether your homeserver implements an automated healing
-pipeline or merely logs the divergence for the admin is left as an
+under standard rules. Whether homeservers implements an automated healing
+pipeline or merely log the divergence for admin intervention is left as an
 implementation detail.
 
 ### Endpoint definition
@@ -213,19 +211,21 @@ applied (the `after` accumulator of that PDU).
 }
 ```
 
-**Errors:** `404 M_NOT_FOUND` if the server does not hold resolved state at that
-event (unknown event, outlier, or purged history). `403 M_FORBIDDEN` if the
-requesting server is not a participant in the room or is denied by
+**Errors:** `404 M_NOT_FOUND` if the server does not hold resolved PDU state at
+that event (unknown event, outlier, purged history, bug). `403 M_FORBIDDEN` if
+the requesting server is not a participant in the room or is denied by
 `m.room.server_acl` — identical semantics to other federation endpoints.
 
 **Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
-requires `O(log ΔD)` sequential calls, so a short burst allowance (e.g. 30
-requests) with a sustained rate of ~1/second is a reasonable default. The
-response is ~2.7 KB; amplification risk is negligible.
+requires `O(log ΔD)` sequential network calls, so a short burst allowance (e.g.
+30 requests) with a sustained rate of ~1/second is a reasonable default. The
+response is ~2.5 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
-The introduction of a mathematically verifiable state accumulator enables
+<!-- Proofread marker. cfbc888d  -->
+
+The introduction of a cryptographically verifiable state accumulator enables
 several zero-cost optimizations across the existing Matrix Client-Server and
 Server-Server APIs.
 
@@ -236,10 +236,10 @@ Server-Server APIs.
   expensive $O(S)$ operation for large rooms. These endpoints become instantly
   cacheable via standard HTTP semantics. Requesters SHOULD include the 32-byte
   accumulator digest in the `If-None-Match` header. The receiving server simply
-  compares this against its own $O(1)$ local digest for the requested event. If
-  they match, the server immediately returns `304 Not Modified`, entirely
-  bypassing the database traversal and JSON serialization of tens of thousands
-  of state events.
+  compares this against its own local LRU cache of the requested event's digest.
+  If they match, the server immediately returns `304 Not Modified`, bypassing
+  the legacy database traversal and JSON serialization of tens of thousands of
+  state events.
 
 ## Reconciliation (bisecting forks)
 
