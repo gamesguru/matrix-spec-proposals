@@ -81,11 +81,12 @@ collisions without database constraint violations, even if it only serves the
 inescapable future where key _bodies_ (values as opposed to IDs) become close to
 ~1 KB (prohibitively large for a "unique identifier" in a relational database).
 
-**Notary fallback (two-tier binding).** When a required signing key is not
-present in the local cache, servers typically query a configured notary server
-(`/_matrix/key/v2/query`). Because a notary is a relay, a direct fetch over
-validated TLS to the actual server name (`/_matrix/key/v2/server`) provides
-strictly stronger cryptographic proof of ownership.
+<a id="notary-fallback"></a> **Notary fallback (two-tier binding).** When a
+required signing key is not present in the local cache, servers typically query
+a configured notary server (`/_matrix/key/v2/query`). Because a notary is a
+relay, a direct fetch over validated TLS to the actual server name
+(`/_matrix/key/v2/server`) provides strictly stronger cryptographic proof of
+ownership.
 
 To prevent a malicious or compromised notary from permanently calcifying a
 poisoned key binding, bindings first observed via a notary are **provisional**.
@@ -115,40 +116,37 @@ A key ID (`algorithm:key_id`) MUST map to exactly one public key body for a
 given remote server. This is a strict, permanent 1:1 binding. The purpose of a
 key ID is to provide an unambiguous reference from a signature entry to a
 specific cryptographic key; allowing multiple key bodies under the same ID
-defeats this purpose.
-<!-- Proofread marker. 52b5887a  -->
-
-**Permanent binding.** The cryptographic binding between a key ID and its public
-key body is a **permanent record**, not a cache entry. This permanence governs
-_key-body identity_ only; it does not alter the validity-window semantics (e.g.,
-event signatures are still verified against the key's validity at the event's
-`origin_server_ts`, and federation requests still require a currently valid
-key). While `valid_until_ts` dictates when a server should refresh the
-`/_matrix/key/v2/server` endpoint, the observed association between a key ID and
-its key body MUST NOT be purged from the server's key database when
-`valid_until_ts` expires. Purging this binding would cause "collision amnesia" —
-the server would lose track of the original key body and blindly accept a
-colliding key body on the next fetch.
+defeats this purpose. **Permanent binding.** The cryptographic binding between a
+key ID and its public key body is a **permanent record**, not a cache entry.
+This permanence governs _key-body identity_ only; it does not alter the
+validity-window semantics (e.g., event signatures are still verified against the
+key's validity at the event's `origin_server_ts`, and federation requests still
+require a currently valid key). While `valid_until_ts` dictates when a server
+should refresh the `/_matrix/key/v2/server` endpoint, the observed association
+between a key ID and its key body MUST NOT be purged from the server's key
+database when `valid_until_ts` expires. Purging this binding would leave the
+server naive to future collisions and blindly accepting colliding key bodies.
 
 **Collision detection.** If a server observes a key response (whether fetched
 directly via `/_matrix/key/v2/server` or via a `/_matrix/key/v2/query` notary)
 from a remote server where a key ID that was previously associated with public
-key `A` is now associated with a different public key `B`, the receiving server
-MUST:
+key `A` is now associated with a different public key `B`, the receiving server:
 
-1. **Retain the previously observed key.** The original key body remains
+1. **MUST retain the previously observed key.** The original key body remains
    authoritative for that key ID, unless the existing binding is provisional and
    the new observation is a direct fetch, in which case the two-tier override
-   rule applies (see Notary fallback). In all other cases, the conflicting
-   response MUST NOT replace it.
-2. **Log the collision.** The server SHOULD log the key ID collision at warning
-   level, including the remote server name, the key ID, and the SHA-256
-   fingerprints of both the cached and conflicting public keys. This alerts the
-   operator to a potential misconfiguration or compromise on the remote server.
-3. **Never perform trial verification.** The server MUST NOT cache multiple key
-   bodies for the same key ID and attempt signature verification against each
-   one. See [Security considerations](#security-considerations) for the
-   vulnerabilities this would introduce.
+   rule applies (see [Notary fallback](#notary-fallback)). In all other cases,
+   the conflicting response MUST NOT replace it.
+2. **SHOULD log the collision.** It helps forensically to log the key ID
+   collision at warning level, including the remote server name, the key ID, and
+   the SHA-256 fingerprints of both the cached and conflicting public keys. This
+   alerts the operator to a potential misconfiguration or compromise on the
+   remote server and may aid in community forensic or reconciliation efforts.
+3. **MUST NOT perform trial verification.** The server SHOULD NOT cache multiple
+   key bodies under the same key ID and MUST NOT attempt extra signature
+   verification (except against the first nominally promoted instance). See
+   [Security considerations](#security-considerations) for the vulnerabilities
+   and general annoyances this would introduce.
 
 **Intra-payload rejection.** A single key response payload MUST NOT contain
 multiple different public key bodies for the same key ID (e.g., across
@@ -161,21 +159,24 @@ malformed.
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
 `(server_name, algorithm, key_id)` tuple (whether found in `verify_keys` or
-`old_verify_keys`) is the permanent binding. This is a direct consequence of
-Matrix's Trust-On-First-Use (TOFU) model for server key discovery.
+`old_verify_keys`) is the permanent binding. This rule becomes less relevant in
+the future, once key IDs are reduced to collision-resistant canonical checksums
+of the key body (rather than admin-supplied near arbitrary strings).
 
-**Localized impact acknowledgement.** The First Seen Wins rule will cause a
-**localized DAG divergence** for the misconfigured server: peers that cached the
-original key will reject new events from the server (signature verification
-fails against the wrong key body), while peers that never cached the original
-key will accept them. This is an unavoidable consequence of out-of-band key
-resolution — different servers observe different key states at different times.
-This MSC does not and _cannot_ eliminate this divergence, because key fetching
-is not part of the room DAG mainline. What this MSC does is make the divergence
-**deterministic, documented, and intentional**: it is the correct cryptographic
-punishment for an admin violating the protocol by reusing a key ID. It creates
-immediate, visible failure that forces the administrator to fix their
-configuration rather than silently corrupting historical verification.
+<!-- Proofread marker. 52b5887a  -->
+
+**Local impact.** The First Seen Wins rule causes a **localized DAG divergence**
+for the misconfigured server: peers that cached the original key will reject new
+events from the server (signature verification fails against the wrong key
+body), while peers that never cached the original key will accept them. This is
+an unavoidable consequence of out-of-band key resolution — different servers
+observe different key states at different times. This MSC does not and _cannot_
+eliminate this divergence, because key fetching is not part of the room DAG
+mainline. What this MSC does is make the divergence **deterministic, documented,
+and intentional**: it is the correct cryptographic punishment for an admin
+violating the protocol by reusing a key ID. It creates immediate, visible
+failure that forces the administrator to fix their configuration rather than
+silently corrupting historical verification.
 
 ### Key rotation procedure
 
@@ -362,11 +363,11 @@ anomalies, but explicitly does not touch room version consensus rules.
   Rejected.
 
 - **Automatic key ID bumping by the server.** Homeserver implementations could
-  auto-increment the key ID on every key generation, preventing collisions
+  auto-increment the Key ID on every key generation, preventing collisions
   entirely. This is a reasonable implementation best practice and is RECOMMENDED
-  by this MSC (see Admin startup guardrails), but cannot be mandated at the
-  protocol level because key ID assignment is a server-local configuration
-  decision.
+  by this MSC (see [Admin startup guardrails](#admin-startup-guardrails)), but
+  cannot be mandated at the protocol level because Key ID assignment is a
+  server-local configuration decision.
 
 ## Security considerations
 
