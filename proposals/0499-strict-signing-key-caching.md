@@ -260,22 +260,21 @@ manual, operator-gated ability to perform cache merges or manually overrides. It
 must not be automated or triggered via inbound/outbound federation traffic.
 
 ### Historical event verification
-<!-- Proofread marker. 52b5887a  -->
 
 Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
 (where `T` is the event's `origin_server_ts`) is valid if and only if: (1) `T`
 falls within the key's validity window (i.e., `T` is less than the key's
 `expired_ts` if present, and `T` is less than the `valid_until_ts` asserted when
-the key was active), and (2) the event signature mathematically validates. The
-7-day cache validity clamp restricts the window in which the key is authorized
-to sign new events, but does not invalidate historically signed events when
-verifying them years later.
+the key was active), and (2) the event signature cryptographically validates.
+The 7-day cache validity clamp restricts the window in which the key is
+authorized to sign new events, but does not invalidate historically signed
+events when verifying them years later.
 
 Servers MUST sanity-check `expired_ts` values in `old_verify_keys`. A future
 `expired_ts` (beyond a small clock-skew allowance) MUST be treated as malformed
 for that specific key entry, but does not poison the rest of the response
-payload.
+payload. This should be uncommon, but servers must not use the key in this case.
 
 The strict key ID uniqueness requirement ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
@@ -288,10 +287,10 @@ prove which specific key body signed what event, and when.
 Key ID collision detection is a **local server observation** — it depends on
 out-of-band HTTP key fetching, not on the immutable event JSON that room version
 auth rules evaluate. Room version authorization rules must be **pure
-mathematical functions** that produce the same result on every server given the
+specification functions** that produce the same result on every server given the
 same event and room state. Because different servers fetch keys at different
-times and may have different cache histories, a collision-based auth rule would
-guarantee the exact split-brain it tries to prevent:
+times and may have different cache histories, a collision-based auth rule
+guarantees the exact split-brain it tries to prevent:
 
 1. Server A (online for years) has the old key cached, detects a collision, and
    rejects new events.
@@ -299,12 +298,13 @@ guarantee the exact split-brain it tries to prevent:
    accepts the events.
 3. The room permanently forks.
 
+<!-- Proofread marker. 52b5887a  -->
 Additionally, under Matrix's TOFU model, a `/_matrix/key/v2/server` response is
 self-signed by the private key _in the payload_. An attacker who briefly hijacks
 a server's IP (DNS spoofing, BGP hijacking) can generate a new keypair, label it
 with the target's key ID, and produce a mathematically valid self-signature. If
 collision detection were an auth rule, the attacker would trivially weaponize it
-— injecting a collision that permanently blacklists the legitimate server's Key
+— injecting a collision that permanently blacklists the legitimate server's key
 ID from all Room Version N rooms, without ever needing the real private key.
 
 This MSC therefore operates exclusively at the **Federation API / server
