@@ -417,6 +417,13 @@ a lattice collision, which is computationally hard at these parameters) or
 finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
 currently believed to be computationally intractable [1].
 
+**Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
+cryptographic collision resistance for set sizes up to $N \approx 50,000$
+elements, which covers the vast majority of production Matrix rooms. For extreme
+outliers exceeding 65,536 state elements, the homomorphic properties remain
+mathematically correct, though theoretical resistance against structured
+collision attacks decreases proportionally to lane-wrapping.
+
 ## Test vectors
 
 To assist implementers, the following test vectors are provided. They are
