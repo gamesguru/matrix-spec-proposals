@@ -353,11 +353,11 @@ state dictionary. This solves multiple architectural bottlenecks:
 
 3. **Fast-path state resolution:** During state resolution v2/v2.1, an expensive
    early step is determining if diverging DAG tips actually contain different
-   states (before building a conflict set). With the accumulator, this
-   historically expensive check is amortized across a single 32-byte integer
-   comparison. If the diverging branches possess identical digests, the server
-   knows with confidence that there is no conflict set, and largely bypasses the
-   costs of the state resolution algorithm.
+   states before building a conflict set. With the accumulator, this
+   historically expensive code path is short-circuited by a single 32-byte
+   memory comparison. If the diverging branches have the same digests, the
+   server knows with cryptographic assurance that there is no conflict set, and
+   can safely bypass the state resolution algorithm.
 
 <!-- Proofread marker. cfbc888d -->
 
