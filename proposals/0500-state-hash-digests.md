@@ -312,21 +312,24 @@ state requires expensive graph traversals or full state materialization.
 Conduwuit-based derivatives slightly optimize read-time reconstruction by
 incurring `ShortStateHash`-associated write-time amplification.
 
-With a sum accumulator, the state digest _is_ the state group identifier.
+With a sum accumulator, the state digest _is_ the state group identifier,
+solving both architectural bottlenecks:
 
-1. **Instant Deduplication:** If two different branches of a DAG converge on the
+1. **Instant deduplication:** If two different branches of a DAG converge on the
    exact same state (very common occurrence), their 32-byte accumulator digests
    will perfectly match. The homeserver instantly deduplicates them into a
-   single State Group ID without expanding or comparing dictionaries.
+   single State Group ID without expanding or comparing dictionaries. Unlike
+   `ShortStateHash` generation, which requires an `O(S log S)` full state sort
+   and hash, the accumulator updates in `O(ΔS)` lane-wise arithmetic.
 
-2. **$O(1)$ Equality Checks:** During State Resolution v2/v2.1, determining if
+2. **$O(1)$ equality checks:** During State Resolution v2/v2.1, determining if
    diverging branches have different states becomes an instant 32-byte integer
-   comparison rather than a complex graph traversal and dictionary comparison.
+   comparison rather than partial graph traversals and a dictionary comparison.
 
 While delta chains remain necessary to materialize state into memory and to
 compute conflict sets during state resolution, the accumulator relegates deltas
 purely to storage compression and retrieval, eliminating the need to walk chains
-during fast-path "state equality" checks.
+during fast-path state equality checks.
 
 ## Potential issues
 
