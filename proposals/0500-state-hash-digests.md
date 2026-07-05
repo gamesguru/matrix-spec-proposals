@@ -279,8 +279,8 @@ bound on the divergence point and proceeds from there.
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSCXXXX's `room_diff` and
-`room_events`.
+enumeration and healing are delegated to MSCXXXX [Gossip-based federation room
+reconciliation] and its `/room_diff` and `/room_events` endpoints.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
 non-state-altering events. For this capability, it fully defers to MSCXXXX.
@@ -467,9 +467,9 @@ Homeservers MUST NEVER use a _remote_ accumulator digest (received from a peer
 via `/send` or `/state_accumulator`) as a source of truth to construct, modify,
 or authorize state. Local state resolution MUST proceed normally as the sole
 authoritative driver of state convergence. Locally-computed lattices, derived
-from the server's timeline and resolved state, _are_ safe for all internal
-optimizations described in this proposal (state group identity, fast-path
-deduplication, short-circuiting state resolution).
+from the server's timeline and resolved state, _are_ safe for any internal
+optimizations and representations described in this proposal (state group
+identity, fast-path deduplication, short-circuiting state resolution).
 
 The hashes are purely diagnostic tools and performance boosters. Servers must
 still rely exclusively on their internal state to judge soft-failures. Servers
