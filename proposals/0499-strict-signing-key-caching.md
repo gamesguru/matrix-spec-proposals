@@ -173,10 +173,14 @@ an unavoidable consequence of out-of-band key resolution — different servers
 observe different key states at different times. This MSC does not and _cannot_
 eliminate this divergence, because key fetching is not part of the room DAG
 mainline. What this MSC does is make the divergence **deterministic, documented,
-and intentional**: it is the correct cryptographic punishment for an admin
-violating the protocol by reusing a key ID. It creates immediate, visible
-failure that forces the administrator to fix their configuration rather than
-silently corrupting historical verification.
+and intentional**: it prioritizes strict cryptographic integrity over silently
+corrupting historical verification. While this unavoidably leaves affected peers
+with a split-brain view of the room (requiring manual cache eviction or state
+resets to recover) if the origin server is not fixed, it creates an immediate,
+visible failure that forces the misconfigured administrator to correct their
+setup. Eliminating this collateral damage entirely requires a new room version
+mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
+[Future considerations](#future-considerations)).
 
 ### Key rotation procedure
 
