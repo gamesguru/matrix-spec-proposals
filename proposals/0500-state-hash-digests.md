@@ -480,9 +480,9 @@ of reconciliation remain, at the time of writing, investigative or speculative.
 **State-isolation assurance:** Even a successful collision attack cannot corrupt
 room state. Because remote digests are never used to construct, modify, or
 authorize local state maps, the worst outcome of a forged digest is a missed
-mismatch alarm — the attacker fools the receiver into believing sync is nominal
+mismatch alarm — the adversary fools the receiver into believing sync is nominal
 when it is not. No state is injected, no auth decisions are affected, and the
-receiver's local database remains uncorrupted.
+receiver's local database remains unaffected.
 
 **"Honest hash" bypass:** It is important to contextualize the threat model. If
 a malicious server wishes to hide a split-brain partition, it does not need to
@@ -491,7 +491,7 @@ server can simply compute the correct `LtHash` of the _honest_ room state and
 transmit that correct hash in their federation payloads while secretly keeping a
 diverged database. `LtHash` must therefore be understood as a highly efficient
 fault _detection_ mechanism for honest-but-buggy servers and natural network
-partitions, not a zero-knowledge proof of a peer's internal database state.
+partitions, _not_ an authoritative proof of a peer's internal room state.
 
 **Parameter security:** The lattice parameters ($L = 1024$ lanes, $q = 2^{16}$)
 are the instantiation analyzed by Lewi et al. [^2], with an estimated security
@@ -596,7 +596,11 @@ This proposal is fully backwards-compatible:
 
 ## Dependencies
 
-This proposal currently has no known dependencies, blockers, or open questions.
+This proposal currently has no known dependencies.
+
+## Open questions
+
+- Impact on or relevance to partial joins (MSC3902)?
 
 ## References
 
