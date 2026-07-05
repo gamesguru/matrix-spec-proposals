@@ -1,8 +1,8 @@
-# MSC0F06: State accumulator endpoint and transaction digests
+# MSC 4500: State accumulator endpoint and transaction digests
 
 <!--
-[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/guru/4499-state-hash-digests.md)
- -->
+[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/proposals/4500-state-hash-digests.md)
+-->
 
 When servers diverge, the result can be a serious nuisance. Matrix lacks an
 out-of-band or real-time mechanism for state verification or re-alignment;
@@ -52,9 +52,9 @@ To guarantee interoperability, the algorithm is as follows:
    serialized as the UTF-8 concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`.
 2. **Input expansion.** The encoded element, prefixed with the domain
-   separation tag `msc4499_lthash16\x00`, is expanded to exactly 2048 bytes
+   separation tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes
    using the `BLAKE2Xb` extendable-output function (XOF):
-   `expansion = BLAKE2Xb-2048("msc4499_lthash16\x00" || element)`. A fixed-width
+   `expansion = BLAKE2Xb-2048("msc4500_lthash16\x00" || element)`. A fixed-width
    hash cannot fill the lattice; the XOF expansion is what makes the lane
    distribution uniform and implementation-identical.
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
@@ -204,31 +204,31 @@ historical DAG points, the receiver can query accumulators at $O(\log ΔD)$ dept
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSC4500's `room_diff` and
+enumeration and healing are delegated to MSC4501's `room_diff` and
 `room_events`.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
-non-state-altering events. For this capability, it fully defers to MSC4500.
+non-state-altering events. For this capability, it fully defers to MSC4501.
 
-## Synergy with MSC4500 (event set reconciliation)
+## Synergy with MSC4501 (event set reconciliation)
 
-This proposal and MSC4500 (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4499's accumulator covers the room's _current state set_ at
-arbitrary DAG positions. MSC4500's bloom digest and RMQ fall-back cover the
+This proposal and MSC4501 (`room_digest` / `room_diff`) solve fundamentally
+different sets. MSC4500's accumulator covers the room's _current state set_ at
+arbitrary DAG positions. MSC4501's bloom digest and RMQ fall-back cover the
 _event set_ (full PDU timeline).
 
 Because state divergence implies event-set divergence (with the converse _often_
 also holding true), the two proposals nicely complement each other:
 
-1. **Detect (MSC4499, passive, free):** Every `/send` carries before/after
+1. **Detect (MSC4500, passive, free):** Every `/send` carries before/after
    digests. Active rooms get continuous state-consistency checks with zero extra
    round trips.
-2. **Bisect (MSC4499, active):** On mismatch, optional bisection via the
+2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSC4500):** `room_diff` (with a `scope: "state"`
+3. **Reconcile (MSC4501):** `room_diff` (with a `scope: "state"`
    parameter) fetches what is missing, auth chains included.
 
-Because MSC4499 gives active rooms free passive detection, MSC4500's periodic
+Because MSC4500 gives active rooms free passive detection, MSC4501's periodic
 polling can back off significantly for rooms with recent inbound transactions.
 
 ## Implementation notes
@@ -349,8 +349,6 @@ rules MUST continue to rely strictly on signed, immutable event data.
 The hashes are diagnostic tools. Even if a hash is tampered with, the room stays
 secure. The worst-case outcome is a performance degradation or false alarm.
 
-<!-- Edit marker. -->
-
 Because the 32-byte digest is cryptographically secure (via `BLAKE2b-256`),
 forging a different _state set_ with the same digest requires either a colliding
 set under `LtHash16` (a lattice problem believed hard at these parameters, per
@@ -360,10 +358,15 @@ believed computationally intractable.
 
 ## Test vectors
 
+<!-- Edit marker. -->
+
 To assist implementers, the following test vectors are provided. They are
 generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
 `msc4502_lthash16\x00`), 16-bit little-endian wrapping lane
 addition/subtraction, and `BLAKE2b-256` collapse digest.
+
+Reference implementation available at https://github.com/gamesguru/rezzy
+(currently under `src/state/delta.rs`, likely to survive named `impl LtHash`).
 
 ### Empty state
 
@@ -419,9 +422,9 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 For experimental implementations, the features should be referred to using the
 following unstable identifiers:
 
-- The transaction payload key: `org.matrix.msc0F06.state_hashes`
+- The transaction payload key: `org.matrix.msc4500.state_hashes`
 - The reconciliation endpoint:
-  `GET /_matrix/federation/unstable/org.matrix.msc0F06/state_accumulator/{room_id}`
+  `GET /_matrix/federation/unstable/org.matrix.msc4500/state_accumulator/{room_id}`
 
 ## Dependencies
 

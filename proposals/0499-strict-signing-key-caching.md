@@ -1,4 +1,8 @@
-# MSC 00FD: Signing Key Caching and Key ID Uniqueness
+# MSC 4499: Signing key caching and `KeyID` uniqueness
+
+<!--
+[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/proposals/4499-notary-caching.md)
+-->
 
 Matrix federation relies on server signing keys to authenticate PDUs and
 federation HTTP requests. The current specification defines the
@@ -25,6 +29,8 @@ semantics, and admin guardrails as **server behavior standardization**. It
 applies exclusively to server-to-server federation key management and does not
 modify PDU authorization rules, state resolution, or any room-version-scoped
 logic.
+
+<!-- Read marker.  -->
 
 ## Proposal
 
