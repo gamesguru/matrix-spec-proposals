@@ -364,22 +364,22 @@ prove which specific key body signed what event, and when.
   server performs a confirming direct fetch, and (3) future MSCs such as a
   Global Settings Lock would effectively mitigate this concern.
 
-<!-- Proofread marker. 52b5887a  -->
-- **DAG integrity.** The key ID uniqueness requirement guarantees that historical
-  signature verification is deterministic. For any event at any point in time,
-  the key that signed it is unambiguously identified by the
-  `(server_name, algorithm, key_id)` tuple in the `signatures` dictionary.
+- **DAG integrity.** The key ID uniqueness requirement protects abiding servers
+  by guaranteeing that historical signature verification is locally
+  deterministic. For any event at any point in time, the key that signed it is
+  unambiguously identified by the `(server_name, algorithm, key_id)` tuple in
+  the `signatures` dictionary.
 
 - **Compromise detection.** Key ID collisions are a potential indicator of
   server compromise (an attacker generating a new key and attempting to publish
   it under an existing ID). Hard rejection with operator alerting provides an
-  early warning mechanism.
+  early warning mechanism. They can also be a sign of outdated, legacy servers.
 
-- **Cache expiration ≠ binding expiration.** The `valid_until_ts` field governs
-  when to _refresh_ the key endpoint, not when to _forget_ the key body. Servers
-  that purge key-body bindings on `valid_until_ts` expiry create a window where
-  collision detection is blind. This MSC explicitly requires permanent retention
-  of key-body bindings to close this gap.
+- **Cache expiration is not binding expiration.** The `valid_until_ts` field
+  governs when to _refresh_ the key endpoint, not when to _forget_ the key body.
+  Servers that purge key-body bindings on `valid_until_ts` expiry create a
+  window where collision detection is blind. This MSC explicitly requires
+  permanent retention of key-body bindings to close this gap.
 
 - **Storage exhaustion DoS.** Mandating permanent storage of key-body bindings
   introduces a theoretical storage exhaustion vector if an attacker forces a
@@ -394,14 +394,15 @@ prove which specific key body signed what event, and when.
   federation rate-limiting to discard junk traffic before allocating database
   records. In practice, legitimate servers publish single-digit numbers of
   active keys at any given time; a server claiming thousands of key IDs is
-  unambiguously hostile.
+  unambiguously hostile. A future Proof-of-Work gated proposal may mitigate the
+  spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
 
 ## Unstable prefix
 
 This MSC does not introduce new protocol identifiers and does not require an
-unstable prefix. The behavioral changes (mandatory caching, permanent key-body
+unstable prefix. The behavior changes (mandatory caching, permanent key-body
 binding, collision detection, trial verification prohibition) are implementation
-requirements that can be adopted immediately.
+requirements that can be readily adopted. No API endpoints substantially change.
 
 ## Dependencies
 
@@ -413,20 +414,18 @@ requirements that can be adopted immediately.
 
 This proposal is fully backwards-compatible:
 
-- **No protocol wire changes.** No new fields, endpoints, or response formats
-  are introduced.
-- **No room version changes.** No PDU authorization or state resolution rules
-  are modified.
+- **No protocol wire changes.** No new fields, endpoints, or response formats.
+- **No room version changes.** No changes in auth or state resolution rules.
 - **Existing well-configured servers are unaffected.** Servers that already use
-  unique key IDs on rotation (the expected behavior) experience no change.
+  unique key IDs on rotation (the newly-defined behavior) experience no change.
 - **Misconfigured servers experience a clarified failure mode.** Servers that
   reuse key IDs with different key bodies will be rejected by peers implementing
   this MSC. This failure already occurs unpredictably today (depending on cache
-  state); this MSC makes the behavior deterministic and well-documented.
+  state and timing); this MSC makes the behavior expected and codified.
 
 ## Future considerations
 
-**Content-addressed key IDs (Stricter Protocol Requirements)**
+**Content-addressed key IDs (stricter protocol requirements)**
 
 The root cause of key ID collisions is that the `key_id` is currently an
 arbitrary, administrator-defined string (e.g., `ed25519:auto`). A future room
@@ -434,16 +433,17 @@ version could eliminate this entire class of vulnerabilities by mandating that
 the `key_id` must be deterministically derived from the public key body
 itself—for example, `ed25519:<base64(SHA256(KeyBody))[:16]>`.
 
-Under this paradigm, a key ID collision becomes mathematically impossible. If an
+Under this paradigm, a key ID collision becomes exceedingly difficult. If an
 administrator regenerates their keys, the new key body structurally enforces a
-novel key ID. This would entirely close the TOFU poisoning vulnerability (an
-attacker cannot assert a new key under an old ID without breaking the math) and
-eliminate the need for out-of-band collision detection heuristics, allowing us
-to enforce strict key uniqueness directly within room version auth rules.
+novel key ID. This entirely mitigates the TOFU poisoning vulnerability (an
+attacker cannot assert a new key under an old ID without conducting a
+computationally intractable simulation). It would eliminate the need for
+out-of-band collision detection heuristics, allowing us to enforce strict key
+uniqueness directly within room version auth rules.
 
-Because this fundamentally requires changing how signatures are validated within
-the room DAG and invalidates legacy key formats in the wild, it requires a new
-room version and is deferred to a future MSC. Until then, protection must remain
+Because this requires changing how PDU signatures are verified and supplants
+legacy key formats thoroughly entrenched in the wild, it requires a new room
+version and is deferred to a future MSC. Until then, protection must remain
 strictly at the local server caching layer as outlined in this proposal.
 
 **Member Keys [MSC4430]**
