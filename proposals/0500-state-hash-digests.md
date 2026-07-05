@@ -76,7 +76,7 @@ implemented as follows:
    — the `O(1)` update at the heart of this proposal.
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
 6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
-   2048-byte sum lattice $S$ using `BLAKE2b-256`, hex-encoded (64 characters):
+   2048-byte sum lattice $S$ using `BLAKE2b-256`, hex-encoded at 64 characters:
    $$D = \text{BLAKE2b-256}(S)$$
 
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
