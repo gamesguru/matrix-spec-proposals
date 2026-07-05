@@ -176,7 +176,7 @@ requesting server is not a participant in the room or is denied by
 `m.room.server_acl` — identical semantics to other federation endpoints.
 
 **Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
-requires `O(log N)` sequential calls, so a short burst allowance (e.g. 30
+requires `O(log ΔD)` sequential calls, so a short burst allowance (e.g. 30
 requests) with a sustained rate of ~1/second is a reasonable default. The
 response is ~2.7 KB; amplification risk is negligible.
 
@@ -188,7 +188,7 @@ against the sender's full accumulator lattice.
 
 The delta lattice tells you _that_ you've diverged and roughly _how much_, and
 lets you **bisect** to _where_. Because both servers can produce digests at
-historical DAG points, the receiver can query accumulators at $O(\log N)$ depth
+historical DAG points, the receiver can query accumulators at $O(\log ΔD)$ depth
 (binary search over HTTP) to find the earliest event where the digests diverged.
 
 It is important to note that the delta lattice cannot name events you have never
@@ -231,17 +231,18 @@ then reduce to the existing event (state group lookup plus a single row read).
 Servers without persisted lattices can compute one on demand during legacy
 delta chain or BFS walk iteration (accumulating the already materialized state
 and caching the accumulator, thereby obviating the need for traversals of that
-delta chain during a future point lookup).
+delta chain during any future point lookup).
 
 ### State identity and local DB optimizations
 
 <!-- Edit marker. -->
+
 While this proposal primarily addresses federation, the adoption of a grand sum
 accumulator profoundly optimizes local homeserver architecture.
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," utilizing delta chains (pointers and changes) because generating a hash
-of an entire room state is an $O(N)$ operation.
+of an entire room state is an $O(S)$ operation.
 
 With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier.
 
