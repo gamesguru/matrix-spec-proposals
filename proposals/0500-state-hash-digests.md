@@ -384,28 +384,28 @@ it prone to replication drift and structural or semantic ambiguity.
 
 ### False alarms (federation signal noise and DoS vectors)
 
-<!-- Proofread marker. cfbc888d -->
-
-If a malicious, misconfigured, or malfunctioning server forwards wrong hashes in
-the transaction, it could trigger the receiver into a loop of state resyncs.
+If a malicious, misconfigured, or malfunctioning server transmits mismatched
+digests in a transaction, it could trigger state resync loops for the receiver.
 
 **Mitigations:**
 
 1. **Rate-limiting:** Receiving servers implementing automated remediation
    methods SHOULD rate-limit out-of-band state sync requests triggered by
-   mismatching hints Repetitive warning logs are unnecessary and may be subject
-   to a cool-down period.
+   mismatching hints. Repetitive warning logs are unnecessary and should be
+   subject to a cool-down period.
 
-2. **Reputation:** Servers implementing Bandit-based peer scoring on manually or
-   heavily federated endpoints SHOULD factor state into their weighting. If a
-   peer consistently sends mismatching hashes that do not reflect the actual
-   resolved state or differ too wildly from the majority, the receiver should
-   temporarily decrement that peer's reputability and the worthiness of their
-   hints.
+2. **Reputation:** Servers implementing Bandit-based peer scoring on manually
+   triggered or heavily federated endpoints SHOULD factor state accuracy into
+   their weighting. If a peer consistently transmits mismatched digests that do
+   not reflect the actual resolved state or differ too wildly from the perceived
+   majority or authoritative ground truth, the receiver should temporarily
+   decrement that peer's reputation score and the worthiness of their hints.
 
 ## Alternatives
 
 ### Hashes in the signed PDU
+
+<!-- Proofread marker. cfbc888d -->
 
 The primary alternative is placing the state hash directly into the signed
 payload of the event, enforcing it as a protocol-level requirement.
@@ -422,8 +422,7 @@ payload of the event, enforcing it as a protocol-level requirement.
   possible this approach will be interleaved with MSC4242, which _does_ make
   intentional PDU format changes intended for a new room version.
 
-The transaction-level approach achieves the same diagnostic goal with no
-friction.
+A transaction-level approach achieves similar diagnostic goal without friction.
 
 ### Hashes in the `unsigned` dictionary
 
