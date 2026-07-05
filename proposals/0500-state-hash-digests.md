@@ -149,13 +149,11 @@ payload, it collapses its own local lattice at that exact DAG point using fast
 bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
 
-<!-- Proofread marker. cfbc888d  -->
-
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a background `/get_missing_events`
 or perform a state bisection (see
-[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks)) with an
-authoritative server, while replying to the sender with the mismatched digest
+[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks)) with
+authoritative servers, while replying to the sender with the mismatched digest
 embedded in a `state_hash_mismatch` dictionary within the PDU's processing
 result in the `200 OK` response. Legacy versions of Synapse (pre-dating this
 MSC) will decode the object without panicking, safely ignoring unknown keys, and
@@ -176,19 +174,21 @@ so will Conduit-derivatives and `gomatrixserverlib`.
 
 Mismatch handling SHOULD be deduplicated per room (i.e. the first detection
 triggers logging/bisection, but subsequent mismatching transactions within a
-reasonable cooldown period are ignored to prevent log spam or fetch storms).
-Note that if a receiving server **rejects** an incoming state event due to
-auth/power-level rules, their `after` hash will instantly (and correctly)
+reasonable cooldown period are deprioritized to limit logger output and network
+activity). Note that if a receiving server **rejects** an incoming state event
+due to auth/power-level rules, their `after` hash will instantly (and correctly)
 mismatch the sender's `after` hash. This mechanism instantly detects split-brain
 authorization failures.
 
-Homeservers operating in a Partial State regime (MSC3706) MUST silently defer
-hash validation for that room and MUST NOT emit warnings or trigger bisection
-until the room state is fully synchronized.
+Homeservers operating under Partial State (MSC3706) MUST silently defer hash
+validation for that room. They cannot compare state to emit warnings or trigger
+bisection (until the room state is fully synchronized).
 
-The critical rule here is agility: if a receiver cannot validate the `before`
-and `after` hashes instantly (e.g., from an in-memory LRU cache or a single
-database read), they MUST defer the verification pipeline.
+The emphasis here is on agility: if a receiver cannot validate the `before` and
+`after` hashes instantly (e.g., from an in-memory LRU cache or a single database
+read), they MUST defer the verification pipeline.
+
+<!-- Proofread marker. cfbc888d  -->
 
 A mismatched or deferred hash does not block the PDU; it is still processed
 under standard rules. Whether your homeserver implements an automated healing
