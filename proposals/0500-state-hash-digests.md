@@ -142,8 +142,6 @@ bytes of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
 
-<!-- Proofread marker. cfbc888d  -->
-
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
 When a server catches a `/send` transaction containing the `state_hashes`
@@ -151,16 +149,38 @@ payload, it collapses its own local lattice at that exact DAG point using fast
 bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
 
+<!-- Proofread marker. cfbc888d  -->
+
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a background `/get_missing_events`
-or perform a state bisection with an authoritative server, while replying to the
-sender with the mismatched digest. Mismatch handling SHOULD be deduplicated per
-room (i.e. the first detection triggers logging/bisection, but subsequent
-mismatching transactions within a reasonable cooldown period are ignored to
-prevent log spam or fetch storms). Note that if a receiving server **rejects**
-an incoming state event due to auth/power-level rules, their `after` hash will
-instantly (and correctly) mismatch the sender's `after` hash. This mechanism
-instantly detects split-brain authorization failures.
+or perform a state bisection (see
+[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks)) with an
+authoritative server, while replying to the sender with the mismatched digest
+embedded in a `state_hash_mismatch` dictionary within the PDU's processing
+result in the `200 OK` response. Legacy versions of Synapse (pre-dating this
+MSC) will decode the object without panicking, safely ignoring unknown keys, and
+so will Conduit-derivatives and `gomatrixserverlib`.
+
+```json
+{
+  "pdus": {
+    "$sample_pduid_abc123def456": {
+      "state_hash_mismatch": {
+        "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+        "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
+      }
+    }
+  }
+}
+```
+
+Mismatch handling SHOULD be deduplicated per room (i.e. the first detection
+triggers logging/bisection, but subsequent mismatching transactions within a
+reasonable cooldown period are ignored to prevent log spam or fetch storms).
+Note that if a receiving server **rejects** an incoming state event due to
+auth/power-level rules, their `after` hash will instantly (and correctly)
+mismatch the sender's `after` hash. This mechanism instantly detects split-brain
+authorization failures.
 
 Homeservers operating in a Partial State regime (MSC3706) MUST silently defer
 hash validation for that room and MUST NOT emit warnings or trigger bisection
