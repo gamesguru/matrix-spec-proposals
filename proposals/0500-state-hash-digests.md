@@ -16,7 +16,9 @@ seeks to act as a secondary state convergence mechanism, while simultaneously
 **relegating state group transitions** and naive iterative BFS implementations
 to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
 element removal), collision-resistant 2048-byte `LtHash16` accumulator function
-[^3].
+[^3]. Similar additive lattice accumulators are increasingly used in production
+blockchain architectures to compute real-time, incremental cryptographic state
+commitments under high transactional volume [^5].
 
 Avoiding diff chain reconstruction for point lookups will reduce Synapse's
 electricity consumption across a wide range of API state endpoints.
@@ -314,7 +316,10 @@ lookups or state group transitions).
 While this proposal primarily addresses federation, the adoption of a
 homomorphic sum accumulator introduces a paradigm shift for local homeserver
 database architectures, shifting state management from being _path-dependent_ to
-_path-independent_.
+_path-independent_. This database paradigm mirrors modern high-stakes ledger
+optimizations (such as Solana's "Accounts Lattice Hash" system [^5]) that
+compute rolling, $O(1)$ state-root identities directly via vector addition to
+entirely bypass quadratic or linearithmic sorting and hashing bottlenecks.
 
 Currently, homeservers are forced into a trade-off between read-time CPU
 consumption and write-time I/O amplification:
@@ -589,3 +594,8 @@ This proposal currently has no known dependencies, blockers, or open questions.
     and Efficient One-Way Functions._ Proceedings of the 43rd Annual IEEE
     Symposium on Foundations of Computer Science (FOCS '02). Available at:
     <https://cseweb.ucsd.edu/~daniele/papers/Cyclic.pdf>
+
+[^5]:
+    **Solana Labs (2025).** _SIMD-0178: Accounts Lattice Hash (Incremental State
+    Commitments via LtHash)._ Solana Improvement Proposals. Available at:
+    <https://github.com/solana-foundation/solana-improvement-proposals/pull/178>
