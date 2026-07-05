@@ -364,9 +364,10 @@ state dictionary. This solves multiple architectural bottlenecks:
 While relational delta chains (pointers to parent state groups) are still
 required to materialize state into memory for client APIs and to isolate actual
 conflict sets during resolution (since a homomorphic hash cannot be inverted to
-name its component Matrix events), the accumulator relegates these structures
-purely to storage compression and read-path retrieval. The latency-critical
-write-path and fast-path equality checks are entirely freed from chain-walking.
+name its constituent events), the accumulator relegates these structures purely
+to storage compression and certain cases of read-path retrievals. The
+latency-critical write-path and fast-path equality checks are entirely freed
+from chain-walking.
 
 ## Potential issues
 
