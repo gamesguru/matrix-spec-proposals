@@ -460,9 +460,9 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 For experimental implementations, the features should be referred to using the
 following unstable identifiers:
 
-- The transaction payload key: `org.matrix.msc4500.state_hashes`
+- The transaction payload key: `tk.nutra.msc4500.state_hashes`
 - The reconciliation endpoint:
-  `GET /_matrix/federation/unstable/org.matrix.msc4500/state_accumulator/{room_id}`
+  `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`
 
 ## Dependencies
 
