@@ -338,34 +338,34 @@ prove which specific key body signed what event, and when.
   complicating efforts at gossip or consensus.
 
 ## Security considerations
-<!-- Proofread marker. 52b5887a  -->
 
-- **CPU-exhaustion DoS prevention.** The strict 1:1 key ID → key body mapping
+- **CPU-exhaustion DoS prevention.** The strict "1:1 key ID to key body mapping"
   eliminates the trial verification attack vector. Signature verification is
   performed against exactly one key per key ID, bounding the computational cost
-  per event to `O(number of signing servers)` rather than
-  `O(number of signing servers × cached keys per ID)`.
+  of event verification.
 
 - **TOFU cache poisoning.** Under Matrix's Trust-On-First-Use model, a
   `/_matrix/key/v2/server` response is self-signed by the private key associated
   with the payload. An attacker who briefly hijacks a server's IP (DNS spoofing,
-  BGP hijacking) can generate a new keypair, label it with the target's key ID,
-  and produce a mathematically valid self-signature. The First Seen Wins policy
-  protects against this: if the legitimate key was cached first, the attacker's
-  key is rejected as a collision. If the attacker's key is cached first (the
-  server was never contacted before), TOFU provides no protection regardless of
-  this MSC — this is an inherent limitation of TOFU, not a flaw in this
-  proposal.
+  BGP hijacking) can generate a new keypair and re-publish it under the target's
+  key ID — with valid self-signature. The First Seen Wins policy protects
+  against this: if the legitimate key was cached first, the attacker's key is
+  rejected as a collision. If the attacker's key is cached first (the server was
+  never contacted before), TOFU provides no protection regardless of this MSC —
+  an inherent limitation of TOFU, not a flaw in the proposal. Currently
+  mitigating this is an admin effort.
 
 - **Direct-override spoofing.** While allowing direct fetches to override
   provisional notary-learned keys prevents notary-enforced lock-in, it
   temporarily exposes the server to DNS/BGP spoofing on direct connections. This
   is an acceptable TOFU trade-off because (1) direct connections use WebPKI TLS
-  certificate validation (bringing in standard internet-grade security), and (2)
-  the window of vulnerability is bounded to the brief provisional period before
-  the server performs a confirming direct fetch.
+  certificate validation (bringing in standard internet-grade security), (2) the
+  window of vulnerability is bounded to the brief provisional period before the
+  server performs a confirming direct fetch, and (3) future MSCs such as a
+  Global Settings Lock would effectively mitigate this concern.
 
-- **DAG integrity.** The key ID uniqueness invariant guarantees that historical
+<!-- Proofread marker. 52b5887a  -->
+- **DAG integrity.** The key ID uniqueness requirement guarantees that historical
   signature verification is deterministic. For any event at any point in time,
   the key that signed it is unambiguously identified by the
   `(server_name, algorithm, key_id)` tuple in the `signatures` dictionary.
