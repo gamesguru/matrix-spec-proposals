@@ -24,7 +24,7 @@ This MSC standardizes signing key caching requirements, introduces a strict
 
 This MSC strengthens and supersedes the existing key caching and verification
 rules defined in the Matrix specification (specifically the
-[Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.13/server-server-api/#retrieving-server-keys)
+[Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.18/server-server-api/#retrieving-server-keys)
 and the notary query endpoint). In particular, this proposal upgrades the
 existing `SHOULD` caching guidance to `MUST`, formalizes the `valid_until_ts`
 7-day validity clamp as a normative cache constraint, and replaces any implicit
@@ -437,10 +437,10 @@ legacy key formats thoroughly entrenched in the wild, it requires a new room
 version and is deferred to a future MSC. Until then, protection must remain
 strictly at the local server caching layer as outlined in this proposal.
 
-**Member Keys [MSC4430]**
+### Member Keys [MSC4430]
 
-This proposal caps these concerns to a future room version by moving the key
-body in-band (and reducing the complications inherent in today's out-of-band
-notary model, while freeing up notary capacity to serve future functions such as
-aiding in EDU reconciliation or corroborating correct room state accumulation
-for a given epoch).
+The Member Keys proposal caps these concerns to a future room version by moving
+the key body in-band (and reducing the complications inherent in today's
+out-of-band notary model, while freeing up notary capacity to serve future
+functions such as aiding in EDU reconciliation or corroborating correct room
+state accumulation for a given epoch).
