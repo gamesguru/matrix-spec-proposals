@@ -320,41 +320,25 @@ prove which specific key body signed what event, and when.
 
 ## Alternatives
 
-<!-- Proofread marker. 52b5887a  -->
-
 - **Trial verification (try all cached keys for a key ID).** Explicitly
-  rejected. Trial verification introduces a CPU-exhaustion DoS vector (an
-  attacker can spam garbage-signed events, forcing `N` expensive signature
-  verifications per event), breaks historical DAG verification (which key was
-  active when?), and violates the cryptographic identity contract of the key ID.
-
-- **Room-version-gated strict rejection.** Rejected. Key collision detection is
-  out-of-band local state, not derivable from event JSON. A collision-based auth
-  rule would guarantee split-brain (see
-  [Why this MSC does not propose room version changes](#why-this-msc-does-not-propose-room-version-changes)).
-  Worse, it would weaponize TOFU: an attacker who briefly hijacks a server's IP
-  could inject a collision that permanently blacklists the victim's key ID from
-  Room Version N rooms.
+  rejected. Trial verification introduces a CPU-exhaustion DoS vector, breaks
+  historical DAG verification (which key was active when?), needlessly
+  complicates the spec and homeserver requirements, while violating the
+  cryptographic identity contract implicitly specified by the key ID.
 
 - **Soft failure on key ID collision (warn but accept the new key).** This
-  silently breaks historical verification — events signed under the old key body
-  would fail verification using the new key, corrupting state resolution for
-  rooms involving the affected server. Rejected.
+  silently breaks historical verification. Events signed under the old key body
+  would fail verification using the new key, corrupting state resolution for any
+  room involving the affected host and any other pre-MSC4499 server.
 
 - **Key ID collision resolution via notary consensus.** Peers could query
   multiple notary servers and accept the key body attested by a majority. This
   introduces a trusted-third-party assumption that Matrix's federation model
-  explicitly avoids, and notary servers may themselves have stale caches.
-  Rejected.
-
-- **Automatic key ID bumping by the server.** Homeserver implementations could
-  auto-increment the Key ID on every key generation, preventing collisions
-  entirely. This is a reasonable implementation best practice and is RECOMMENDED
-  by this MSC (see [Admin startup guardrails](#admin-startup-guardrails)), but
-  cannot be mandated at the protocol level because Key ID assignment is a
-  server-local configuration decision.
+  explicitly avoids. Notary servers may themselves have stale caches,
+  complicating efforts at gossip or consensus.
 
 ## Security considerations
+<!-- Proofread marker. 52b5887a  -->
 
 - **CPU-exhaustion DoS prevention.** The strict 1:1 key ID → key body mapping
   eliminates the trial verification attack vector. Signature verification is
