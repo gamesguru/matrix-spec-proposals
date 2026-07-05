@@ -416,7 +416,7 @@ This proposal is fully backwards-compatible:
 
 ## Future considerations
 
-**Content-addressed key IDs (stricter protocol requirements)**
+### Content-addressed key IDs (stricter protocol requirements)
 
 The root cause of key ID collisions is that the `key_id` is currently an
 arbitrary, administrator-defined string (e.g., `ed25519:auto`). A future room
