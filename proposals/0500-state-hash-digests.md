@@ -626,9 +626,9 @@ This proposal currently has no known dependencies.
     <https://cseweb.ucsd.edu/~daniele/papers/Cyclic.pdf>
 
 [^5]:
-    **Solana Labs (2025).** _SIMD-0178: Accounts Lattice Hash (Incremental State
-    Commitments via LtHash)._ Solana Improvement Proposals. Available at:
-    <https://github.com/solana-foundation/solana-improvement-proposals/pull/178>
+    **Solana Labs (2025).** _SIMD-0215: Accounts Lattice Hash._ Solana
+    Improvement Documents. Available at:
+    <https://github.com/solana-foundation/solana-improvement-documents/pull/215>
 
 [^6]:
     **Meta Platforms, Inc.** _folly::crypto::LtHash — Homomorphic hash using
