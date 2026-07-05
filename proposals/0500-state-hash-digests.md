@@ -424,8 +424,6 @@ A transaction-level approach achieves similar diagnostic goal without friction.
 
 ### Hashes in the `unsigned` dictionary
 
-<!-- Proofread marker. cfbc888d -->
-
 **Advantages:**
 
 - **Accessibility and persistence:** Generally, `unsigned` is more durable. This
@@ -447,6 +445,8 @@ server's viewpoint — limiting the propagation of unverified hints and offering
 broader auditability of major servers that frequently act as relays.
 
 ## Security considerations
+
+<!-- Proofread marker. cfbc888d -->
 
 Homeservers should never use the accumulator hash as a source of truth to
 construct or authorize state. State resolution must continue unaltered.
