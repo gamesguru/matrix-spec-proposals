@@ -1,4 +1,4 @@
-# MSC 4500: State accumulator endpoint and transaction digests
+# MSC4500: State accumulator endpoint and transaction digests
 
 Matrix servers replicate a room as a DAG of events and rely on state resolution
 to eventually converge on a shared state. When servers diverge, the result can

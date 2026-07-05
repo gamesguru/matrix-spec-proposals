@@ -1,4 +1,4 @@
-# MSC 4499: Strict server signing key caching and key ID uniqueness
+# MSC4499: Strict server signing key caching and key ID uniqueness
 
 Because the specification lacks a strict caching contract, new homeserver
 implementations often attempt to be "helpful." Without explicit guidance,
