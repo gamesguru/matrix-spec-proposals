@@ -6,32 +6,42 @@
 Implementation (pending revision of this proposal's draft)
 
 _feat: add server key notary endpoints by gamesguru · Pull Request #75 · gamesguru/continuwuity_
-https://github.com/gamesguru/continuwuity/pull/75https://github.com/gamesguru/continuwuity/pull/75
+https://github.com/gamesguru/continuwuity/pull/75
 -->
 
 Because the specification lacks a strict caching contract, new homeserver
 implementations often attempt to be "helpful." Without explicit guidance,
 developers may design flexible caches that store multiple key bodies for a
 single Key ID and perform verification either with the most recently observed
-key or the first one which works.
+key or the first one which works (trial verification).
 
 While some legacy implementations (like Synapse) avoid this purely due to rigid
 database schemas that happen to enforce a unique `(server_name, key_id)`
 constraint, the protocol itself does not forbid the loop. This ambiguity leads
-to an annoying loophole where key collisions in the wild can cause state splits.
+to an annoying loophole where key collisions in the wild can cause state splits,
+and introduces a potential CPU-exhaustion DoS vector for any implementation
+that attempts to gracefully handle them.
+
+This MSC standardizes signing key caching requirements, introduces a strict
+**first seen wins** rule for key IDs, and lays the groundwork for future work.
 
 ## Proposal
 
 ### Key caching requirements
-
-**TODO:** What about specifying that notaries begin caching the 8-char hex checksum?
 
 Servers MUST cache remote server signing keys obtained from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
 any future signing algorithms, like `fn-dsa-512`).
 
-<!-- Edit marker.  -->
+**Notary internal indexing (Checksum tracking).** Notary servers act as massive
+aggregation points for federation keys. To prevent them from becoming distribution
+vectors for collisions, notaries MUST also enforce the First Seen Wins rule
+internally. However, to preserve a forensic trail of misconfigurations, notary
+implementations SHOULD internally index observed key bodies by a checksum (e.g.,
+the first 8 unpadded base64 characters of the SHA-256 fingerprint). This allows
+the notary to safely store historical collisions without database constraint
+violations, even if it only serves the "first seen" key via the active API.
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before the `valid_until_ts` expiry to avoid
@@ -109,7 +119,7 @@ MUST:
    operator to a potential misconfiguration or compromise on the remote server.
 3. **Never perform trial verification.** The server MUST NOT cache multiple key
    bodies for the same Key ID and attempt signature verification against each
-   one. See [Security Considerations](#security-considerations) for the
+   one. See [Security considerations](#security-considerations) for the
    vulnerabilities this would introduce.
 
 **Intra-payload rejection.** A single key response payload MUST NOT contain
@@ -132,10 +142,10 @@ key will accept them. This is an unavoidable consequence of out-of-band key
 resolution — different servers observe different key states at different times.
 This MSC does not and _cannot_ eliminate this divergence, because key fetching
 is not part of the room DAG mainline. What this MSC does is make the divergence
-**deterministic, documented, and intentional**: it is the correct punishment for
-a protocol violation (Key ID reuse), and it creates immediate, visible failure
-that forces the administrator to fix their configuration rather than silently
-corrupting historical verification.
+**deterministic, documented, and intentional**: it is the correct cryptographic
+punishment for an admin violating the protocol by reusing a Key ID. It creates
+immediate, visible failure that forces the administrator to fix their
+configuration rather than silently corrupting historical verification.
 
 ### Key rotation procedure
 
@@ -158,7 +168,7 @@ Key ID (e.g., the default `ed25519:auto`).
 
 Homeserver implementations SHOULD detect Key ID reuse at startup. If the
 server's configured signing key has a different key body than what was
-previously persisted for that Key ID, the server SHOULD refuse to start and emit
+previously persisted for that Key ID, the server MUST refuse to start and emit
 a clear error message instructing the administrator to either restore the
 original key or assign a new Key ID. This prevents the misconfiguration from
 propagating to the federation in the first place.
@@ -298,7 +308,7 @@ anomalies, but explicitly does not touch room version consensus rules.
 - **Room-version-gated strict rejection.** Rejected. Key collision detection is
   out-of-band local state, not derivable from event JSON. A collision-based auth
   rule would guarantee split-brain (see
-  [Why This MSC Does Not Propose Room Version Changes](#why-this-msc-does-not-propose-room-version-changes)).
+  [Why this MSC does not propose room version changes](#why-this-msc-does-not-propose-room-version-changes)).
   Worse, it would weaponize TOFU: an attacker who briefly hijacks a server's IP
   could inject a collision that permanently blacklists the victim's Key ID from
   Room Version N rooms.
@@ -317,7 +327,7 @@ anomalies, but explicitly does not touch room version consensus rules.
 - **Automatic Key ID bumping by the server.** Homeserver implementations could
   auto-increment the Key ID on every key generation, preventing collisions
   entirely. This is a reasonable implementation best practice and is RECOMMENDED
-  by this MSC (see Admin Startup Guardrails), but cannot be mandated at the
+  by this MSC (see Admin startup guardrails), but cannot be mandated at the
   protocol level because Key ID assignment is a server-local configuration
   decision.
 
@@ -402,5 +412,22 @@ This proposal is fully backwards-compatible:
 
 ## Future considerations
 
-**TODO:** Fill in this section, i.e., with room version changes and stricter
-protocol requirements for guaranteed unique IDs through SHA256(KeyBody).
+**Content-addressed Key IDs (Stricter Protocol Requirements)**
+
+The root cause of Key ID collisions is that the `key_id` is currently an
+arbitrary, administrator-defined string (e.g., `ed25519:auto`). A future room
+version could eliminate this entire class of vulnerabilities by mandating that
+the `key_id` must be deterministically derived from the public key body
+itself—for example, `ed25519:<base64(SHA256(KeyBody))[:8]>`.
+
+Under this paradigm, a Key ID collision becomes mathematically impossible. If an
+administrator regenerates their keys, the new key body structurally enforces a
+novel Key ID. This would entirely close the TOFU poisoning vulnerability (an
+attacker cannot assert a new key under an old ID without breaking the math) and
+eliminate the need for out-of-band collision detection heuristics, allowing us
+to enforce strict key uniqueness directly within room version auth rules.
+
+Because this fundamentally requires changing how signatures are validated within
+the room DAG and invalidates legacy key formats in the wild, it requires a new
+room version and is deferred to a future MSC. Until then, protection must remain
+strictly at the local server caching layer as outlined in this proposal.
