@@ -310,8 +310,7 @@ Currently, homeservers like Synapse track room states using unique IDs called
 'state groups' and comparing two state groups to see if they contain identical
 state requires expensive graph traversals or full state materialization.
 
-With an $O(1)$ sum accumulator, the state digest _is_ the state group
-identifier.
+With a sum accumulator, the state digest _is_ the state group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
    exact same state (very common occurrence), their 32-byte accumulator digests
