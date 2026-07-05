@@ -457,13 +457,13 @@ broader auditability of major servers that frequently act as relays.
 Homeservers should never use the accumulator hash as a source of truth to
 construct or authorize state. State resolution must continue, as usual.
 
-<!-- Proofread marker. cfbc888d -->
-
 The hashes are purely diagnostic tools and performance boosters. Servers must
 still rely exclusively on their internal state to judge soft-failures. Servers
 should only implement changes in federation prioritization at their discretion,
 since needless complexity can introduce unintended side-effects and the benefits
 of reconciliation remain, at the time of writing, investigative or speculative.
+
+<!-- Proofread marker. cfbc888d -->
 
 Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
 state set with an identical digest requires either breaking `LtHash16` (finding
