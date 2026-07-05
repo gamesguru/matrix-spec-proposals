@@ -301,35 +301,65 @@ lookups or state group transitions).
 
 ### State identity and local DB optimizations
 
-While this proposal primarily addresses federation, the adoption of a grand sum
-accumulator notably optimizes local homeserver operation.
+While this proposal primarily addresses federation, the adoption of a
+homomorphic sum accumulator introduces a paradigm shift for local homeserver
+database architectures, shifting state management from being _path-dependent_ to
+_path-independent_.
 
-<!-- Proofread marker. cfbc888d  -->
+<!-- Proofread marker. cfbc888d -->
 
-Currently, homeservers like Synapse track room states using unique IDs called
-'state groups' and comparing two state groups to see if they contain identical
-state requires expensive graph traversals or full state materialization.
-Conduwuit-based derivatives slightly optimize read-time reconstruction by
-incurring `ShortStateHash`-associated write-time amplification.
+Currently, homeservers are forced into a trade-off between read-time CPU
+consumption and write-time I/O amplification:
 
-With a sum accumulator, the state digest _is_ the state group identifier,
-solving both architectural bottlenecks:
+- Homeservers like **Synapse** track room states using locally-incrementing IDs
+  ("state groups"). Determining if two state groups contain identical state
+  requires cache-heavy dictionary comparisons or expensive backward graph
+  traversals. Synapse currently relies on complex background workers to
+  eventually deduplicate converging state groups.
+- Rust-based implementations like **Conduit-based derivatives** optimize
+  read-time reconstruction by hashing sorted lists of state events (e.g.,
+  `ShortStateHash`), but incur heavy write-time amplification. Because standard
+  hashes (like SHA-256) are not homomorphic, generating a hash requires
+  materializing, re-sorting, and re-hashing the entire state vector upon every
+  state change.
 
-1. **Instant deduplication:** If two different branches of a DAG converge on the
-   exact same state (very common occurrence), their 32-byte accumulator digests
-   will perfectly match. The homeserver instantly deduplicates them into a
-   single State Group ID without expanding or comparing dictionaries. Unlike
-   `ShortStateHash` generation, which requires an `O(S log S)` full state sort
-   and hash, the accumulator updates in `O(ΔS)` lane-wise arithmetic.
+With an `LtHash16` accumulator, the 32-byte collapsed digest acts as a
+deterministic, **cryptographically secure natural fingerprint** for the state
+dictionary. This mathematically resolves these architectural bottlenecks:
 
-2. **$O(1)$ equality checks:** During State Resolution v2/v2.1, determining if
-   diverging branches have different states becomes an instant 32-byte integer
-   comparison rather than partial graph traversals and a dictionary comparison.
+1. **$O(1)$ State Progression (Write-path acceleration):** To compute the state
+   fingerprint for a newly arriving event, the homeserver no longer needs to
+   walk a delta chain or re-hash a sorted dictionary. The server simply loads
+   the parent's cached 2048-byte lattice, homomorphically subtracts the replaced
+   event (if any), adds the new event, and collapses it to the new 32-byte
+   digest. Generating the deterministic identity of a new state group in a
+   massive room is a microsecond operation strictly independent of the room's
+   total size ($S$).
 
-While delta chains remain necessary to materialize state into memory and to
-compute conflict sets during state resolution, the accumulator relegates deltas
-purely to storage compression and retrieval, eliminating the need to walk chains
-during fast-path state equality checks.
+2. **Topological Commutativity (Instant Deduplication):** Because Matrix history
+   is a Directed Acyclic Graph (DAG), concurrent branches frequently apply
+   independent state changes in different orders (e.g., Server A sees event $X$
+   then $Y$; Server B sees $Y$ then $X$). Because the accumulator relies on
+   commutative modulo addition, `Base + X + Y` produces the exact same lattice
+   and digest as `Base + Y + X`. Homeservers can instantly deduplicate
+   convergent DAG branches into a single shared State Group ID upon ingestion
+   (e.g., via a `UNIQUE` database index), without ever expanding or comparing
+   dictionaries.
+
+3. **Short-circuiting State Resolution:** During State Resolution v2/v2.1, the
+   most expensive initial step is determining if diverging DAG tips actually
+   contain different states before building a conflict set. With the
+   accumulator, this historically expensive check is reduced to a zero-cost
+   32-byte integer comparison. If the diverging branches possess identical
+   digests, the server knows mathematically that there is no conflict set,
+   safely bypassing the state resolution algorithm entirely.
+
+While relational delta chains (pointers to parent state groups) remain strictly
+necessary to materialize state into memory for client APIs and to isolate actual
+conflict sets during resolution (since a homomorphic hash cannot be inverted to
+name its component Matrix events), the accumulator relegates these structures
+purely to storage compression and read-path retrieval. The latency-critical
+write-path and fast-path equality checks are entirely freed from chain-walking.
 
 ## Potential issues
 
