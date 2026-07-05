@@ -16,9 +16,9 @@ seeks to act as a secondary state convergence mechanism, while simultaneously
 **relegating state group transitions** and naive iterative BFS implementations
 to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
 element removal), collision-resistant 2048-byte `LtHash16` accumulator function
-[^3]. Similar additive lattice accumulators are increasingly used in production
-blockchain architectures to compute real-time, incremental cryptographic state
-commitments under high transactional volume [^5].
+[^3], [^6]. Similar additive lattice accumulators are increasingly used in
+production blockchain architectures to compute real-time, incremental
+cryptographic state commitments under high transactional volume [^5], [^6].
 
 Avoiding diff chain reconstruction for point lookups will reduce Synapse's
 electricity consumption across a wide range of API state endpoints.
@@ -629,3 +629,8 @@ This proposal currently has no known dependencies.
     **Solana Labs (2025).** _SIMD-0178: Accounts Lattice Hash (Incremental State
     Commitments via LtHash)._ Solana Improvement Proposals. Available at:
     <https://github.com/solana-foundation/solana-improvement-proposals/pull/178>
+
+[^6]:
+    **Meta Platforms, Inc.** _folly::crypto::LtHash — Homomorphic hash using
+    lattice-based cryptography._ Facebook Folly Library. Available at:
+    <https://github.com/facebook/folly/blob/main/folly/crypto/LtHash.h>
