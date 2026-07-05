@@ -285,12 +285,12 @@ prove which specific key body signed what event, and when.
 ## Potential issues
 <!-- Proofread marker. 52b5887a  -->
 
-- **Misconfigured servers will experience localized isolation.** An
-  administrator who wipes their database and regenerates keys under the same Key
+- **Misconfigured servers will experience local isolation.** An
+  administrator who wipes their database and regenerates keys under the same key
   ID will find their server unable to federate with peers that cached the
-  original key. This is intentional — the protocol prioritizes cryptographic
-  correctness over convenience. The fix is straightforward: change the key ID in
-  the server configuration.
+  original key. This is intentional — the protocol prioritizes correctness and
+  security over convenience. The fix is straightforward: change the key ID in
+  the server configuration and remediate any membership or state divergences.
 
 - **No automated key ID collision recovery.** Unlike some protocols that provide
   key-reset ceremonies or trusted-third-party recovery, Matrix intentionally
