@@ -364,7 +364,8 @@ required to materialize state into memory for client APIs and to isolate actual
 conflict sets during resolution (since a homomorphic hash cannot be inverted to
 name its constituent events), the accumulator relegates these structures purely
 to storage compression and certain cases of read-path retrievals. The
-latency-critical write-path and fast-path equality checks are entirely freed.
+traditionally bottlenecked write-path and the fast-path equality checks are
+entirely decoupled from delta chains or full state materialization.
 
 ## Potential issues
 
