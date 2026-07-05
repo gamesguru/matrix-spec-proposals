@@ -273,7 +273,6 @@ during fast-path "state equality" checks.
 
 ### Direct-hop survival (ease of audit)
 
-<!-- Edit marker. -->
 
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
@@ -285,19 +284,19 @@ The `unsigned` dictionary on individual PDUs suffers from similar survival issue
 as it is routinely stripped or rewritten by intermediate servers.
 
 ### False alarms (DoS)
+<!-- Edit marker. -->
 
 If a malicious server intentionally forwards spoofed hashes in the transaction,
-it could force the receiving server to continually trigger state resync
-operations, acting as a minor Denial of Service (DoS) vector.
+it could force the receiving server to continually trigger state resyncs.
 
 **Mitigations:**
 
 1. **Rate-limiting:** Receiving servers SHOULD rate-limit out-of-band state sync
-   requests triggered by mismatching hints.
+   requests triggered by mismatching hints. Repetitive warning logs are unnecessary.
 2. **Reputation:** Servers SHOULD track the reliability of peers. If a peer
    consistently sends mismatching hashes that do not reflect the actual resolved
-   state, the receiver should temporarily decrement that peer's reputability and
-   the worthiness of their hints.
+   state or differ too wildly from the majority, the receiver should temporarily
+   decrement that peer's reputability and the worthiness of their hints.
 
 ## Alternatives
 
