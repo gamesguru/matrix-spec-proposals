@@ -2,6 +2,11 @@
 
 <!--
 [Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/proposals/4499-notary-caching.md)
+
+Implementation (pending revision of this proposal's draft)
+
+_feat: add server key notary endpoints by gamesguru · Pull Request #75 · gamesguru/continuwuity_
+https://github.com/gamesguru/continuwuity/pull/75https://github.com/gamesguru/continuwuity/pull/75
 -->
 
 Matrix federation relies on server signing keys to authenticate PDUs and

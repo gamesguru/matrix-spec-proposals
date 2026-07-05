@@ -182,15 +182,19 @@ response is ~2.7 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
-**TODO:**
+**TODO:** finish drafting this.
 
 - `/state`
-- `/state_ids`
-  - query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
-  - Unchanged/cache quick return: `304 Not Modified`
-- Room upgrades more reliable convergence/consensus.
+  + Homeservers will be able to provide state _deltas_ quickly for little CPU.
+  + The formalizing of the delta endpoint is deferred to a follow-up MSC.
 
-## Reconciliation and bisecting forks
+- `/state_ids`
+  + query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
+  + Unchanged/cache quick return: `304 Not Modified`
+
+- **Room upgrades:** more reliable convergence/consensus and migration.
+
+## Reconciliation (bisecting forks)
 
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
