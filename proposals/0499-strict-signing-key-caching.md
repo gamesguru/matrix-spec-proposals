@@ -81,12 +81,11 @@ collisions without database constraint violations, even if it only serves the
 inescapable future where key _bodies_ (values as opposed to IDs) become close to
 ~1 KB (prohibitively large for a "unique identifier" in a relational database).
 
-<a id="notary-fallback"></a> **Notary fallback (two-tier binding).** When a
-required signing key is not present in the local cache, servers typically query
-a configured notary server (`/_matrix/key/v2/query`). Because a notary is a
-relay, a direct fetch over validated TLS to the actual server name
-(`/_matrix/key/v2/server`) provides strictly stronger cryptographic proof of
-ownership.
+**Notary fallback (two-tier binding).** When a required signing key is not
+present in the local cache, servers typically query a configured notary server
+(`/_matrix/key/v2/query`). Because a notary is a relay, a direct fetch over
+validated TLS to the actual server name (`/_matrix/key/v2/server`) provides
+strictly stronger cryptographic proof of ownership.
 
 To prevent a malicious or compromised notary from permanently calcifying a
 poisoned key binding, bindings first observed via a notary are **provisional**.
@@ -135,8 +134,8 @@ key `A` is now associated with a different public key `B`, the receiving server:
 1. **MUST retain the previously observed key.** The original key body remains
    authoritative for that key ID, unless the existing binding is provisional and
    the new observation is a direct fetch, in which case the two-tier override
-   rule applies (see [Notary fallback](#notary-fallback)). In all other cases,
-   the conflicting response MUST NOT replace it.
+   rule applies (see Notary fallback). In all other cases, the conflicting
+   response MUST NOT replace it.
 2. **SHOULD log the collision.** It helps forensically to log the key ID
    collision at warning level, including the remote server name, the key ID, and
    the SHA-256 fingerprints of both the cached and conflicting public keys. This
@@ -283,19 +282,17 @@ binding also acts as a forensic asset post-compromise: you can definitively
 prove which specific key body signed what event, and when.
 
 ## Potential issues
-<!-- Proofread marker. 52b5887a  -->
 
-- **Misconfigured servers will experience local isolation.** An
-  administrator who wipes their database and regenerates keys under the same key
-  ID will find their server unable to federate with peers that cached the
-  original key. This is intentional — the protocol prioritizes correctness and
-  security over convenience. The fix is straightforward: change the key ID in
-  the server configuration and remediate any membership or state divergences.
+- **Misconfigured servers will experience local isolation.** An administrator
+  who wipes their database and regenerates keys under the same key ID will find
+  their server unable to federate with peers that cached the original key. This
+  is intentional — the protocol prioritizes correctness and security over
+  convenience. The fix is straightforward: change the key ID in the server
+  configuration and remediate any membership or state divergences.
 
 - **No automated key ID collision recovery.** Unlike some protocols that provide
-  key-reset ceremonies or trusted-third-party recovery, Matrix intentionally
-  provides no automated mechanism. Automated recovery introduces trust
-  assumptions that conflict with Matrix's zero-trust federation model.
+  key-reset ceremonies or trusted-third-party recovery, Matrix provides no
+  automated mechanism, since it conflicts the zero-trust federation model.
 
 - **Permanent key-body storage.** The permanent binding requirement means
   servers must retain key-body records indefinitely, proportional to the number
@@ -308,17 +305,22 @@ prove which specific key body signed what event, and when.
   notary-learned key. While this extends the window of vulnerability beyond the
   initial TOFU race, requiring servers to attempt a prompt direct fetch upon
   learning a notary binding bounds this window. The override primarily removes
-  the ability of a compromised _notary_ to permanently ossify a poisoned
-  binding.
+  the ability of a compromised _notary_ to permanently calcify a poisoned
+  binding. Security limitations or concerns here hint at the need for follow-up
+  work (e.g., allowing admins to configure 2-FA or a Global Settings Lock).
 
 - **Localized DAG divergence is unavoidable.** The First Seen Wins rule means
   that peers with different cache histories may disagree on events from a
   misconfigured server. This is an inherent property of out-of-band key
   resolution and cannot be solved at the protocol level. This MSC makes the
   behavior deterministic rather than implementation-dependent, which is an
-  improvement over the status quo.
+  improvement over the status quo. A solution to this concern is deferred to
+  content-addressable keys or to Member Keys; see
+  [Future considerations](#future-considerations).
 
 ## Alternatives
+
+<!-- Proofread marker. 52b5887a  -->
 
 - **Trial verification (try all cached keys for a key ID).** Explicitly
   rejected. Trial verification introduces a CPU-exhaustion DoS vector (an
@@ -420,7 +422,8 @@ requirements that can be adopted immediately.
 ## Dependencies
 
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
-  today and will apply equally to `fn-dsa-512` keys if accepted into the spec.
+  today. It will apply equally to `fn-dsa-512` keys if accepted into the spec
+  and if this document is not superseded by a refined or more encompassing MSC.
 
 ## Backwards compatibility
 
