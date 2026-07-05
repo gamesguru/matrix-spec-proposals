@@ -225,17 +225,17 @@ polling can back off significantly for rooms with recent inbound transactions.
 
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
-parent's lattice — O(1), no chain walk. Historical `state_accumulator` queries
+parent's lattice — O(1), no chain walk. Historical `/state_accumulator` queries
 then reduce to the existing event (state group lookup plus a single row read).
-
-<!-- Edit marker. -->
 
 Servers without persisted lattices can compute one on demand during legacy
 delta chain or BFS walk iteration (accumulating the already materialized state
-and caching the accumulator, thereby deprecating that state group).
+and caching the accumulator, thereby obviating the need for traversals of that
+delta chain during a future point lookup).
 
-## State identity and local DB optimizations
+### State identity and local DB optimizations
 
+<!-- Edit marker. -->
 While this proposal primarily addresses federation, the adoption of a grand sum
 accumulator profoundly optimizes local homeserver architecture.
 
@@ -243,8 +243,7 @@ Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," utilizing delta chains (pointers and changes) because generating a hash
 of an entire room state is an $O(N)$ operation.
 
-With an $O(1)$ sum accumulator, the mathematical state digest _is_ the state
-group identifier.
+With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
    exact same state (a highly common occurrence), their 32-byte accumulator
