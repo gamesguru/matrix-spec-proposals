@@ -258,17 +258,17 @@ instead, bounding the true point of divergence from below.
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSC4501's `room_diff` and
+enumeration and healing are delegated to MSCXXXX's `room_diff` and
 `room_events`.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
-non-state-altering events. For this capability, it fully defers to MSC4501.
+non-state-altering events. For this capability, it fully defers to MSCXXXX.
 
-## Synergy with MSC4501 (event set reconciliation)
+## Synergy with MSCXXXX (event set reconciliation)
 
-This proposal and MSC4501 (`room_digest` / `room_diff`) solve fundamentally
+This proposal and MSCXXXX (`room_digest` / `room_diff`) solve fundamentally
 different sets. MSC4500's accumulator covers the room's _current state set_ at
-arbitrary DAG positions. MSC4501's bloom digest and LCA/RMQ fall-back cover the
+arbitrary DAG positions. MSCXXXX's bloom digest and LCA/RMQ fall-back cover the
 _event set_ (full PDU timeline).
 
 Because state divergence implies event-set divergence (with the converse _often_
@@ -279,10 +279,10 @@ also holding true), the two proposals nicely complement each other:
    round trips.
 2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSC4501):** `room_diff` (with a `scope: "state"` parameter)
+3. **Reconcile (MSCXXXX):** `room_diff` (with a `scope: "state"` parameter)
    fetches omissions, auth chains included, triggering state re-resolution.
 
-Because MSC4500 gives active rooms free passive detection, MSC4501's periodic
+Because MSC4500 gives active rooms free passive detection, MSCXXXX's periodic
 polling can back off significantly for rooms with recent inbound transactions.
 
 ## Implementation notes
