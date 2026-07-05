@@ -463,13 +463,13 @@ should only implement changes in federation prioritization at their discretion,
 since needless complexity can introduce unintended side-effects and the benefits
 of reconciliation remain, at the time of writing, investigative or speculative.
 
-<!-- Proofread marker. cfbc888d -->
-
 Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
 state set with an identical digest requires either breaking `LtHash16` (finding
 a lattice collision, which is computationally hard at these parameters) or
 finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
 currently believed to be computationally intractable [^1], [^2].
+
+<!-- Proofread marker. cfbc888d -->
 
 **Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
 cryptographic collision resistance for set sizes up to $N \approx 50,000$
@@ -477,11 +477,10 @@ elements. For extreme outliers exceeding 65,536 state elements, theoretical
 resistance against structured collision attacks decreases proportionally to
 lane-wrapping [^4]. However, this MSC actively mitigates this degradation: by
 requiring the explicit element counts (`n_before` and `n_after`) in the payload
-alongside the digest, an attacker is mathematically forced to construct a
-lattice collision of the exact same subset length. This length-exact constraint
-nullifies the attacker's ability to exploit lane-wrapping, returning the attack
-complexity back to computationally intractable levels regardless of total room
-size.
+alongside the digest, an attacker is forced to construct a collision of the
+exact same subset size. This length-exact constraint complicates an attacker's
+efforts to exploit lane-wrapping, returning the attack complexity back to
+computationally intractable levels regardless of total room size.
 
 ## Test vectors
 
