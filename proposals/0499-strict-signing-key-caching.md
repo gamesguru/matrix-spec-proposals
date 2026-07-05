@@ -282,36 +282,8 @@ one public key body, and its validity window is well-defined. This permanent
 binding also acts as a forensic asset post-compromise: you can definitively
 prove which specific key body signed what event, and when.
 
-## Why this MSC does not propose room version changes
-
-Key ID collision detection is a **local server observation** — it depends on
-out-of-band HTTP key fetching, not on the immutable event JSON that room version
-auth rules evaluate. Room version authorization rules must be **pure
-specification functions** that produce the same result on every server given the
-same event and room state. Because different servers fetch keys at different
-times and may have different cache histories, a collision-based auth rule
-guarantees the exact split-brain it tries to prevent:
-
-1. Server A (online for years) has the old key cached, detects a collision, and
-   rejects new events.
-2. Server B (booted up yesterday) only knows the new key, sees no collision, and
-   accepts the events.
-3. The room permanently forks.
-
-<!-- Proofread marker. 52b5887a  -->
-Additionally, under Matrix's TOFU model, a `/_matrix/key/v2/server` response is
-self-signed by the private key _in the payload_. An attacker who briefly hijacks
-a server's IP (DNS spoofing, BGP hijacking) can generate a new keypair, label it
-with the target's key ID, and produce a mathematically valid self-signature. If
-collision detection were an auth rule, the attacker would trivially weaponize it
-— injecting a collision that permanently blacklists the legitimate server's key
-ID from all Room Version N rooms, without ever needing the real private key.
-
-This MSC therefore operates exclusively at the **Federation API / server
-behavior layer**. It standardizes how servers cache, detect, and react to key
-anomalies, but explicitly does not touch room version consensus rules.
-
 ## Potential issues
+<!-- Proofread marker. 52b5887a  -->
 
 - **Misconfigured servers will experience localized isolation.** An
   administrator who wipes their database and regenerates keys under the same Key
