@@ -10,9 +10,9 @@ servers often only learn of de-synchronization once they disagree on a much
 later authorization failure (e.g., another user's join is incorrectly rejected).
 
 I present an "early-warning system" which rapidly confirms incremental state
-consensus, or signals (with approximate delta sizes) as to its divergence, so servers
-know they share the exact same view of a room at a given point in the DAG (or roughly
-where they diverged).
+consensus, or signals (with approximate delta sizes) as to its divergence, so
+servers know they share the exact same view of a room at a given point in the
+DAG (or roughly where they diverged).
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
@@ -48,12 +48,12 @@ includes it in the transaction payload.
 
 To guarantee interoperability, the algorithm is as follows:
 
-1. **Input encoding.** Each entry in the room's resolved state map is
-   serialized as the UTF-8 concatenation:
+1. **Input encoding.** Each entry in the room's resolved state map is serialized
+   as the UTF-8 concatenation:
    `type || "\x00" || state_key || "\x00" || event_id`.
-2. **Input expansion.** The encoded element, prefixed with the domain
-   separation tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes
-   using the `BLAKE2Xb` extendable-output function (XOF):
+2. **Input expansion.** The encoded element, prefixed with the domain separation
+   tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
+   `BLAKE2Xb` extendable-output function (XOF):
    `expansion = BLAKE2Xb-2048("msc4500_lthash16\x00" || element)`. A fixed-width
    hash cannot fill the lattice; the XOF expansion is what makes the lane
    distribution uniform and implementation-identical.
@@ -72,10 +72,11 @@ To guarantee interoperability, the algorithm is as follows:
 event therefore has no effect on the accumulator (having no effect on event ID).
 
 **NOTE:** It is the caller's responsibility to ensure the input is really a set.
-The digest allows deducting elements which were never added, and it allows adding
-the same element twice (producing different digests). The digest will roll-over
-if and only if the same element is applied `2^16` times. Thus pre-existence can
-be checked in under 65,536 accumulator iterations (fitting purely within L1/L2 cache).
+The digest allows deducting elements which were never added, and it allows
+adding the same element twice (producing different digests). The digest will
+roll-over if and only if the same element is applied `2^16` times. Thus
+pre-existence can be checked in under 65,536 accumulator iterations (fitting
+purely within L1/L2 cache).
 
 ### Transaction payload
 
@@ -124,34 +125,36 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Adding both `before` and `after` hashes consumes approximately 160 unsigned bytes
-of JSON overhead per PDU in the transaction.
+Adding both `before` and `after` hashes consumes approximately 160 unsigned
+bytes of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
-When a server catches a `/send` transaction containing the `state_hashes` payload,
-it collapses its own local lattice at that exact DAG point using fast bitmap
-operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
+When a server catches a `/send` transaction containing the `state_hashes`
+payload, it collapses its own local lattice at that exact DAG point using fast
+bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
 
-If digests mismatch, servers MUST log an error or warning message of the state split.
-The receiver can automatically trigger a background `/get_missing_events` or perform
-a state bisection with an authoritative server, while replying to the sender with
-the mismatched digest.
+If digests mismatch, servers MUST log an error or warning message of the state
+split. The receiver can automatically trigger a background `/get_missing_events`
+or perform a state bisection with an authoritative server, while replying to the
+sender with the mismatched digest.
 
 If the receiver cannot quickly and reliably validate the `before` and `after`
 hashes (i.e., from an in-memory LRU cache or with a single, minimal DB query),
-they MUST defer the verification (and optional healing) pipelines to remain agile.
+they MUST defer the verification (and optional healing) pipelines to remain
+agile.
 
-The critical rule here is agility: if you cannot validate the `before` and `after`
-hashes instantly (e.g., from an in-memory LRU cache or a single database read),
-you defer the verification pipeline.
+The critical rule here is agility: if you cannot validate the `before` and
+`after` hashes instantly (e.g., from an in-memory LRU cache or a single database
+read), you defer the verification pipeline.
 
-A mismatched or deferred hash does not block the PDU; it is still processed under
-standard rules. Whether your homeserver implements an automated healing pipeline
-or merely logs the divergence for the admin is left as an implementation detail.
+A mismatched or deferred hash does not block the PDU; it is still processed
+under standard rules. Whether your homeserver implements an automated healing
+pipeline or merely logs the divergence for the admin is left as an
+implementation detail.
 
 ### Endpoint definition
 
@@ -183,17 +186,33 @@ response is ~2.7 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
-**TODO:** finish drafting this.
+The introduction of a mathematically verifiable state accumulator enables
+several zero-cost optimizations across the existing Matrix Client-Server and
+Server-Server APIs.
 
-- `/state`
-  - Homeservers will be able to provide state _deltas_ quickly for little CPU.
-  - The formalizing of the delta endpoint is deferred to a follow-up MSC.
+- **`GET /_matrix/federation/v1/state/{roomId}` and
+  `/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must fully
+  materialize the room state to serve these endpoints, which is an expensive
+  $O(N)$ operation for large rooms. With the accumulator, homeservers can
+  quickly provide a state _delta_ using a single homomorphic subtraction between
+  two lattice digests. The formal specification of a dedicated state-delta
+  endpoint is deferred to a follow-up MSC, but the foundation is laid here.
 
-- `/state_ids`
-  - query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
-  - Unchanged/cache quick return: `304 Not Modified`
+- **`GET /_matrix/federation/v1/state_ids/{roomId}`** This endpoint becomes
+  instantly cacheable via standard HTTP semantics. Requesters SHOULD include the
+  32-byte accumulator digest in the `If-None-Match` header. The receiving server
+  simply compares this against its own $O(1)$ local digest for the requested
+  event. If they match, the server immediately returns `304 Not Modified`,
+  entirely bypassing the database traversal and JSON serialization of tens of
+  thousands of event IDs.
 
-- **Room upgrades:** more reliable convergence/consensus and migration.
+- **Room Upgrades** Upgrading a room requires duplicating the entire state map
+  into a new room version. The state accumulator provides a verifiable,
+  deterministic checkpoint for this migration. Homeservers can cryptographically
+  prove that the pre-upgrade state and the post-upgrade state are identical
+  (modulo the tombstone and creation events) simply by verifying the lattice
+  digests, ensuring consensus is perfectly preserved across the version
+  boundary.
 
 ## Reconciliation (bisecting forks)
 
@@ -230,8 +249,8 @@ also holding true), the two proposals nicely complement each other:
    round trips.
 2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSC4501):** `room_diff` (with a `scope: "state"`
-   parameter) fetches what is missing, auth chains included.
+3. **Reconcile (MSC4501):** `room_diff` (with a `scope: "state"` parameter)
+   fetches what is missing, auth chains included.
 
 Because MSC4500 gives active rooms free passive detection, MSC4501's periodic
 polling can back off significantly for rooms with recent inbound transactions.
@@ -243,10 +262,10 @@ new state group from a delta is one subtraction plus one addition against the
 parent's lattice — O(1), no chain walk. Historical `/state_accumulator` queries
 then reduce to the existing event (state group lookup plus a single row read).
 
-Servers without persisted lattices can compute one on demand during legacy
-delta chain or BFS walk iteration (accumulating the already materialized state
-and caching the accumulator, thereby obviating the need for traversals of that
-delta chain during any future point lookup).
+Servers without persisted lattices can compute one on demand during legacy delta
+chain or BFS walk iteration (accumulating the already materialized state and
+caching the accumulator, thereby obviating the need for traversals of that delta
+chain during any future point lookup).
 
 ### State identity and local DB optimizations
 
@@ -255,20 +274,20 @@ accumulator profoundly optimizes local homeserver architecture.
 
 Currently, homeservers like Synapse manage state by storing a graph of "state
 groups," using delta chains (pointers and changes) because generating a hash of
-an entire room state, specifically materializing the state, is an $O(S)$ operation.
+an entire room state, specifically materializing the state, is an $O(S)$
+operation.
 
-With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier.
+With an $O(1)$ sum accumulator, the state digest _is_ the state group
+identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
-   exact same state (very common occurrence), their 32-byte accumulator
-   digests will perfectly match. The homeserver instantly deduplicates them into
-   a single State Group ID without expanding or comparing dictionaries.
+   exact same state (very common occurrence), their 32-byte accumulator digests
+   will perfectly match. The homeserver instantly deduplicates them into a
+   single State Group ID without expanding or comparing dictionaries.
 
 2. **$O(1)$ Equality Checks:** During State Resolution v2/v2.1, determining if
    diverging branches have different states becomes an instant 32-byte integer
    comparison rather than a complex graph traversal and dictionary comparison.
-
-~~This mathematical guarantee provides a perfect $O(1)$ identity mechanism.~~
 
 While delta chains remain necessary to materialize state into memory and to
 compute conflict sets during state resolution, the accumulator relegates deltas
@@ -281,12 +300,13 @@ during fast-path "state equality" checks.
 
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
-If an event is relayed, or fetched later via `/backfill`, the hashes are missing.
+If an event is relayed, or fetched later via `/backfill`, the hashes are
+missing.
 
 However, this is an acceptable constraint. The direct `/send` hop is precisely
 where real-time early-warning detection is most valuable to prevent split-brain.
-The `unsigned` dictionary on individual PDUs suffers from similar survival issues,
-as it is routinely stripped or rewritten by intermediate servers.
+The `unsigned` dictionary on individual PDUs suffers from similar survival
+issues, as it is routinely stripped or rewritten by intermediate servers.
 
 ### False alarms (DoS)
 
@@ -295,15 +315,17 @@ it could trigger the receiving server to continually force state resyncs.
 
 **Mitigations:**
 
-1. **Rate-limiting:** Receiving servers implementing automated remediation methods
-   SHOULD rate-limit out-of-band state sync requests triggered by mismatching hints
-   Repetitive warning logs are unnecessary and may be subject to a cool-down period.
+1. **Rate-limiting:** Receiving servers implementing automated remediation
+   methods SHOULD rate-limit out-of-band state sync requests triggered by
+   mismatching hints Repetitive warning logs are unnecessary and may be subject
+   to a cool-down period.
 
 2. **Reputation:** Servers implementing Bandit-based peer scoring on manually or
-   heavily federated endpoints SHOULD factor state into their weighting. If a peer
-   consistently sends mismatching hashes that do not reflect the actual resolved
-   state or differ too wildly from the majority, the receiver should temporarily
-   decrement that peer's reputability and the worthiness of their hints.
+   heavily federated endpoints SHOULD factor state into their weighting. If a
+   peer consistently sends mismatching hashes that do not reflect the actual
+   resolved state or differ too wildly from the majority, the receiver should
+   temporarily decrement that peer's reputability and the worthiness of their
+   hints.
 
 ## Alternatives
 
@@ -319,19 +341,20 @@ payload of the event, enforcing it as a protocol-level requirement.
   Implying consensus on every event leads to ambiguity (situations even arise
   where administrative power events can rewrite formerly correct state).
 - **Compatibility:** Modifying the signed PDU alters the event's reference hash
-  (unless the definition of "canonical event JSON" is further complicated).
-  This requires a global room version upgrade and excludes older homeservers.
-  It is possible this approach will be interleaved with MSC4242, which _does_
-  make intentional PDU format changes intended for a new room version.
+  (unless the definition of "canonical event JSON" is further complicated). This
+  requires a global room version upgrade and excludes older homeservers. It is
+  possible this approach will be interleaved with MSC4242, which _does_ make
+  intentional PDU format changes intended for a new room version.
 
-The transaction-level approach achieves the same diagnostic goal with no friction.
+The transaction-level approach achieves the same diagnostic goal with no
+friction.
 
 ### Hashes in the `unsigned` dictionary
 
 **Advantages:**
 
-- **Accessibility and persistence:** Generally, `unsigned` is more durable.
-  This allows some degree of trustworthy relaying of the origin's viewpoint.
+- **Accessibility and persistence:** Generally, `unsigned` is more durable. This
+  allows some degree of trustworthy relaying of the origin's viewpoint.
 
 **Disadvantages:**
 
@@ -351,15 +374,15 @@ Homeservers should never use the accumulator hash as a source of truth to
 construct or authorize state. State resolution must continue unaltered.
 
 The hashes are purely diagnostic tools and performance boosters. Servers should
-only implement changes in federation behavior to the extent they are comfortable,
-since needless complication can easily backfire and the benefits of reconciliation
-remain (at this point) purely investigative or speculative.
+only implement changes in federation behavior to the extent they are
+comfortable, since needless complication can easily backfire and the benefits of
+reconciliation remain (at this point) purely investigative or speculative.
 
 Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
 state set with an identical digest requires either breaking `LtHash16` (finding
-a lattice collision, which is computationally hard at these parameters)
-or finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors
-are currently believed to be computationally intractable.
+a lattice collision, which is computationally hard at these parameters) or
+finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
+currently believed to be computationally intractable.
 
 **TODO:** references `Bellare & Micciancio, 1997`
 
@@ -437,14 +460,14 @@ This proposal currently has no known dependencies, blockers, or open questions.
 
 ## References
 
-1. **Bellare, M., & Micciancio, D. (1997).**
-   _A New Paradigm for Collision-free Hashing: Incrementality at Reduced Cost._
-   Advances in Cryptology — EUROCRYPT '97.
-   Lecture Notes in Computer Science, vol 1233. Springer, Berlin, Heidelberg.
+1. **Bellare, M., & Micciancio, D. (1997).** _A New Paradigm for Collision-free
+   Hashing: Incrementality at Reduced Cost._ Advances in Cryptology — EUROCRYPT
+   '97. Lecture Notes in Computer Science, vol 1233. Springer, Berlin,
+   Heidelberg.
 
-2. **Meta Engineering. (2019).**
-   _Open-sourcing homomorphic hashing to secure update propagation._
-   Available at: https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/
+2. **Meta Engineering. (2019).** _Open-sourcing homomorphic hashing to secure
+   update propagation._ Available at:
+   https://engineering.fb.com/2019/03/01/security/homomorphic-hashing/
 
-3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._
-   Available at: https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html
+3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
+   https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html
