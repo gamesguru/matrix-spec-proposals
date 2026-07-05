@@ -221,8 +221,6 @@ administrator regenerates keys after a total state loss, a novel key ID is
 structurally guaranteed. It also protects against a new server owner unwittingly
 re-registering under a domain which formerly ran a Conduit server.
 
-<!-- Proofread marker. 52b5887a  -->
-
 This is the most effective mitigation because it eliminates the root cause: it
 all but certainly stops the bad key from ever being published and sidesteps the
 federation-wide collision detection and localized divergence entirely.
@@ -235,32 +233,34 @@ unrecoverable database failure without backup):
 1. **The administrator MUST generate a new key with a new key ID.**
 2. **If the public key material is still known** (e.g., from backups, logs, or
    cached by peers), the lost key SHOULD be published in `old_verify_keys` with
-   `expired_ts` set to the approximate time of loss.
-3. **If the public key material is also lost**, the administrator must accept
-   that historical events signed by the lost key may fail verification on
-   servers that never cached it. There is no protocol-level recovery for this
-   scenario — by design.
+   `expired_ts` set to the approximate time of loss. If it can be corroborated
+   from an established notary, it should also be self-published under old keys.
+3. **If the public key material is completely lost**, the administrator must
+   accept that historical events signed by the lost key may fail verification on
+   servers that never cached it. By design there is no protocol-level recovery
+   for this scenario.
 
 The protocol does not provide an automated recovery mechanism for key ID
-collisions. It is safer for the federation to surface the misconfiguration as
-visible failure — forcing the administrator to discover and fix the error — than
-to bake dangerous trial verification logic into every homeserver to silently
-accommodate administrative mistakes.
+collisions. Under the current constraints, it is best for the federation to
+surface the misconfiguration as a visible failure — forcing the administrator to
+discover and fix the error — than to bake dangerous trial verification logic or
+other accommodations into homeservers to quietly allow administrative mistakes.
 
 **Manual cache eviction.** Because the First Seen Wins policy permanently binds
-a key ID, a successful TOFU poisoning attack (or a catastrophic remote
-misconfiguration with no recovery path) will result in permanent federation
-failure with that server. To allow recovery, homeserver implementations MUST
-provide an administrative mechanism (e.g., an Admin API or CLI tool) to manually
-evict the cached key-body bindings for a specific remote server name, allowing a
-human operator to break the binding and re-initiate TOFU.
+a key ID, a successful TOFU poisoning attack (or serious remote
+misconfiguration) will result in permanent federation failure with that server.
+To allow recovery, homeserver implementations MUST provide an administrative
+mechanism (e.g., an admin API or CLI interface) to manually evict cached
+key-body bindings for a specific remote server name, allowing a human operator
+to break the binding and re-initiate TOFU.
 
 This manual eviction MUST be logged loudly by the homeserver, including both the
 server name and the fingerprints of the evicted keys. This is an intentionally
-manual, operator-gated escape hatch — it must not be automatable or triggerable
-via federation traffic.
+manual, operator-gated ability to perform cache merges or manually overrides. It
+must not be automated or triggered via inbound/outbound federation traffic.
 
 ### Historical event verification
+<!-- Proofread marker. 52b5887a  -->
 
 Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
