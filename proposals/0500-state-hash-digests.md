@@ -481,24 +481,12 @@ should only implement changes in federation prioritization at their discretion,
 since needless complexity can introduce unintended side-effects and the benefits
 of reconciliation remain, at the time of writing, investigative or speculative.
 
-Because the 32-byte digest is secured via `BLAKE2b-256`, forging a different
-state set with an identical digest requires either breaking `LtHash16` (finding
-a lattice collision, which is computationally hard at these parameters) or
-finding a second preimage in the `BLAKE2b-256` collapse. Both attack vectors are
-currently believed to be computationally intractable [^1], [^2].
-
-<!-- Proofread marker. -->
-
-**State-isolation assurance (collision probability):** Even a successful
-collision attack cannot corrupt room state. Because remote digests are never
-used to construct, modify, or authorize local state maps, the worst outcome of a
-forged digest is a missed mismatch alarm — the attacker fools the receiver into
-believing sync is nominal when it is not. No state is injected, no auth
-decisions are affected, and the receiver's local database remains uncorrupted.
-Furthermore, this "false sync" is transient and soon irrelevant: the room's
-state keeps evolving, so the attacker must maintain a _fresh_ collision against
-every subsequent state the honest side reaches (each new state event re-rolls
-both digests) — computational infeasible.
+**State-isolation assurance:** Even a successful collision attack cannot corrupt
+room state. Because remote digests are never used to construct, modify, or
+authorize local state maps, the worst outcome of a forged digest is a missed
+mismatch alarm — the attacker fools the receiver into believing sync is nominal
+when it is not. No state is injected, no auth decisions are affected, and the
+receiver's local database remains uncorrupted.
 
 **"Honest hash" bypass:** It is important to contextualize the threat model. If
 a malicious server wishes to hide a split-brain partition, it does not need to
@@ -512,28 +500,16 @@ partitions, not a zero-knowledge proof of a peer's internal database state.
 **Parameter security:** The lattice parameters ($L = 1024$ lanes, $q = 2^{16}$)
 are the instantiation analyzed by Lewi et al. [^2], with an estimated security
 level in excess of 200 bits against known lattice-reduction [^4] and generalized
-birthday (k-list) attacks. This analysis requires that no element appear with
-multiplicity $\ge 2^{16}$ in the accumulated multiset. MSC4500 satisfies this
-structurally: the input is a resolved state _map_, which holds exactly one
+birthday (k-list) attacks [^1]. This analysis requires that no element appear
+with multiplicity $\ge 2^{16}$ in the accumulated multiset. MSC4500 satisfies
+this structurally: the input is a resolved state _map_, which holds exactly one
 `event_id` per `(type, state_key)` key — every element has multiplicity 1,
 regardless of total room size. Total state cardinality ($N$) is _not_ bounded by
 $2^{16}$; massive rooms are fully supported.
 
-**Cardinality binding (defense in depth):** Binding $N$ into the collapse digest
-is not what carries the security above — the lattice parameters do — but it
-hardens the construction in three cheap ways:
-
-1. The digest is self-contained, so no application-layer size check exists to be
-   forgotten or implemented inconsistently.
-2. Any collision an attacker finds must have the exact same cardinality as the
-   honest state, formally excluding the degenerate modular-wrap constructions
-   (which differ in count by multiples of $2^{16}$).
-3. It protects the raw-lattice reconciliation path, where servers handle
-   uncollapsed lattices outside the state-map structure.
-
 The `n_before` and `n_after` payload fields are diagnostic only — they help a
-receiver gauge the magnitude of a divergence when choosing between bisection and
-a full resync. They MUST NOT be used as a validation shortcut: digest comparison
+receiver gauge the magnitude of a divergence when choosing between bisection,
+full resync, and inaction. They MUST NOT be used as a validation shortcut: digest comparison
 is the sole equality check, and it already binds $N$.
 
 ## Test vectors
