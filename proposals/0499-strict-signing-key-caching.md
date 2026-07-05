@@ -1,14 +1,5 @@
 # MSC 4499: Strict server signing key caching and key ID uniqueness
 
-<!--
-[Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/proposals/4499-notary-caching.md)
-
-Implementation (pending revision of this proposal's draft)
-
-_feat: add server key notary endpoints by gamesguru · Pull Request #75 · gamesguru/continuwuity_
-https://github.com/gamesguru/continuwuity/pull/75
--->
-
 Because the specification lacks a strict caching contract, new homeserver
 implementations often attempt to be "helpful." Without explicit guidance,
 developers may design flexible caches that store multiple key bodies for a
