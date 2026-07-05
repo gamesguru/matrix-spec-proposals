@@ -439,17 +439,11 @@ A transaction-level approach achieves similar diagnostic goal without friction.
   stripped by relays or backfill endpoints, offering no structural advantage
   over transaction-level hashes.
 
-By moving the hashes to the `PUT /send` request body, the hashes are
-automatically protected by the sending server's $X-Matrix$ authorization
-headers, providing free tamper-resistance on the primary hop. As a consequence,
-relay servers affix their perceived state digest rather than forwarding the
-origin server's viewpoint — a broadly desirable feature.
-
-By placing these digests in the PUT /send request body, they are automatically
-protected by the sending server's X-Matrix authorization headers, providing free
+By placing these digests in the `PUT /send` request body, they are automatically
+protected by the sending server's `X-Matrix` authorization headers, providing free
 tamper-resistance on the primary hop. Consequently, relaying servers assert
 their own perceived state digest rather than blindly forwarding the origin
-server's viewpoint — preventing the silent propagation of unverified consensus
+server's viewpoint—preventing the silent propagation of unverified consensus
 claims across the federation loop and offering broader auditability of major
 servers that frequently act as relays.
 
