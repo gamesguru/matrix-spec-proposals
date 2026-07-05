@@ -42,7 +42,7 @@ When a homeserver sends or relays a federated transaction, it calculates the sum
 accumulation of the room's state exactly at the DAG tip of each included PDU.
 
 It then collapses each PDU's vectorized state into a standard 32-byte digest and
-includes them in the transaction payload as a dictionary keyed by event ID.
+includes them in the transaction payload as an array.
 
 ### Algorithm specification
 
@@ -90,10 +90,8 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 adding the same element twice (producing different digests). Due to the wrapping
 math of the 16-bit lanes, adding the exact same element $2^{16}$ ($65,536$)
 times will roll the accumulator's lanes back to zero, returning to the starting
-digest. The cardinality binding in step 6 additionally catches the $2^{16}$-fold
-wrap degenerate, since the two states would differ in $N$ by 65,536. The
-accumulator is strictly a one-way comparative tool; homeserver databases MUST
-remain responsible for managing actual set element membership.
+digest. The accumulator is strictly a one-way comparative tool; homeserver
+databases MUST remain responsible for managing actual set element membership.
 
 ### Transaction payload
 
@@ -118,15 +116,11 @@ given `prev_events`, they shall omit it entirely from the dictionary.
   PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
   applied. (For non-state events, this will be identical to `before`).
-- `n_before`: An unsigned integer representing the number of elements in the
-  room's resolved state map at the `before` DAG point. This field is diagnostic
-  only — it helps a receiver gauge the magnitude of a divergence when choosing
-  between bisection and a full resync. It MUST NOT be used as a validation
-  shortcut: digest comparison is the sole equality check, and it already binds
-  $N$.
-- `n_after`: An unsigned integer representing the number of elements in the
-  room's resolved state map at the `after` DAG point (identical to `n_before`
-  for non-state events). Diagnostic only, as above.
+- `n_before`: An unsigned integer representing the exact number of elements in
+  the room's resolved state map at the `before` DAG point.
+- `n_after`: An unsigned integer representing the exact number of elements in
+  the room's resolved state map at the `after` DAG point (identical to
+  `n_before` for non-state events).
 
 ```json
 {
@@ -159,8 +153,8 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Adding both `before` and `after` digests plus both cardinality counts consumes
-approximately 200 bytes of JSON overhead per PDU in the transaction.
+Adding both `before` and `after` hashes consumes approximately 160 unsigned
+bytes of JSON overhead per PDU in the transaction.
 
 ### Receiver contract
 
@@ -177,9 +171,9 @@ or perform a state bisection (see
 [Reconciliation (bisecting forks)](#reconciliation-bisecting-forks)) with
 authoritative servers, while replying to the sender with the mismatched digest
 embedded in a `state_hash_mismatch` dictionary within the PDU's processing
-result in the `200 OK` response. PDU processing results tolerate unknown keys
-per existing federation conventions, so non-implementing servers will safely
-ignore the `state_hash_mismatch` dictionary.
+result in the `200 OK` response. Legacy versions of Synapse (pre-dating this
+MSC) will decode the object without panicking, safely ignoring unknown keys, and
+so will Conduit-derivatives and `gomatrixserverlib`.
 
 ```json
 {
@@ -229,14 +223,9 @@ applied (the `after` accumulator of that PDU).
   "event_id": "$sample_pduid_abc123def456",
   "algorithm": "lthash16",
   "lattice": "<base64url, unpadded, 2048 raw bytes>",
-  "n": 2,
-  "digest": "1684b87211bd34155125a960a0ee4c037b0261d497ddda1865377e9e78ca2e9f"
+  "digest": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
 }
 ```
-
-The receiver MUST verify that `BLAKE2b-256(lattice || uint64_le(n))` equals
-`digest` before using the lattice; a mismatch means the response is malformed
-and MUST be discarded.
 
 **Errors:** `404 M_NOT_FOUND` if the server does not hold resolved PDU state at
 that event (unknown event, outlier, purged history, bug). `403 M_FORBIDDEN` if
@@ -246,7 +235,7 @@ the requesting server is not a participant in the room or is denied by
 **Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
 requires `O(log ΔD)` sequential network calls, so a short burst allowance (e.g.
 30 requests) with a sustained rate of ~1/second is a reasonable default. The
-response is ~2.8 KB; amplification risk is negligible.
+response is ~2.5 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
@@ -259,9 +248,8 @@ Server-Server APIs.
   **`/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must
   fully materialize the room state to serve these endpoints, which is an
   expensive $O(S)$ operation for large rooms. These endpoints become instantly
-  cacheable via standard HTTP semantics. Servers SHOULD include the 32-byte
-  accumulator digest as an `ETag` header on `200` responses. Requesters SHOULD
-  include the digest in the `If-None-Match` header. The receiving server simply
+  cacheable via standard HTTP semantics. Requesters SHOULD include the 32-byte
+  accumulator digest in the `If-None-Match` header. The receiving server simply
   compares this against its own local LRU cache of the requested event's digest.
   If they match, the server immediately returns `304 Not Modified`, bypassing
   the legacy database traversal and JSON serialization of tens of thousands of
@@ -277,11 +265,11 @@ The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the
 receiver can query accumulators at $O(\log \Delta D)$ depth (topological
 bisection—similar to `git bisect`—over the known `prev_events` graph or auth
-chain) to find the earliest event where the digests diverged. For historical
-PDUs where a server has no stored accumulator (and deems retroactive computation
-prohibitive), it responds `404 M_NOT_FOUND`; the bisecting requester then treats
-the oldest event for which both sides _can_ produce accumulators as a lower
-bound on the divergence point and proceeds from there.
+chain) to find the earliest event where the digests diverged. For PDUs lacking a
+saved state accumulator value (or for servers deeming its retrofitting to past
+PDUs computationally prohibitive on their deployment), the precise point of
+divergence cannot be determined, and a floor of extremities will be returned
+instead, bounding the true point of divergence from below.
 
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
@@ -470,9 +458,11 @@ broader auditability of major servers that frequently act as relays.
 
 ## Security considerations
 
-Homeservers MUST NEVER use the accumulator hash as a source of truth to
-construct, modify, or authorize state. State resolution MUST proceed normally as
-the sole authoritative driver of state convergence.
+Homeservers should never use the accumulator hash as a source of truth to
+construct or authorize state. State resolution must proceed normally, as the
+sole authoritative driver of state convergence.
+
+<!-- Proofread marker. cfbc888d -->
 
 The hashes are purely diagnostic tools and performance boosters. Servers must
 still rely exclusively on their internal state to judge soft-failures. Servers
@@ -493,44 +483,57 @@ accumulator digests to construct, modify, or authorize their local state maps,
 an attacker cannot inject forged state into a peer's database. At worst, a
 successful collision would only fool the receiver into a "false sync" state
 (preventing a mismatch alarm from sounding), leaving the legitimate local state
-completely uncorrupted. Furthermore, even this "false sync" state is inherently
-non-durable: the room's state keeps evolving, so the attacker must maintain a
-_fresh_ collision against every subsequent state the honest side reaches — each
-new state event re-rolls both digests.
+completely uncorrupted.
 
-**The "Honest Hash" Bypass:** It is important to contextualize the threat model.
-If a malicious server wishes to hide a split-brain partition, it does not need
-to find a lattice collision. Because Matrix room events are public, a malicious
-server can simply compute the correct `LtHash` of the _honest_ room state and
-transmit that correct hash in their federation payloads while secretly keeping a
-diverged database. `LtHash` must therefore be understood as a highly efficient
-fault _detection_ mechanism for honest-but-buggy servers and natural network
-partitions, not a zero-knowledge proof of a peer's internal database state.
+<!-- Proofread marker. cfbc888d -->
 
-**Parameter security:** The lattice parameters ($L = 1024$ lanes, $q = 2^{16}$)
-are the instantiation analyzed by Lewi et al. [^2], with an estimated security
-level in excess of 200 bits against known lattice-reduction and generalized
-birthday (k-list) attacks. This analysis requires that no element appear with
-multiplicity $\ge 2^{16}$ in the accumulated multiset. MSC4500 satisfies this
-structurally: the input is a resolved state _map_, which holds exactly one
-`event_id` per `(type, state_key)` key — every element has multiplicity 1,
-regardless of total room size. Total state cardinality is _not_ bounded by
-$2^{16}$; large rooms are fully supported.
+**Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
+cryptographic collision resistance for set sizes up to $N \approx 50,000$
+elements. For extreme outliers exceeding 65,536 state elements, theoretical
+resistance against structured collision attacks decreases proportionally to
+lane-wrapping [^4].
 
-**Cardinality binding (defense in depth):** Binding $N$ into the collapse digest
-is not what carries the security above — the lattice parameters do — but it
-hardens the construction in three cheap ways: (1) the digest is self-contained,
-so no application-layer size check exists to be forgotten or implemented
-inconsistently; (2) any collision an attacker finds must have the exact same
-cardinality as the honest state, formally excluding the degenerate modular-wrap
-constructions (which differ in count by multiples of $2^{16}$); and (3) it
-protects the raw-lattice reconciliation path, where servers handle uncollapsed
-lattices outside the state-map structure.
+However, this MSC actively mitigates this degradation: by requiring the explicit
+element counts (`n_before` and `n_after`) in the payload alongside the digest,
+an attacker is mathematically forced to construct a lattice collision of the
+exact same subset cardinality ($N$). This length-exact constraint completely
+neutralizes modular lane-wrapping attacks. Because `LtHash16` lanes operate
+modulo $2^{16}$ ($65,536$), an attacker attempting to forge a collision by
+wrapping the lanes must add or subtract vectors that sum to zero modulo
+$2^{16}$. Doing so inherently requires adding or removing multiples of 65,536
+decoy elements, which would immediately violate the strict, independently
+validated cardinality check ($N \neq N \pm 65,536$).
 
-The `n_before` and `n_after` payload fields are diagnostic only — they help a
-receiver gauge the magnitude of a divergence when choosing between bisection and
-a full resync. They MUST NOT be used as a validation shortcut: digest comparison
-is the sole equality check, and it already binds $N$.
+Furthermore, this constraint reduces the general Subset Sum Problem to the
+**Exact-Length Subset Sum Problem (ELSSP)**, eliminating generalized
+birthday/k-list attacks (e.g., Wagner's algorithm) which rely on varying the
+subset size to find collisions. This returns the attack complexity back to
+computationally intractable levels regardless of total room size.
+
+An attacker cannot evade this constraint by lying about these counts, as the
+receiver independently calculates its own state cardinality from its local
+database and will immediately trigger a mismatch alarm if the counts do not
+align.
+
+In cases of genuine, extreme state divergence where server resolved sizes differ
+(e.g., due to long-term network partitions), the resulting size mismatches are
+legitimate signals of desync, which appropriately trigger the reconciliation
+protocol to heal the partition.
+
+**Warning against implementation tolerance (Grace Windows):** Because temporary
+state size discrepancies of $\pm 1\%$ to $10\%$ are common in the wild due to
+asynchronous federation lag, developers may be tempted to implement "grace
+windows" or "fuzzy matching" (e.g., ignoring size differences under $5\%$ to
+avoid triggering bisection loops).
+
+Implementations **MUST NOT** permit any size tolerance. Any size discrepancy,
+even by a single element, **MUST** be treated as a hard mismatch that disables
+the fast-path and triggers bisection. Permitting a size tolerance window (e.g.,
+$\pm K$ elements) completely destroys the Exact-Length Subset Sum Problem
+(ELSSP) cryptographic shield—giving an attacker $2K$ degrees of freedom to
+construct modular lane-wrapping collisions within that allowed window. If
+servers are diverged by even a single element, they must fall back to the secure
+slow-path (bisection).
 
 ## Test vectors
 
@@ -648,6 +651,4 @@ This proposal currently has no known dependencies, blockers, or open questions.
 [^5]:
     **Solana Labs (2025).** _SIMD-0178: Accounts Lattice Hash (Incremental State
     Commitments via LtHash)._ Solana Improvement Proposals. Available at:
-    _SIMD-0215: Accounts Lattice Hash by brooksprumo [Pull Request #215]
-    solana-foundation/solana-improvement-documents_
-    <https://github.com/solana-foundation/solana-improvement-documents/pull/215>
+    <https://github.com/solana-foundation/solana-improvement-proposals/pull/178>
