@@ -327,14 +327,14 @@ With an `LtHash16` accumulator, the 32-byte collapsed digest acts as a
 deterministic, cryptographically-secure natural fingerprint for the resolved
 state dictionary. This solves multiple architectural bottlenecks:
 
-1. **$O(1)$ State Progression (Write-path acceleration):** To compute the state
-   fingerprint for a newly arriving event, the homeserver no longer needs to
-   walk a delta chain or re-hash a sorted dictionary. The server simply loads
-   the parent's cached 2048-byte lattice, homomorphically subtracts the replaced
-   event (if any), adds the new event, and collapses it to the new 32-byte
-   digest. Generating the deterministic identity of a new state group in a
-   massive room is a microsecond operation strictly independent of the room's
-   total size ($S$).
+1. **$O(1)$ State progression (write-path efficiency gain):** To compute the
+   state fingerprint for a newly arriving event, the homeserver no longer needs
+   to walk a delta chain or re-hash a materialized, canonically sorted JSON
+   dictionary. The server simply loads the parent's cached 2048-byte lattice,
+   homomorphically subtracts the replaced event (if any), adds the new event,
+   and collapses it to the new 32-byte digest. Generating the deterministic
+   identity of a new state group in a massive room is a microsecond operation
+   strictly independent of the room's total size or the fork's depth.
 
 2. **Topological Commutativity (Instant Deduplication):** Because Matrix history
    is a Directed Acyclic Graph (DAG), concurrent branches frequently apply
