@@ -26,7 +26,7 @@ implementation that attempts to gracefully handle them.
 
 This MSC standardizes signing key caching requirements, introduces a strict
 **first seen wins** rule for key IDs, and lays the groundwork for future work.
-<!-- Proofread marker.  -->
+<!-- Proofread marker. 52b5887a  -->
 
 ## Proposal
 
@@ -48,12 +48,12 @@ The following requirements apply to all signing algorithm types (`ed25519`, and
 any future signing algorithms, like `fn-dsa-512`).
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
-proactively refresh cached keys before the `valid_until_ts` expiry to avoid
-verification failures during key rotation windows. Re-fetching a key and
-observing the same key body with updated `valid_until_ts` or `expired_ts`
-metadata is a normal refresh, and the cache metadata MUST be updated
-accordingly. Servers MUST NOT bypass the cache by fetching keys per-PDU or
-per-request when a valid cached binding exists.
+proactively refresh cached keys before their clamped `valid_until_ts` expiry
+(e.g., restricted to 7 days from fetch) to avoid verification failures during
+key rotation windows. Re-fetching a key and observing the same key body with
+updated `valid_until_ts` or `expired_ts` metadata is a normal refresh, and the
+cache metadata MUST be updated accordingly. Servers MUST NOT bypass the cache by
+fetching keys per-PDU or per-request when a valid cached binding exists.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can induce fetch storms if every inbound event or
@@ -61,7 +61,9 @@ reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
 failed key fetches. An inbound federation request whose authentication
 _requires_ a key fetch for the backoff-listed server SHOULD permit one immediate
-(rate-limited) fetch attempt; if that fetch succeeds and the request
+(rate-limited) fetch attempt. Implementations SHOULD coalesce concurrent outgoing
+key fetch requests for the same remote domain into a single active HTTP request
+to prevent local resource exhaustion. If that fetch succeeds and the request
 authenticates, servers SHOULD clear the backoff state.
 
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
@@ -250,14 +252,18 @@ via federation traffic.
 
 Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
-is valid if the key identified by `algorithm:key_id` was active at time `T` —
-that is, `T` < `expired_ts` (or the key has no `expired_ts`, indicating it was
-active until replaced). Servers MUST sanity-check `expired_ts` values in
-`old_verify_keys`. A future `expired_ts` (beyond a small clock-skew allowance)
-MUST be treated as malformed for that specific key entry, but does not poison
-the rest of the response payload. Consistent with the existing spec,
-verification MUST also restrict the validity window to the lesser of
-`valid_until_ts` and 7 days from the time the key was fetched.
+(where `T` is the event's `origin_server_ts`) is valid if and only if: (1) `T`
+falls within the key's validity window (i.e., `T` is less than the key's
+`expired_ts` if present, and `T` is less than the `valid_until_ts` asserted when
+the key was active), and (2) the event signature mathematically validates. The
+7-day cache validity clamp restricts the window in which the key is authorized
+to sign new events, but does not invalidate historically signed events when
+verifying them years later.
+
+Servers MUST sanity-check `expired_ts` values in `old_verify_keys`. A future
+`expired_ts` (beyond a small clock-skew allowance) MUST be treated as malformed
+for that specific key entry, but does not poison the rest of the response
+payload.
 
 The strict Key ID uniqueness invariant ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
@@ -381,6 +387,14 @@ anomalies, but explicitly does not touch room version consensus rules.
   this MSC — this is an inherent limitation of TOFU, not a flaw in this
   proposal.
 
+- **Direct-override spoofing.** While allowing direct fetches to override provisional
+  notary-learned keys prevents notary-enforced lock-in, it temporarily exposes
+  the server to DNS/BGP spoofing on direct connections. This is an acceptable
+  TOFU trade-off because (1) direct connections use WebPKI TLS certificate
+  validation (bringing in standard internet-grade security), and (2) the window
+  of vulnerability is bounded to the brief provisional period before the server
+  performs a confirming direct fetch.
+
 - **DAG integrity.** The Key ID uniqueness invariant guarantees that historical
   signature verification is deterministic. For any event at any point in time,
   the key that signed it is unambiguously identified by the
@@ -402,15 +416,14 @@ anomalies, but explicitly does not touch room version consensus rules.
   server to fetch and permanently store millions of unique Key IDs. Homeserver
   implementations SHOULD mitigate this by enforcing a reasonable maximum limit
   on the number of cached Key IDs per remote server name (e.g., 1,000 keys). If
-  a remote server reaches this quota, receiving servers SHOULD ignore new Key
-  IDs for that domain. Servers SHOULD exempt or prioritize Key IDs appearing in
-  the current `verify_keys` of a direct fetch when enforcing the quota, ensuring
-  a legitimate current key cannot be crowded out by junk. As with TOFU
-  poisoning, recovering from an exhausted quota requires the administrator to
-  use the manual cache eviction escape hatch. Implementations MUST rely on
-  existing federation rate-limiting to discard junk traffic before allocating
-  database records. In practice, legitimate servers publish single-digit numbers
-  of active keys at any given time; a server claiming thousands of Key IDs is
+  a remote server reaches this quota, receiving servers MUST NOT ignore new Key
+  IDs permanently. Instead, they MUST evict the oldest or least-recently-used
+  expired keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys
+  currently published in the `verify_keys` section of a direct fetch MUST always
+  be prioritized and exempt from eviction. Implementations MUST rely on existing
+  federation rate-limiting to discard junk traffic before allocating database
+  records. In practice, legitimate servers publish single-digit numbers of
+  active keys at any given time; a server claiming thousands of Key IDs is
   unambiguously hostile.
 
 ## Unstable prefix
@@ -448,7 +461,7 @@ The root cause of Key ID collisions is that the `key_id` is currently an
 arbitrary, administrator-defined string (e.g., `ed25519:auto`). A future room
 version could eliminate this entire class of vulnerabilities by mandating that
 the `key_id` must be deterministically derived from the public key body
-itself—for example, `ed25519:<base64(SHA256(KeyBody))[:8]>`.
+itself—for example, `ed25519:<base64(SHA256(KeyBody))[:16]>`.
 
 Under this paradigm, a Key ID collision becomes mathematically impossible. If an
 administrator regenerates their keys, the new key body structurally enforces a
