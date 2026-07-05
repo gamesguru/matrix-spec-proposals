@@ -1,7 +1,5 @@
 # MSC 4500: State accumulator endpoint and transaction digests
 
-<!-- Proofread marker. cfbc888d  -->
-
 Matrix servers replicate a room as a DAG of events and rely on state resolution
 to eventually converge on a shared state. When servers diverge, the result can
 be a serious nuisance. Matrix lacks an out-of-band or real-time mechanism for
@@ -20,7 +18,7 @@ to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
 element removal), collision-resistant 2048-byte `LtHash16` accumulator function.
 
 Avoiding diff chain reconstruction for point lookups will reduce Synapse's
-electricity bill across a wide range of API state endpoints.
+electricity consumption across a wide range of API state endpoints.
 
 The accumulator under question may be called 'homomorphic' and solves the
 following hashing problem: "Given the hash of an input, along with a small
@@ -32,6 +30,8 @@ must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
 accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
+
+<!-- Proofread marker. cfbc888d  -->
 
 Rather than attaching hashes to individual events (which are routinely stripped,
 rewritten, or relayed by intermediate servers), this proposal places the hashes
@@ -45,7 +45,7 @@ includes it in the transaction payload.
 
 ### Algorithm specification
 
-To guarantee interoperability, the algorithm is as follows:
+To guarantee interoperability, the algorithm MUST be implemented as follows:
 
 1. **Input encoding.** Each entry in the room's resolved state map is serialized
    as: `len(type) || type || len(state_key) || state_key || event_id` where each
