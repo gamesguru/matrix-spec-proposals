@@ -405,8 +405,6 @@ digests in a transaction, it could trigger state resync loops for the receiver.
 
 ### Hashes in the signed PDU
 
-<!-- Proofread marker. cfbc888d -->
-
 The primary alternative is placing the state hash directly into the signed
 payload of the event, enforcing it as a protocol-level requirement.
 
@@ -426,6 +424,8 @@ A transaction-level approach achieves similar diagnostic goal without friction.
 
 ### Hashes in the `unsigned` dictionary
 
+<!-- Proofread marker. cfbc888d -->
+
 **Advantages:**
 
 - **Accessibility and persistence:** Generally, `unsigned` is more durable. This
@@ -441,7 +441,17 @@ A transaction-level approach achieves similar diagnostic goal without friction.
 
 By moving the hashes to the `PUT /send` request body, the hashes are
 automatically protected by the sending server's $X-Matrix$ authorization
-headers, providing free tamper-resistance on the primary hop.
+headers, providing free tamper-resistance on the primary hop. As a consequence,
+relay servers affix their perceived state digest rather than forwarding the
+origin server's viewpoint — a broadly desirable feature.
+
+By placing these digests in the PUT /send request body, they are automatically
+protected by the sending server's X-Matrix authorization headers, providing free
+tamper-resistance on the primary hop. Consequently, relaying servers assert
+their own perceived state digest rather than blindly forwarding the origin
+server's viewpoint — preventing the silent propagation of unverified consensus
+claims across the federation loop and offering broader auditability of major
+servers that frequently act as relays.
 
 ## Security considerations
 
