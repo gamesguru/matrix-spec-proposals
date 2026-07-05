@@ -180,6 +180,16 @@ requires `O(log ΔD)` sequential calls, so a short burst allowance (e.g. 30
 requests) with a sustained rate of ~1/second is a reasonable default. The
 response is ~2.7 KB; amplification risk is negligible.
 
+### Other affected endpoints
+
+**TODO:**
+
+- `/state`
+- `/state_ids`
+   + query parameter or header (e.g., `If-None-Match: <accumulator_digest>`)
+   + Unchanged/cache quick return: `304 Not Modified`
+- Room upgrades more reliable convergence/consensus.
+
 ## Reconciliation and bisecting forks
 
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
