@@ -235,8 +235,6 @@ delta chain during any future point lookup).
 
 ### State identity and local DB optimizations
 
-<!-- Edit marker. -->
-
 While this proposal primarily addresses federation, the adoption of a grand sum
 accumulator profoundly optimizes local homeserver architecture.
 
@@ -247,22 +245,25 @@ an entire room state, specifically materializing the state, is an $O(S)$ operati
 With an $O(1)$ sum accumulator, the state digest _is_ the state group identifier.
 
 1. **Instant Deduplication:** If two different branches of a DAG converge on the
-   exact same state (a highly common occurrence), their 32-byte accumulator
+   exact same state (very common occurrence), their 32-byte accumulator
    digests will perfectly match. The homeserver instantly deduplicates them into
    a single State Group ID without expanding or comparing dictionaries.
-2. **$O(1)$ Equality Checks:** During State Resolution v2, determining if
+2. **$O(1)$ Equality Checks:** During State Resolution v2/v2.1, determining if
    diverging branches have different states becomes an instant 32-byte integer
-   comparison rather than a complex graph traversal.
+   comparison rather than a complex graph traversal and dictionary comparison.
 
-This mathematical guarantee provides a perfect $O(1)$ identity mechanism. While
-delta chains remain absolutely necessary to materialize state into memory and to
+~~This mathematical guarantee provides a perfect $O(1)$ identity mechanism.~~
+
+While delta chains remain necessary to materialize state into memory and to
 compute conflict sets during state resolution, the accumulator relegates deltas
 purely to storage compression and retrieval, eliminating the need to walk chains
-simply to determine state equality.
+during fast-path "state equality" checks.
 
 ## Potential issues
 
 ### Direct-hop survival (ease of audit)
+
+<!-- Edit marker. -->
 
 Because the hashes are attached to the transaction body rather than the
 individual PDUs, they only survive the direct origin-to-first-hop transmission.
@@ -275,7 +276,7 @@ rooms. The `unsigned` dictionary on individual PDUs suffers from similar
 survival issues, as it is routinely stripped or rewritten by intermediate
 servers.
 
-### 2. False alarms (DoS)
+### False alarms (DoS)
 
 If a malicious server intentionally forwards spoofed hashes in the transaction,
 it could force the receiving server to continually trigger state resync
@@ -292,7 +293,7 @@ operations, acting as a minor Denial of Service (DoS) vector.
 
 ## Alternatives
 
-### 1. Hashes in the Signed PDU
+### Hashes in the signed PDU
 
 The primary alternative is placing the state hash directly into the signed
 payload of the event, enforcing it as a protocol-level requirement.
@@ -309,7 +310,7 @@ payload of the event, enforcing it as a protocol-level requirement.
 The transaction-level approach achieves the same diagnostic goal with zero
 breakage and seamless backward compatibility.
 
-### 2. Hashes in the `unsigned` Dictionary
+### Hashes in the `unsigned` dictionary
 
 Earlier iterations of this concept proposed placing the hashes in the `unsigned`
 dictionary of the PDU.
@@ -356,14 +357,14 @@ generated using the `BLAKE2Xb-2048` element expansion (with the domain prefix
 `msc4502_lthash16\x00`), 16-bit little-endian wrapping lane
 addition/subtraction, and `BLAKE2b-256` collapse digest.
 
-### Empty State
+### Empty state
 
 The starting lattice $S_0$ is 2048 bytes of all zeros.
 
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
-### Scenario 1: One Element (Addition)
+### Scenario 1: one element (addition)
 
 Add event `m.room.member` with state key `@alice:example.com` and event ID
 `$event_1`.
@@ -374,7 +375,7 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
 - Collapse digest:
   `d8d3ac07b6152e0c6beddac611371082ff345c3ac1018aa8096fde848d0d0ebd`
 
-### Scenario 2: Add-then-remove (Element Removal)
+### Scenario 2: add-then-remove (element removal)
 
 Subtracting the expanded element for `$event_1` from lattice $S_1$ returns the
 accumulator to the empty state.
@@ -383,7 +384,7 @@ accumulator to the empty state.
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
-### Scenario 3: Two Elements
+### Scenario 3: two elements
 
 Starting from $S_1$, add event `m.room.name` with empty state key `""` and event
 ID `$event_2`.
@@ -393,7 +394,7 @@ ID `$event_2`.
 - Collapse digest:
   `06457ed60e766a6caaa65804b92056b244ee7339850630b8dee69efc63e73b20`
 
-### Scenario 4: O(1) Replacement
+### Scenario 4: instant replacement
 
 Starting from $S_2$, replace the membership event for `@alice:example.com` with
 event ID `$event_3`. This is performed by subtracting the expansion for
