@@ -349,9 +349,9 @@ state dictionary. This solves multiple architectural bottlenecks:
    then $Y$; Server B sees $Y$ then $X$). Because the accumulator relies on
    commutative modulo addition, `Base + X + Y` produces the exact same lattice
    and digest as `Base + Y + X`. Homeservers can instantly deduplicate
-   convergent DAG branches into a single shared State Group ID upon ingestion
-   (e.g., via a `UNIQUE` database index), without ever expanding or comparing
-   dictionaries.
+   convergent DAG branches into a single shared state group ID upon ingestion
+   (e.g., via a relational `UNIQUE` index or a key-value point lookup map),
+   without ever expanding or comparing dictionaries.
 
 3. **Short-circuiting state resolution:** During State Resolution v2/v2.1, the
    most expensive initial step is determining if diverging DAG tips actually
