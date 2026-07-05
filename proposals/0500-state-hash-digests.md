@@ -223,8 +223,6 @@ response is ~2.5 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
-<!-- Proofread marker. cfbc888d  -->
-
 The introduction of a cryptographically verifiable state accumulator enables
 several zero-cost optimizations across the existing Matrix Client-Server and
 Server-Server APIs.
@@ -243,6 +241,8 @@ Server-Server APIs.
 
 ## Reconciliation (bisecting forks)
 
+<!-- Proofread marker. cfbc888d  -->
+
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
 against the sender's full accumulator lattice.
@@ -251,7 +251,11 @@ The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the
 receiver can query accumulators at $O(\log \Delta D)$ depth (topological
 bisection—similar to `git bisect`—over the known `prev_events` graph or auth
-chain) to find the earliest event where the digests diverged.
+chain) to find the earliest event where the digests diverged. For PDUs lacking a
+saved state accumulator value (or for servers deeming its retrofitting to past
+PDUs computationally prohibitive on their deployment), the precise point of
+divergence cannot be determined, and a floor of extremities will be returned
+instead, bounding the true point of divergence from below.
 
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
