@@ -306,14 +306,12 @@ materialized state in CPU cache and persisting the accumulator, thereby
 obviating any need for traversals of that delta chain during future point
 lookups or state group transitions).
 
-### State identity and local DB optimizations
+### State identifiers and local storage optimizations
 
 While this proposal primarily addresses federation, the adoption of a
 homomorphic sum accumulator introduces a paradigm shift for local homeserver
 database architectures, shifting state management from being _path-dependent_ to
 _path-independent_.
-
-<!-- Proofread marker. cfbc888d -->
 
 Currently, homeservers are forced into a trade-off between read-time CPU
 consumption and write-time I/O amplification:
@@ -353,13 +351,15 @@ state dictionary. This solves multiple architectural bottlenecks:
    (e.g., via a relational `UNIQUE` index or a key-value point lookup map),
    without ever expanding or comparing dictionaries.
 
-3. **Short-circuiting state resolution:** During State Resolution v2/v2.1, the
-   most expensive initial step is determining if diverging DAG tips actually
-   contain different states before building a conflict set. With the
-   accumulator, this historically expensive check is reduced to a zero-cost
+3. **Short-circuiting state resolution:** During state resolution v2/v2.1, a
+   very expensive initial step is determining if diverging DAG tips actually
+   contain different states (before building a conflict set). With the
+   accumulator, this historically expensive check is amortized across a single
    32-byte integer comparison. If the diverging branches possess identical
-   digests, the server knows mathematically that there is no conflict set,
-   safely bypassing the state resolution algorithm entirely.
+   digests, the server knows with confidence that there is no conflict set, and
+   largely bypasses the costs of the state resolution algorithm.
+
+<!-- Proofread marker. cfbc888d -->
 
 While relational delta chains (pointers to parent state groups) remain strictly
 necessary to materialize state into memory for client APIs and to isolate actual
