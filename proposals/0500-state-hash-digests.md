@@ -107,6 +107,8 @@ given `prev_events`, they shall omit it entirely from the dictionary.
   PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
   applied. (For non-state events, this will be identical to `before`).
+- `state_size`: An unsigned integer representing the exact number of elements in
+  the room's resolved state map at the `after` DAG point.
 
 ```json
 {
@@ -125,7 +127,8 @@ given `prev_events`, they shall omit it entirely from the dictionary.
   "state_hashes": {
     "$sample_pduid_abc123def456": {
       "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-      "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
+      "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+      "state_size": 2
     }
   }
 }
@@ -453,10 +456,14 @@ currently believed to be computationally intractable [1].
 
 **Theoretical limits:** The lattice parameters $L=1024, q=2^{16}$ provide strong
 cryptographic collision resistance for set sizes up to $N \approx 50,000$
-elements, which covers the vast majority of production Matrix rooms. For extreme
-outliers exceeding 65,536 state elements, the homomorphic properties remain
-mathematically correct, though theoretical resistance against structured
-collision attacks decreases proportionally to lane-wrapping.
+elements. For extreme outliers exceeding 65,536 state elements, theoretical 
+resistance against structured collision attacks decreases proportionally to 
+lane-wrapping. However, this MSC actively mitigates this degradation: by requiring 
+the explicit element count (`state_size`) in the payload alongside the digest, an 
+attacker is mathematically forced to construct a lattice collision of the exact 
+same subset length. This length-exact constraint nullifies the attacker's ability 
+to exploit lane-wrapping, returning the attack complexity back to computationally 
+intractable levels regardless of total room size.
 
 ## Test vectors
 
