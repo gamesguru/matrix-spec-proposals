@@ -361,8 +361,8 @@ state dictionary. This solves multiple architectural bottlenecks:
 
 <!-- Proofread marker. cfbc888d -->
 
-While relational delta chains (pointers to parent state groups) remain strictly
-necessary to materialize state into memory for client APIs and to isolate actual
+While relational delta chains (pointers to parent state groups) are still
+required to materialize state into memory for client APIs and to isolate actual
 conflict sets during resolution (since a homomorphic hash cannot be inverted to
 name its component Matrix events), the accumulator relegates these structures
 purely to storage compression and read-path retrieval. The latency-critical
@@ -569,7 +569,7 @@ This proposal currently has no known dependencies, blockers, or open questions.
 
 2. **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
    Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
-   2019/227. Available at: https://eprint.iacr.org/2019/227
+   2019/227. Available at: <https://eprint.iacr.org/2019/227>
 
 3. **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
-   https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html
+   <https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html>
