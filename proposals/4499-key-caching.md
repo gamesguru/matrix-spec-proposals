@@ -44,12 +44,11 @@ Specifically, this proposal formalizes the following behaviors:
    poisoning key state.
 
 This proposal also formalizes the `valid_until_ts` 7-day validity clamp as a
-normative cache constraint. Rather than requiring novel or unproven mechanisms,
-the feasibility of these requirements has been demonstrated through qualifying
-implementations in both `Synapse` and `continuwuity` developed as part of this
-MSC's validation process. This proposal standardizes and codifies these
-practices to ensure consistent security guarantees across all popular Matrix
-implementations.
+normative cache constraint. The feasibility of these requirements has already
+been demonstrated through qualifying implementations in both `Synapse` and
+`continuwuity` developed as part of this MSC's validation process. This proposal
+standardizes and codifies these practices to ensure consistent security
+guarantees across all popular Matrix implementations.
 
 ### Key caching requirements
 
