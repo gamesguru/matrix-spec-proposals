@@ -435,6 +435,25 @@ prove which specific key body signed what event, and when.
   `prev_events` and depth constraints), `expired_ts` does not provide total
   forward secrecy for the room history.
 
+- **Domain expiration and re-registration (Provisional overriding).** Under the
+  Two-Tier Bindings rules, a notary-learned key is provisional and will be
+  overridden by a direct fetch from the origin server over TLS. If a server goes
+  offline, its domain expires, and years later a different entity re-registers
+  the domain, that new owner can establish a new Matrix server and publish a
+  different key under the same key ID. For any peer that only cached the old key
+  _provisionally_ (and never promoted it via direct contact during the original
+  server's lifetime), the new owner's direct fetch will override the notary's
+  cached key body. This will invalidate all historical signatures of the
+  original owner on that peer (making past messages appear unauthenticated) and
+  allow the new owner to sign both new and backdated events under that key ID.
+  This is an unavoidable residual risk of DNS-based server identities and WebPKI
+  TLS authority (the new domain owner is the cryptographically legitimate owner
+  of the domain's identity under WebPKI). To mitigate this, peers SHOULD
+  aggressively attempt to promote provisional notary bindings to permanent
+  status by conducting direct fetches while the original server is active, and
+  notary servers MUST permanently enforce First Seen Wins internally to preserve
+  historical key materials in the wider ecosystem.
+
 - **Cache expiration is not binding expiration.** The `valid_until_ts` field
   governs when to _refresh_ the key endpoint, not when to _forget_ the key body.
   Servers that purge key-body bindings on `valid_until_ts` expiry create a
