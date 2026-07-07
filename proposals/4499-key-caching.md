@@ -301,7 +301,7 @@ prove which specific key body signed what event, and when.
 
 - **No automated key ID collision recovery.** Unlike some protocols that provide
   key-reset ceremonies or trusted-third-party recovery, Matrix provides no
-  automated mechanism, since it conflicts the zero-trust federation model.
+  automated mechanism, since it conflicts with the zero-trust federation model.
 
 - **Permanent key-body storage.** The permanent binding requirement means
   servers must retain key-body records indefinitely, proportional to the number
@@ -418,6 +418,18 @@ requirements that can be readily adopted. No API endpoints substantially change.
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
   today. It will apply equally to `fn-dsa-512` keys if accepted into the spec
   and if this document is not superseded by a refined or more encompassing MSC.
+
+## Open questions
+
+- **Role of community ban lists / Draunir / ACLs:**
+  - With First Seen Wins locally isolating a misconfigured server, how do
+    external moderation tools interact with this? If a server cannot federate
+    due to a key mismatch, do tools like Draunir see this as a temporary outage
+    or something that triggers administrative alerts? Furthermore, could room
+    ACLs be used maliciously to force a cache eviction or bypass the First Seen
+    Wins rule?
+  - Should community ban lists play a role in banning servers where reasonable
+    grounds for suspecting bulk or spam generation if keys is known?
 
 ## Backwards compatibility
 
