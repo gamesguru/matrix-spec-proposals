@@ -6,6 +6,13 @@ developers may design flexible caches that store multiple key bodies for a
 single key ID and perform verification either with the most recently observed
 key or the first one which works (trial verification).
 
+Rather than being a prescriptive overreach, the requirements proposed here
+codify emerging industry best practices already demonstrated in the wild. For
+example, highly resilient, modern production homeservers like `continuwuity`
+already natively implement many of these robust behaviors—such as negative
+caching, payload sanitization, and historical verification—without ever reading
+this MSC.
+
 While existing implementations such as Synapse effectively enforce a unique
 `(server_name, key_id)` constraint at the storage layer, the protocol itself
 remains underspecified and does not mandate this behavior.
@@ -27,8 +34,7 @@ rules defined in the Matrix specification (specifically the
 [Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.18/server-server-api/#retrieving-server-keys)
 and the notary query endpoint).
 
-Specifically, this proposal introduces the following net-new behaviors that
-current implementations do not natively enforce:
+Specifically, this proposal formalizes the following behaviors:
 
 1. **First Seen Wins (FSW):** Replaces implicit "trial verification" logic with
    a strict, permanent 1:1 key ID uniqueness requirement.
@@ -41,7 +47,11 @@ current implementations do not natively enforce:
    historical events, clarifying the role of `expired_ts`.
 
 This proposal also formalizes the `valid_until_ts` 7-day validity clamp as a
-normative cache constraint.
+normative cache constraint. Rather than requiring novel or unproven mechanisms,
+the existence of robust implementations like `continuwuity` demonstrates that
+servers can readily implement negative caching, payload sanitization, and
+historical verification. This proposal standardizes and codifies these practices
+to ensure consistent security guarantees across all Matrix implementations.
 
 ### Key caching requirements
 
@@ -63,14 +73,28 @@ single inbound message or request if a valid key is already cached locally.
 unreachable remote server can cause fetch storms if every inbound event or
 reference triggers a fresh network request. Servers MUST implement exponential
 backoff per remote server for failed key fetches. Servers MUST NOT re-fetch a
-failed server's keys within 60 seconds of the last failure, up to a recommended
-cap of 1 hour. An inbound federation request whose authentication _requires_ a
-key fetch for the backoff-listed server (e.g., verifying X-Matrix signatures)
-SHOULD permit at most one immediate (rate-limited) fetch attempt per backoff
-interval. Implementations SHOULD coalesce concurrent outgoing key fetch requests
-for the same remote domain into a single active HTTP request to prevent network
+failed server's keys within 60 seconds of the last failure (the mandatory
+floor), up to a recommended cap of 1 hour.
+
+An inbound federation HTTP request whose immediate authentication _requires_ a
+key fetch for the backoff-listed server (specifically, verifying the `X-Matrix`
+request signature of the calling server) SHOULD permit at most one immediate,
+rate-limited fetch attempt per backoff interval. This exemption MUST NOT be
+applied to PDU signature verification (which MUST instead employ a
+parked-PDU-and-retry pattern, allowing the transaction or PDU processing to wait
+out the backoff interval without triggering a fetch). This ensures that a deluge
+of new incoming events cannot bypass the 60-second negative cache floor.
+
+Implementations SHOULD coalesce concurrent outgoing key fetch requests for the
+same remote domain into a single active HTTP request to prevent network
 saturation. If that fetch succeeds and the request authenticates, servers SHOULD
 clear the backoff state.
+
+To facilitate automated conformance testing in continuous integration
+environments where a 60-second wait is impractical, implementations SHOULD
+support configuring the minimum negative caching backoff floor (e.g., via a
+test-only configuration option `org.matrix.msc4499_backoff_secs` or a
+corresponding environment variable).
 
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
 database) rather than held only in memory. A server restart should not require
@@ -431,13 +455,23 @@ prove which specific key body signed what event, and when.
   inevitably reopens collision blindness for the evicted key IDs, representing
   an unavoidable trade-off between bounded storage and perfect permanent
   pinning. Keys currently published in the `verify_keys` section of a direct
-  fetch MUST always be prioritized and exempt from eviction. Implementations
-  MUST rely on existing federation rate-limiting to discard junk traffic before
-  allocating database records. In practice, legitimate servers publish
-  single-digit numbers of active keys at any given time; a server claiming
-  thousands of key IDs is unambiguously hostile. A future Proof-of-Work gated
-  proposal may mitigate the spurious bulk generation of keys behind Equihash or
-  Cuckoo Cycle.
+  fetch MUST always be prioritized and exempt from eviction.
+
+    To resolve the contradiction that arises if a remote server's `verify_keys`
+    dictionary alone exceeds the storage quota (as active keys are exempt from
+    eviction, making eviction unsatisfiable), a strict ceiling on the number of
+    active keys MUST be enforced. If a single key response payload contains more
+    than 50 keys in its `verify_keys` dictionary, receiving servers MUST treat
+    the entire response payload as malformed/hostile and reject it. This
+    prevents hostile or broken servers from hollowing out the storage limit with
+    un-evictable active keys.
+
+    Implementations MUST rely on existing federation rate-limiting to discard
+    junk traffic before allocating database records. In practice, legitimate
+    servers publish single-digit numbers of active keys at any given time; a
+    server claiming thousands of key IDs is unambiguously hostile. A future
+    Proof-of-Work gated proposal may mitigate the spurious bulk generation of
+    keys behind Equihash or Cuckoo Cycle.
 
 ## Unstable prefix
 
