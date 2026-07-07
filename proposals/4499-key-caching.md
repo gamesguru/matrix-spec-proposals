@@ -1,12 +1,22 @@
-# MSC 4499: Strict signing key caching and key ID uniqueness
+# MSC4499: Strict signing key caching and key ID uniqueness
 
 <!--
+Standardizes server signing key caching and introduces a First Seen Wins rule for key ID uniqueness.
+
 [Rendered](https://github.com/gamesguru/matrix-spec-proposals/blob/guru/4499-strict-key-caching/proposals/4499-key-caching.md)
 
-Implementation:
+### Implementations
 
-- [MSC4499 Complement: formal server key caching and notary fall-back rules](https://github.com/gamesguru/complement/pull/6)
-- WIP. [feat: add server key notary endpoints (gamesguru/continuwuity #75)](https://github.com/gamesguru/continuwuity/pull/75)
+- [Complement: formal server key caching and notary fall-back rules](https://github.com/gamesguru/complement/pull/6)
+- [feat: add server key notary endpoints and MSC4499 compliance (gamesguru/continuwuity)](https://github.com/gamesguru/continuwuity/pull/75)
+
+#### Current (baseline Synapse) Complement results: (9 pass / 1 skip / 7 fail)
+
+<img width="482" height="443" alt="image" src="https://github.com/user-attachments/assets/d49a4446-5e10-44ef-8ce8-386a2e505ecd" />
+
+#### Current (continuwuity impl) Complement results: (10 pass / 0 skip / 4 fail)
+
+<img width="468" height="120" alt="image" src="https://github.com/user-attachments/assets/8cd14c10-0a90-4685-9695-b5ae8d34ce9c" />
 -->
 
 ## Introduction
