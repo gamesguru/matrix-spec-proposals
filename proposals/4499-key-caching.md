@@ -429,7 +429,7 @@ requirements that can be readily adopted. No API endpoints substantially change.
     ACLs be used maliciously to force a cache eviction or bypass the First Seen
     Wins rule?
   - Should community ban lists play a role in banning servers where reasonable
-    grounds for suspecting bulk or spam generation if keys is known?
+    grounds for suspecting bulk or spam generation of keys is known?
 
 ## Backwards compatibility
 
