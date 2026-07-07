@@ -105,11 +105,11 @@ Network overhead for duplicate digests (e.g. across multiple non-state PDUs in a
 batch) is collapsed by standard federation HTTP compression (gzip/brotli).
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of
-state resolution (v2) applied across the states at each of those events — i.e.
-the same resolved state the server would use to authorize the PDU. The `after`
-state is `before` with the PDU applied, if it is an accepted state event;
-otherwise `after` equals `before`. If a server does not know about a PDU in the
-given `prev_events`, they shall omit it entirely from the dictionary.
+state resolution (v2/v2.1) applied across the states at each of those events —
+i.e. the same resolved state the server would use to authorize the PDU. The
+`after` state is `before` with the PDU applied, if it is an accepted state
+event; otherwise `after` equals `before`. If a server does not know about a PDU
+in the given `prev_events`, they shall omit it entirely from the dictionary.
 
 - `before`: The 32-byte digest of the room state evaluated exactly at the given
   PDU's `prev_events`, excluding and preceding the given event.
@@ -434,7 +434,7 @@ payload of the event, enforcing it as a protocol-level requirement.
 - **Compatibility:** Modifying the signed PDU alters the event's reference hash
   (unless the definition of "canonical event JSON" is further complicated). This
   requires a global room version upgrade and excludes older homeservers. It is
-  possible this approach will be interleaved with MSC4242 (Stage DAGs), which
+  possible this approach will be interleaved with MSC4242 (State DAGs), which
   _does_ make intentional PDU format changes intended for a new room version.
 
 A transaction-level approach achieves similar diagnostic goal without friction.
@@ -601,6 +601,15 @@ This proposal currently has no known dependencies.
 ## Open questions
 
 - Impact on or relevance to partial joins (MSC3902)?
+- **Large or irrevocably broken rooms:** How should servers handle large or
+  irrevocably broken rooms?
+- **Client-Server impact:** What is the impact of a state bisect on the
+  client-server relationship? Specifically, how should servers handle detecting
+  missed events that fell through over the Client-Server `/sync` v5 endpoint?
+  (See future work).
+- **Self-verification:** Could servers perform self-verification (e.g. checking
+  checksums of the result) before signing off on it? Is there value in auditing
+  one's own state (either on-the-fly or on past events)?
 
 ## References
 
