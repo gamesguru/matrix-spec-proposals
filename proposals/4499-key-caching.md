@@ -48,7 +48,7 @@ normative cache constraint.
 Servers MUST cache remote server signing keys obtained from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
-any future signing algorithms, like `fn-dsa-512`).
+any future signing algorithms, such as post-quantum algorithms).
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before their clamped `valid_until_ts` expiry
@@ -170,7 +170,7 @@ payloads. When a direct fetch (`/_matrix/key/v2/server`) is rejected as
 malformed, the server MUST treat it as a fetch failure for purposes of negative
 caching and backoff.
 
-Implementations MUST employ a JSON parser or pre-processing step capable of
+Implementations SHOULD employ a JSON parser or pre-processing step capable of
 detecting duplicate keys within a single JSON object for key response payloads
 (`/_matrix/key/v2/server` and `/_matrix/key/v2/query` responses), as standard
 JSON parsers in most languages silently deduplicate them. This requirement is
@@ -209,7 +209,7 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
-   `ed25519:1` to `ed25519:2`, or from `fn-dsa-512:pqc0` to `fn-dsa-512:pqc1`.
+   `ed25519:1` to `ed25519:2`, or from `pqc_algo:0` to `pqc_algo:1`.
 2. **Retire the old key.** The old key MUST appear in the `old_verify_keys`
    section of the `/_matrix/key/v2/server` response with an appropriate
    `expired_ts` timestamp.
@@ -289,13 +289,14 @@ Cached keys, including keys retired to `old_verify_keys`, MUST be retained for
 historical PDU verification. An event signed by `algorithm:key_id` at time `T`
 (where `T` is the event's `origin_server_ts`) is valid if and only if: (1) `T`
 falls within the key's validity window, evaluated against the receiver's cached
-observation at the time of verification (i.e., `T` is less than the key's
-`expired_ts` if present in the cache, and `T` is less than the `valid_until_ts`
-asserted when the key was active), and (2) the event signature cryptographically
-validates. This means a key retired at the origin remains honored by peers until
-their local caches refresh. The 7-day cache validity clamp restricts the window
-in which the key is authorized to sign new events, but does not invalidate
-historically signed events when verifying them years later.
+observation at the time of verification (if the key has an `expired_ts`, i.e. it
+appears in `old_verify_keys`, `T` must be less than `expired_ts`; otherwise, `T`
+must be less than the clamped `valid_until_ts`), and (2) the event signature
+cryptographically validates. This means a key retired at the origin remains
+honored by peers until their local caches refresh. The 7-day cache validity
+clamp restricts the window in which the key is authorized to sign new events,
+but does not invalidate historically signed events when verifying them years
+later.
 
 Servers MUST sanity-check `expired_ts` values in `old_verify_keys`. A future
 `expired_ts` (beyond a 5-minute clock-skew allowance) MUST be treated as
@@ -452,8 +453,9 @@ API endpoints substantially change.
 ## Dependencies
 
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
-  today. It will apply equally to `fn-dsa-512` keys if accepted into the spec
-  and if this document is not superseded by a refined or more encompassing MSC.
+  today. It will apply equally to future post-quantum algorithms if accepted
+  into the spec and if this document is not superseded by a refined or more
+  encompassing MSC.
 
 ## Open questions
 
