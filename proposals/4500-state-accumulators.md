@@ -34,6 +34,22 @@ accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
+### Relationship to existing specification
+
+This MSC introduces two primary mechanisms to the Matrix federation protocol:
+
+1. **Transaction-level state hashes:** A new `state_hashes` dictionary in the
+   `PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
+   their local, resolved state view alongside the events they are transmitting.
+2. **Federation reconciliation endpoint:** A new
+   `GET /_matrix/federation/unstable/org.matrix.msc4500/reconcile` endpoint that
+   allows an out-of-sync server to request a "state bisect" path from a healthy
+   peer, enabling it to fast-forward missing room state without a heavy
+   `make_join` or `make_knock`.
+
+These mechanisms are additive and do not alter existing room version consensus
+rules, nor do they modify the canonical structure of the signed PDU itself.
+
 Rather than attaching hashes to individual events (which are routinely stripped,
 rewritten, or relayed by intermediate servers), this proposal places the hashes
 in the body of the federation transaction.
