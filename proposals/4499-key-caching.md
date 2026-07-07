@@ -176,7 +176,7 @@ by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
 case. Notary-versus-notary conflicts (or the same notary at two different times)
 are also resolved by First Seen Wins among provisional observations.
 
-### key ID uniqueness invariant
+### Key ID uniqueness requirement
 
 A key ID (`algorithm:key_id`) MUST map to exactly one public key body for a
 given remote server. This is a strict, permanent 1:1 binding. The purpose of a
