@@ -479,16 +479,11 @@ This proposal is fully backwards-compatible:
   reuse key IDs with different key bodies will be rejected by peers implementing
   this MSC. This failure already occurs unpredictably today (depending on cache
   state and timing); this MSC makes the behavior expected and codified.
-- **Possible state divergence.** Any _newly_ failing Complement tests SHOULD NOT
-  be "fixed" by Synapse until the changes are thoroughly understood. The risks
-  in modifying previously stable behavior need to be calculated precisely. It's
-  possible the formerly very stable and convergent pattern of Synapse's state
-  resolution and agreement between other Synapse instances could be disrupted by
-  subtleties in key caching and signature verification logic. Reviewing this is
-  essential in my opinion, given that the consensus and state-agreement among
-  Synapse servers statistically exceeds that of other homeserver
-  implementations, and any tinkering with this delicate balance should be
-  conducted cautiously.
+- **Incremental adoption.** Implementations with established, convergent key
+  verification behavior SHOULD adopt the observation phase (see Unstable prefix)
+  before enabling enforcement. Changes to signature verification paths can
+  affect state resolution agreement between peers; operators SHOULD monitor for
+  unexpected federation failures before enabling strict enforcement.
 
 ## Future considerations
 
