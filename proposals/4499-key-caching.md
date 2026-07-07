@@ -38,6 +38,10 @@ Specifically, this proposal formalizes the following behaviors:
    detection within a single JSON dictionary.
 4. **Historical Validation:** Formalizes timestamp-aware key validity for
    historical events, clarifying the role of `expired_ts`.
+5. **Two-Tier Bindings (Notary Fallback):** Establishes that notary-learned
+   bindings are provisional and can be overridden by direct, TLS-authenticated
+   origin fetches, preventing malicious or compromised notaries from permanently
+   poisoning key state.
 
 This proposal also formalizes the `valid_until_ts` 7-day validity clamp as a
 normative cache constraint. Rather than requiring novel or unproven mechanisms,
