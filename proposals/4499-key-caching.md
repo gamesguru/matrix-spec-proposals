@@ -6,13 +6,6 @@ developers may design flexible caches that store multiple key bodies for a
 single key ID and perform verification either with the most recently observed
 key or the first one which works (trial verification).
 
-Rather than being a prescriptive overreach, the requirements proposed here
-codify emerging industry best practices already demonstrated in the wild. For
-example, highly resilient, modern production homeservers like `continuwuity`
-already natively implement many of these robust behaviors—such as negative
-caching, payload sanitization, and historical verification—without ever reading
-this MSC.
-
 While existing implementations such as Synapse effectively enforce a unique
 `(server_name, key_id)` constraint at the storage layer, the protocol itself
 remains underspecified and does not mandate this behavior.
@@ -48,10 +41,11 @@ Specifically, this proposal formalizes the following behaviors:
 
 This proposal also formalizes the `valid_until_ts` 7-day validity clamp as a
 normative cache constraint. Rather than requiring novel or unproven mechanisms,
-the existence of robust implementations like `continuwuity` demonstrates that
-servers can readily implement negative caching, payload sanitization, and
-historical verification. This proposal standardizes and codifies these practices
-to ensure consistent security guarantees across all Matrix implementations.
+the feasibility of these requirements has been demonstrated through qualifying
+implementations in both `Synapse` and `continuwuity` developed as part of this
+MSC's validation process. This proposal standardizes and codifies these
+practices to ensure consistent security guarantees across all popular Matrix
+implementations.
 
 ### Key caching requirements
 
