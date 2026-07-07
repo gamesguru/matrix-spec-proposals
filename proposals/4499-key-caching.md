@@ -429,7 +429,6 @@ requirements that can be readily adopted. No API endpoints substantially change.
       outage or something that triggers administrative alerts? Furthermore,
       could room ACLs be used maliciously to force a cache eviction or bypass
       the First Seen Wins rule?
-
     - Should community ban lists play a role in banning servers where reasonable
       grounds for suspecting bulk or spam generation of keys is known?
 
