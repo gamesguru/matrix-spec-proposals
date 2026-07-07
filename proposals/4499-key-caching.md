@@ -121,16 +121,18 @@ A key ID (`algorithm:key_id`) MUST map to exactly one public key body for a
 given remote server. This is a strict, permanent 1:1 binding. The purpose of a
 key ID is to provide an unambiguous reference from a signature entry to a
 specific cryptographic key; allowing multiple key bodies under the same ID
-defeats this purpose. **Permanent binding.** The cryptographic binding between a
-key ID and its public key body is a **permanent record**, not a cache entry.
-This permanence governs _key-body identity_ only; it does not alter the
-validity-window semantics (e.g., event signatures are still verified against the
-key's validity at the event's `origin_server_ts`, and federation requests still
-require a currently valid key). While `valid_until_ts` dictates when a server
-should refresh the `/_matrix/key/v2/server` endpoint, the observed association
-between a key ID and its key body MUST NOT be purged from the server's key
-database when `valid_until_ts` expires. Purging this binding would leave the
-server naive to future collisions and blindly accepting colliding key bodies.
+defeats this purpose.
+
+**Permanent binding.** The cryptographic binding between a key ID and its public
+key body is a **permanent record**, not a cache entry. This permanence governs
+_key-body identity_ only; it does not alter the validity-window semantics (e.g.,
+event signatures are still verified against the key's validity at the event's
+`origin_server_ts`, and federation requests still require a currently valid
+key). While `valid_until_ts` dictates when a server should refresh the
+`/_matrix/key/v2/server` endpoint, the observed association between a key ID and
+its key body MUST NOT be purged from the server's key database when
+`valid_until_ts` expires. Purging this binding would leave the server naive to
+future collisions and blindly accepting colliding key bodies.
 
 **Collision detection.** If a server observes a key response (whether fetched
 directly via `/_matrix/key/v2/server` or via a `/_matrix/key/v2/query` notary)
