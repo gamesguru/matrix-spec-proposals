@@ -118,12 +118,25 @@ To prevent a malicious or compromised notary from permanently calcifying a
 poisoned key binding, bindings first observed via a notary are **provisional**.
 They are used normally for verification, but if a subsequent _direct_ fetch from
 the origin server yields a key body that conflicts with the provisional binding,
-the direct fetch MUST override the provisional one. The server updates its cache
-to the direct-observed key body and MUST log the collision loudly. The server
-SHOULD log which events (or at minimum which rooms/time window) were verified
-under the displaced binding, and MAY re-verify recent events. Bindings observed
-directly from the origin server are **permanent** (see below). Servers MUST NOT
-treat notary unavailability as a verification success.
+the direct fetch MUST override the provisional one, subject to the freeze
+exception below. The server updates its cache to the direct-observed key body
+and MUST log the collision loudly. The server SHOULD log which events (or at
+minimum which rooms/time window) were verified under the displaced binding, and
+MAY re-verify recent events. Bindings observed directly from the origin server
+are **permanent** (see below). Servers MUST NOT treat notary unavailability as a
+verification success.
+
+**Provisional override freeze (expiration/retirement guard).** To prevent domain
+re-registration hijackers from overriding historical keys, a provisional binding
+MUST NOT be overridden if it has already expired or been retired. Specifically,
+if the provisional key's cached `valid_until_ts` has passed, or if the key was
+originally learned from `old_verify_keys` with an `expired_ts` in the past, the
+binding is **frozen**. In this scenario, any conflicting key body returned by a
+direct fetch for that key ID MUST be rejected as a collision. A provisional
+override is only permitted if the provisional binding's key body remains within
+its active validity window (`valid_until_ts` in the future). This prevents a
+hijacker from reclaiming a retired or expired key ID with a new key body, while
+preserving the recovery path against a compromised notary for active keys.
 
 **Binding promotion.** A provisional (notary-observed) binding becomes permanent
 the first time a direct fetch from the origin confirms the same key body.
@@ -436,23 +449,30 @@ prove which specific key body signed what event, and when.
   forward secrecy for the room history.
 
 - **Domain expiration and re-registration (Provisional overriding).** Under the
-  Two-Tier Bindings rules, a notary-learned key is provisional and will be
+  Two-Tier Bindings rules, a notary-learned key is provisional and can be
   overridden by a direct fetch from the origin server over TLS. If a server goes
   offline, its domain expires, and years later a different entity re-registers
   the domain, that new owner can establish a new Matrix server and publish a
   different key under the same key ID. For any peer that only cached the old key
   _provisionally_ (and never promoted it via direct contact during the original
-  server's lifetime), the new owner's direct fetch will override the notary's
-  cached key body. This will invalidate all historical signatures of the
-  original owner on that peer (making past messages appear unauthenticated) and
-  allow the new owner to sign both new and backdated events under that key ID.
-  This is an unavoidable residual risk of DNS-based server identities and WebPKI
-  TLS authority (the new domain owner is the cryptographically legitimate owner
-  of the domain's identity under WebPKI). To mitigate this, peers SHOULD
-  aggressively attempt to promote provisional notary bindings to permanent
-  status by conducting direct fetches while the original server is active, and
-  notary servers MUST permanently enforce First Seen Wins internally to preserve
-  historical key materials in the wider ecosystem.
+  server's lifetime), a direct fetch would normally risk overriding the notary's
+  cached key body.
+
+    To completely mitigate this threat for historical messages, the
+    **Provisional override freeze** rule prevents a direct fetch from overriding
+    a provisional notary-learned binding if the provisional key is already
+    expired or retired (i.e., its cached `valid_until_ts` has passed or it was
+    originally retrieved from `old_verify_keys` with an `expired_ts`). This
+    permanently freezes the historical key state, preventing the new domain
+    owner from reviving or reclaiming the retired/expired key ID with a new key
+    body. However, if the old domain owner went offline abruptly _before_ their
+    key's active validity window expired, a brief window of vulnerability exists
+    until the provisional key's cached `valid_until_ts` passes (typically up to
+    7 days). To limit this residual window, peers SHOULD aggressively attempt to
+    promote provisional notary bindings to permanent status by conducting direct
+    fetches while the original server is active, and notary servers MUST
+    permanently enforce First Seen Wins internally to preserve historical key
+    materials in the wider ecosystem.
 
 - **Cache expiration is not binding expiration.** The `valid_until_ts` field
   governs when to _refresh_ the key endpoint, not when to _forget_ the key body.
