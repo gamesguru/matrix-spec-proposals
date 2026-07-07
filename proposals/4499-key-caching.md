@@ -1,4 +1,4 @@
-# MSC 4499: Strict signing key caching and `KeyID` uniqueness
+# MSC4499: Strict server signing key caching and key ID uniqueness
 
 <!--
 Standardizes server signing key caching and introduces a First Seen Wins rule for key ID uniqueness.
@@ -618,3 +618,11 @@ Because this fundamentally requires changing how signatures are validated within
 the room DAG and invalidates legacy key formats in the wild, it requires a new
 room version and is deferred to a future MSC. Until then, protection must remain
 strictly at the local server caching layer as outlined in this proposal.
+
+### Member Keys [MSC4430]
+
+The Member Keys proposal caps these concerns to a future room version by moving
+the key body in-band (and reducing the complications inherent in today's
+out-of-band notary model, while freeing up notary capacity to serve future
+functions such as aiding in EDU reconciliation or corroborating correct room
+state accumulation for a given epoch).
