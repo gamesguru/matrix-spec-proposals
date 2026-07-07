@@ -25,10 +25,23 @@ This MSC standardizes signing key caching requirements, introduces a strict
 This MSC strengthens and supersedes the existing key caching and verification
 rules defined in the Matrix specification (specifically the
 [Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.18/server-server-api/#retrieving-server-keys)
-and the notary query endpoint). In particular, this proposal upgrades the
-existing `SHOULD` caching guidance to `MUST`, formalizes the `valid_until_ts`
-7-day validity clamp as a normative cache constraint, and replaces any implicit
-"trial verification" logic with a strict 1:1 key ID uniqueness requirement.
+and the notary query endpoint).
+
+Specifically, this proposal introduces the following net-new behaviors that
+current implementations do not natively enforce:
+
+1. **First Seen Wins (FSW):** Replaces implicit "trial verification" logic with
+   a strict, permanent 1:1 key ID uniqueness requirement.
+2. **Negative Caching:** Upgrades the existing `SHOULD` caching guidance to a
+   `MUST`, and introduces formal exponential backoff constraints for failures.
+3. **Payload Sanitization:** Mandates the rejection of payloads containing
+   identical key IDs with differing key material, and requires duplicate key
+   detection within a single JSON dictionary.
+4. **Historical Validation:** Formalizes timestamp-aware key validity for
+   historical events, clarifying the role of `expired_ts`.
+
+This proposal also formalizes the `valid_until_ts` 7-day validity clamp as a
+normative cache constraint.
 
 ### Key caching requirements
 
