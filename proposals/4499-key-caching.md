@@ -553,7 +553,7 @@ anomalies, but explicitly does not touch room version consensus rules.
   introduces a theoretical storage exhaustion vector if an attacker forces a
   server to fetch and permanently store millions of unique key IDs. Homeserver
   implementations SHOULD mitigate this by enforcing a reasonable maximum limit
-  on the number of cached key IDs per remote server name (e.g., 1,000 keys). If
+  on the number of cached key IDs per remote server name (e.g., 3,000 keys). If
   a remote server reaches this quota, receiving servers MUST NOT ignore new Key
   IDs permanently. Instead, they MUST evict the oldest or least-recently-used
   expired keys (keys in `old_verify_keys` with the oldest `expired_ts`). This
@@ -570,6 +570,12 @@ anomalies, but explicitly does not touch room version consensus rules.
     the entire response payload as malformed/hostile and reject it. This
     prevents hostile or broken servers from hollowing out the storage limit with
     un-evictable active keys.
+
+    Notary servers SHOULD proactively move older keys from an upstream origin's
+    `verify_keys` into the notary's `old_verify_keys` response if the total
+    number of active keys for that origin would otherwise exceed the 50-key
+    ceiling. This ensures that the notary's response remains acceptable to
+    downstream servers while still facilitating historical verification.
 
     Implementations MUST rely on existing federation rate-limiting to discard
     junk traffic before allocating database records. In practice, legitimate
