@@ -40,11 +40,14 @@ event acceptance/rejection across peers), and introduces a potential
 CPU-exhaustion DoS vector for any implementation that attempts to gracefully
 handle them.
 
-The requirements proposed here codify existing best practice rather than novel
-mechanisms. Their feasibility has been demonstrated through a Complement
-conformance suite and a qualifying `continuwuity` implementation developed as
-part of this MSC's validation process. This proposal standardizes these
-practices to ensure consistent security guarantees across the ecosystem.
+Matrix's out-of-band key fetching model is inherently fragile when subjected to
+domain re-registrations or catastrophic server misconfigurations. Rather than
+masking this fragility with unpredictable trial verification, the requirements
+proposed here codify existing best practice to make failures deterministic and
+loud. Their feasibility has been demonstrated through a Complement conformance
+suite and a qualifying `continuwuity` implementation developed as part of this
+MSC's validation process. This proposal standardizes these practices to ensure
+consistent security guarantees across the ecosystem.
 
 ## Proposal
 
