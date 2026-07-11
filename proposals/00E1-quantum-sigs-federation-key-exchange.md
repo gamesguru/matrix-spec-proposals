@@ -20,7 +20,7 @@ signing operation that every subsequent post-quantum MSC builds on by reference,
 and it sets the implementation-quality bar below which production FN-DSA keys
 must not be published. The associated normative requirements are specified in
 [Implementation conformance](#implementation-conformance). Where relevant, this
-MSC incorporates cleanup from MSC4499, including FN-DSA key IDs being
+MSC incorporates cleanup from MSC4499, including FN-DSA short IDs being
 hash-derived and notaries indexing keys by their canonical fingerprints.
 
 PQC PDU signing and the co-requisite room version upgrade will be addressed in a
@@ -105,17 +105,17 @@ implementations SHOULD coalesce around a common, agreed standard.
 ### Key ID format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g.,
-`ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers
-and makes PQC key IDs hash-derived:
+`ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers.
+For `fn-dsa-512`, the `key_id` component is a hash-derived short ID:
 
-| Key Algorithm | Description                  | Key ID format (stable) |
-| ------------- | ---------------------------- | ---------------------- |
-| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`     |
-| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<hash>`    |
+| Key Algorithm | Description                  | Key Reference Format (stable) |
+| ------------- | ---------------------------- | ----------------------------- |
+| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`            |
+| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<short_id>`       |
 
-For `fn-dsa-512`, the `hash` component MUST be the first 16 base64url characters
-of the SHA-256 digest of the tagged public key bytes, without padding. The
-tagged public key bytes are:
+For `fn-dsa-512`, the `short_id` component MUST be the first 16 base64url
+characters of the SHA-256 digest of the tagged public key bytes, without
+padding. The tagged public key bytes are:
 
 ```text
 "tk.nutra.msc45xx.keyid.v1" || raw_fn_dsa_512_public_key_bytes
@@ -128,9 +128,9 @@ FIPS 206. The context tag exists for hash-domain separation only — so this
 digest cannot collide semantically with an unrelated protocol's SHA-256 over the
 same raw key bytes — and MUST be included exactly as given.
 
-The key ID is therefore a pure function of the public key body: it does not
+The `short_id` is therefore a pure function of the public key body: it does not
 depend on `server_name`. Name-binding for FN-DSA keys comes from the
-self-signature, not the key ID: the signed `/_matrix/key/v2/server` object
+self-signature, not the `short_id`: the signed `/_matrix/key/v2/server` object
 includes `server_name`, so a self-signature is bound to one claimed Matrix
 server name rather than being reusable across names (see
 [Server signing keys](#server-signing-keys) for the exact-match requirement on
@@ -138,61 +138,62 @@ server name rather than being reusable across names (see
 it does not, by itself, prove control of that name's DNS, origin, or TLS
 endpoint.
 
-The `hash` component MUST contain exactly 16 characters from the base64url
+The `short_id` component MUST contain exactly 16 characters from the base64url
 alphabet of RFC 4648 §5 (`A-Z`, `a-z`, `0-9`, `-`, and `_`), encoding the first
 96 bits of the digest. When processing an FN-DSA public key from `verify_keys`
 or `old_verify_keys`, implementations MUST recompute the expected hash-derived
-key ID from the advertised public key bytes. If the advertised key ID does not
-exactly match the recomputed value, the key response MUST be rejected as
-malformed. Signature entries, `X-Matrix-PQC` headers, and PDU signatures that
-reference a malformed FN-DSA key ID MUST fail verification.
+`short_id` from the advertised public key bytes. If the advertised `short_id`
+does not exactly match the recomputed value, the key response MUST be rejected
+as malformed. Signature entries, `X-Matrix-PQC` headers, and PDU signatures that
+reference a malformed FN-DSA `short_id` MUST fail verification.
 
 In the exceedingly unlikely event that a server advertises multiple distinct
 FN-DSA public key bodies whose tagged digests share the same first 16 base64url
-characters, each advertised key body is well-formed for the same derived key ID.
-This is a hash-prefix collision, not a malformed key ID. A receiving server MUST
-retain each colliding key body under its full SHA-256 fingerprint and, when
-verifying a signature that references the shared key ID, MUST attempt
-verification against each non-expired candidate key body for that server and key
-ID. The signature is valid if exactly one candidate verifies. If no candidate
-verifies, or if more than one candidate verifies, verification MUST fail — two
-distinct advertised key bodies validating the same signature is
-cryptographically anomalous and indicates malformed or adversarial key material,
-so the rule fails closed. Receiving servers SHOULD bound the number of colliding
-key bodies retained per key ID (a limit of 4 is RECOMMENDED); key bodies
-advertised beyond that bound MUST NOT be added to the candidate set, so that a
-server cannot inflate its peers' verification work by advertising manufactured
-collisions. Note that only the key's owner (or an attacker holding its signing
-keys) can introduce such collisions, since key responses are self-signed; see
+characters, each advertised key body is well-formed for the same derived
+`short_id`. This is a hash-prefix collision, not a malformed identifier. A
+receiving server MUST retain each colliding key body under its full SHA-256
+fingerprint and, when verifying a signature that references the shared
+`short_id`, MUST attempt verification against each non-expired candidate key
+body for that server and `short_id`. The signature is valid if exactly one
+candidate verifies. If no candidate verifies, or if more than one candidate
+verifies, verification MUST fail — two distinct advertised key bodies validating
+the same signature is cryptographically anomalous and indicates malformed or
+adversarial key material, so the rule fails closed. Receiving servers SHOULD
+bound the number of colliding key bodies retained per `short_id` (a limit of 4
+is RECOMMENDED); key bodies advertised beyond that bound MUST NOT be added to
+the candidate set, so that a server cannot inflate its peers' verification work
+by advertising manufactured collisions. Note that only the key's owner (or an
+attacker holding its signing keys) can introduce such collisions, since key
+responses are self-signed; see
 [Security considerations](#security-considerations) for the collision cost
 analysis.
 
-Except for verified FN-DSA hash-prefix collisions as described above, key IDs
-MUST be unique within each algorithm namespace on a given server.
+Except for verified FN-DSA hash-prefix collisions as described above, `short_id`
+values MUST be unique within each algorithm namespace on a given server.
 
 For FN-DSA specifically, notaries and caches SHOULD retain the full SHA-256
 digest of the tagged public key bytes as the canonical fingerprint of the key
-body. The derived `key_id` is used for lookup and wire-format references; the
+body. The derived `short_id` is used in on-wire key references and lookup; the
 full digest is used for collision forensics, deduplication, and canonical body
 comparison.
 
 Notaries and caches SHOULD also retain the SHA-256 digest of the raw FN-DSA-512
 public key bytes (untagged) as a transfer-detection fingerprint, distinct from
-the tagged key-ID fingerprint above. A notary or receiving server that observes
-a previously-associated raw FN-DSA public key fingerprint under a second,
-different `server_name` MUST NOT attest to that second observation and SHOULD
-alert the operator, but MUST NOT evict or invalidate the original association
-solely because of the second observation — otherwise an attacker who has stolen
-a server's FN-DSA private key could race a forged publication to notaries and
-turn key theft into a denial of service against the legitimate owner's key.
-Intentional domain migration MUST publish a distinct FN-DSA key for the new
-`server_name`; any relationship to the old server name belongs in an explicit
-cross-signing or delegation mechanism, not in key reuse.
+the tagged short-ID fingerprint above. A notary or receiving server that
+observes a previously-associated raw FN-DSA public key fingerprint under a
+second, different `server_name` MUST NOT attest to that second observation and
+SHOULD alert the operator, but MUST NOT evict or invalidate the original
+association solely because of the second observation — otherwise an attacker who
+has stolen a server's FN-DSA private key could race a forged publication to
+notaries and turn key theft into a denial of service against the legitimate
+owner's key. Intentional domain migration MUST publish a distinct FN-DSA key for
+the new `server_name`; any relationship to the old server name belongs in an
+explicit cross-signing or delegation mechanism, not in key reuse.
 
-This key ID derivation intentionally uses unpadded base64url because key IDs
-appear in protocol identifiers and may be embedded in URLs or routing paths.
-FN-DSA public keys and signatures themselves continue to use unpadded standard
-base64 as specified below.
+This `short_id` derivation intentionally uses unpadded base64url because FN-DSA
+key references appear in protocol identifiers and may be embedded in URLs or
+routing paths. FN-DSA public keys and signatures themselves continue to use
+unpadded standard base64 as specified below.
 
 ### FN-DSA encoding and signing
 
@@ -297,10 +298,10 @@ unless the operator explicitly opts in.
 
 Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server`
 response MUST include an FN-DSA self-signature in the `signatures` field
-alongside the existing Ed25519 signature. The `key_id` used for that signature
-MUST be derived from the FN-DSA public key body as specified in
-[Key ID format](#key-id-format). Receiving servers MUST verify this
-self-signature before trusting the FN-DSA key.
+alongside the existing Ed25519 signature. The `key_id` component of that
+signature entry MUST be an FN-DSA `short_id` derived from the FN-DSA public key
+body as specified in [Key ID format](#key-id-format). Receiving servers MUST
+verify this self-signature before trusting the FN-DSA key.
 
 Initial FN-DSA key discovery is trust-on-first-use (TOFU): it is authenticated
 by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
@@ -328,7 +329,7 @@ this MSC therefore comes from Matrix-layer self-signatures and post-first-use
 FN-DSA caching, not from assuming that the first HTTP fetch was PQ-secure.
 Servers SHOULD use PQC-capable TLS and `X-Matrix-PQC` authentication for key
 refreshes when available, but transport protection is not a substitute for
-verifying FN-DSA self-signatures and enforcing the hash-derived key-ID rules
+verifying FN-DSA self-signatures and enforcing the hash-derived `short_id` rules
 below.
 
 Replacement key publication follows the normal Matrix server-key model: a key
@@ -336,11 +337,11 @@ response MUST include an FN-DSA self-signature in `signatures`, the receiving
 server MUST verify that self-signature, a valid proof-of-work MUST accompany the
 publication as specified in
 [Key publication Proof-of-Work](#key-publication-proof-of-work), and the
-advertised key ID MUST match the hash-derived ID computed from the public key
-body. If the response is well-formed and authenticates under the existing Matrix
-server-key trust model (Ed25519 signatures and/or notary attestation), the
-receiving server caches the new key body. This MSC does not add any requirement
-that a replacement key be signed by a prior FN-DSA key.
+advertised `short_id` MUST match the hash-derived `short_id` computed from the
+public key body. If the response is well-formed and authenticates under the
+existing Matrix server-key trust model (Ed25519 signatures and/or notary
+attestation), the receiving server caches the new key body. This MSC does not
+add any requirement that a replacement key be signed by a prior FN-DSA key.
 
 #### Key publication Proof-of-Work
 
@@ -362,7 +363,7 @@ Ed25519/notary authentication is otherwise valid.
     "resource": {
         "action": "fn-dsa-key-publication",
         "server_name": "example.com",
-        "key_id": "fn-dsa-512:5FQ2xg4sWqj3Kp9N",
+        "short_id": "5FQ2xg4sWqj3Kp9N",
         "key_identity_sha256": "<unpadded-base64url-sha256>",
         "key_metadata_sha256": "<unpadded-base64url-sha256>",
         "claims": ["constant-time-keygen", "constant-time-signing"],
@@ -372,7 +373,7 @@ Ed25519/notary authentication is otherwise valid.
 ```
 
 The `challenge` value MUST contain at least 128 bits of entropy from a
-cryptographically secure source. The `resource.key_id` and
+cryptographically secure source. The `resource.short_id` and
 `resource.key_identity_sha256` fields MUST correspond to the same advertised
 FN-DSA public key body, and `resource.server_name` MUST correspond to the
 `server_name` of the enclosing key response. If any value does not match, the
@@ -456,16 +457,16 @@ value was not issued by the verifier.
 Key notaries (`/_matrix/key/v2/query`) MUST include FN-DSA keys and their
 corresponding signatures in responses when present on the queried server.
 Notaries MUST validate the remote server's FN-DSA self-signature for the queried
-`server_name` — and MUST recompute and validate the hash-derived key ID against
-the advertised key body, and MUST verify a valid proof-of-work as specified in
-[Key publication Proof-of-Work](#key-publication-proof-of-work) — before
-attesting to the key; if any check fails, the notary MUST NOT include that
-FN-DSA key in its response. Notary responses are themselves signed objects;
+`server_name` — and MUST recompute and validate the hash-derived `short_id`
+against the advertised key body, and MUST verify a valid proof-of-work as
+specified in [Key publication Proof-of-Work](#key-publication-proof-of-work) —
+before attesting to the key; if any check fails, the notary MUST NOT include
+that FN-DSA key in its response. Notary responses are themselves signed objects;
 notaries that support this MSC MUST include FN-DSA signatures on their
 responses.
 
 FN-DSA keys follow identical validity semantics to Ed25519 keys: a signature
-made by `fn-dsa-512:<key_id>` is valid if the key was valid at the time of the
+made by `fn-dsa-512:<short_id>` is valid if the key was valid at the time of the
 signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
@@ -840,18 +841,17 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   implementations MUST use audited, constant-time libraries (see
   [Implementation guidance](#implementation-guidance)).
 
-- **Hash-derived key ID collisions.** The key ID commits to 96 bits of the key
-  body's SHA-256 digest (see [Key ID format](#key-id-format)). A second preimage
-  against a _specific_ existing key ID costs ~2^96 hash evaluations
+- **Hash-derived short ID collisions.** The `short_id` commits to 96 bits of the
+  key body's SHA-256 digest (see [Key ID format](#key-id-format)). A second
+  preimage against a _specific_ existing `short_id` costs ~2^96 hash evaluations
   (infeasible), but a birthday collision between two freshly generated keys
   costs only ~2^48 — feasible for a motivated party with commodity GPUs.
   Crucially, key responses are self-signed and served by the origin server, so
   only the key's owner (or an attacker already holding its signing keys) can
   place colliding key bodies into circulation: the attack is self-targeting. Its
   worst-case impact is bounded ambiguity handled by the exactly-one-verifies
-  rule and the RECOMMENDED candidate cap in
-  [Key Identifier Format](#key-id-format); it cannot make a signature verify
-  under a key the signer does not hold.
+  rule and the RECOMMENDED candidate cap in [Key ID Format](#key-id-format); it
+  cannot make a signature verify under a key the signer does not hold.
 
 - **Proof-of-work is a throttle, not trust.** A valid Cuckoo Cycle[^9] proof
   only spends the prover's resources; it says nothing about the prover's
@@ -894,10 +894,10 @@ While this MSC is in development, the following unstable prefixes are used:
 | `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)     |
 | `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange` |
 
-The unstable algorithm prefix is used in `verify_keys` key IDs, `signatures`
-entries, and `X-Matrix-PQC` header `key` parameters. For example, the
-`/_matrix/key/v2/server` response would use the unstable algorithm identifier in
-key IDs:
+The unstable algorithm prefix is used in `verify_keys` key references,
+`signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example,
+the `/_matrix/key/v2/server` response would use the unstable algorithm
+identifier in FN-DSA key references:
 
 ```json
 {
@@ -925,13 +925,13 @@ before finalization MUST observe the following constraints:
 - **Pin a specific draft revision.** Implementations MUST document which FIPS
   206 draft revision they target. Interoperability between implementations
   targeting different draft revisions is not guaranteed.
-- **Use unstable algorithm prefixes, but stable hash-derived key IDs.** During
+- **Use unstable algorithm prefixes, but stable hash-derived short IDs.** During
   the draft period, `/_matrix/key/v2/server` key entries and `X-Matrix-PQC`
   header `key` parameters MUST use the unstable algorithm identifier
   (`tk.nutra.msc45xx.fn-dsa-512`) as the prefix, but the suffix MUST still be
-  the hash-derived key ID derived from the FN-DSA public key body. This ensures
-  that draft-era signatures are distinguishable from signatures produced under
-  the finalized standard, while preserving the collision-resistant lookup
+  the hash-derived `short_id` derived from the FN-DSA public key body. This
+  ensures that draft-era signatures are distinguishable from signatures produced
+  under the finalized standard, while preserving the collision-resistant lookup
   property.
 - **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final
   standard changes the public key encoding, signature encoding, or algorithm
