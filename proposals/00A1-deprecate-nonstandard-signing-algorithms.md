@@ -25,6 +25,43 @@ client-server device keys, user cross-signing keys, or End-to-End Encryption
 
 ## Proposal
 
+### Event-Handling Taxonomy
+
+For clarity, this MSC uses the following processing categories:
+
+- **Accepted event.** Valid format, valid required signatures, and passes the
+  room-version auth rules. It can affect the room DAG, room state, and client
+  history.
+- **Outlier event.** Valid format and valid required signatures, but the
+  receiving server does not yet have enough surrounding room data to place it as
+  a normal timeline event. It may be persisted as an outlier candidate and later
+  de-outliered if the missing context arrives.
+- **Soft-failed event.** Valid format, valid required signatures, and valid
+  auth-at-event, but it fails checks against the receiver's current forward
+  extremity view. It may be persisted and participate in state resolution or
+  federation bookkeeping, but is normally hidden from clients and not used as a
+  forward extremity by the receiving server.
+- **Auth-rejected event.** Valid format and valid required signatures, but it
+  fails the room-version authorization rules against its auth events or the
+  resolved state at the event. It may be persisted as a DAG artifact, but is not
+  relayed to clients and is not used as a new `prev_event` by the rejecting
+  server.
+- **Hard-invalid candidate PDU.** Parseable enough to identify as a candidate
+  event, but it fails required non-auth validation such as a missing or
+  mathematically invalid required signature, malformed required signing key
+  reference, unsupported required signing algorithm, malformed hashes, or other
+  room-version-independent event validity checks. It MUST NOT be treated as a
+  Matrix room event. Implementations may retain only its event ID, reference
+  hash, or raw body for retry suppression, diagnostics, or abuse handling.
+- **Unpersistably invalid input.** Input that is not safely representable even
+  as a candidate PDU: invalid JSON, no usable event ID or reference hash,
+  missing room ID where one is required, structurally nonsensical data, or
+  resource-exhaustion payloads. It should be dropped at the boundary, optionally
+  logged or rate-limited, but not stored as an event or event-like object.
+
+This MSC only changes how unsupported signing algorithms are classified within
+that taxonomy. It does not redefine soft-fail, outlier, or auth-rejection.
+
 ### Recognized Signing Algorithms
 
 The following signing algorithms are recognized for Matrix federation:
@@ -70,10 +107,8 @@ Homeserver implementations MUST:
   NOT cause event rejection or key response rejection, provided at least one
   recognized algorithm entry is present and valid. If a recognized algorithm
   signature (e.g., `ed25519`) is present but mathematically invalid, the event
-  MUST be rejected. The server MUST NOT fall back to attempting verification
-  against an unrecognized algorithm entry. If the keys for a given "lesser"
-  signature (ed25519) cannot be reasonably obtained, but a "more secure"
-  signature is present and valid, the event shall be accepted.
+  is a **hard-invalid candidate PDU** and MUST be rejected. The server MUST NOT
+  fall back to attempting verification against an unrecognized algorithm entry.
 - **Accept but quarantine legacy keys.** If a key response (from either the
   remote server's `/_matrix/key/v2/server` endpoint or a `/_matrix/key/v2/query`
   notary) contains **only** unrecognized algorithm keys (and no valid `ed25519`
@@ -91,9 +126,10 @@ unrecognized algorithm signatures and **no** recognized algorithm entry (e.g.,
 no `ed25519` or `fn-dsa-512` signature), the server MUST fall back to existing
 legacy signature verification behavior. Standard servers that lack the
 cryptographic libraries to verify the unrecognized algorithm will naturally fail
-verification, resulting in rejection — but this is the existing behavior, not a
-new protocol-level hard rejection introduced by this MSC. Phase 2 formalizes the
-hard rejection for Room Version N and above.
+verification, resulting in the event being treated as a **hard-invalid candidate
+PDU** — but this is the existing behavior, not a new room-version-independent
+protocol rule introduced by this MSC. Phase 2 formalizes the
+recognized-algorithm requirement for Room Version N and above.
 
 Homeserver implementations SHOULD:
 
@@ -101,13 +137,15 @@ Homeserver implementations SHOULD:
   remote key responses or PDU signatures, including the remote server name and
   the unrecognized algorithm identifier, to aid operator diagnostics.
 
-**Rationale.** These Phase 1 rules are consensus-safe because they do not change
-whether any event is accepted or rejected within a room. An event that was valid
-under prior rules remains valid: servers continue to verify the `ed25519`
-signature and simply ignore the rest. An event that was invalid remains invalid.
-The only behavioral changes are: (1) this server stops _generating_ non-standard
-material, and (2) this server logs warnings when it encounters non-standard
-material from others — neither of which affects the room DAG.
+**Rationale.** These Phase 1 rules are consensus-safe because they do not create
+new auth failures, soft-fail paths, or outlier behavior. An event that was valid
+under prior rules remains valid if it still has a valid recognized signature. An
+event that lacked a verifiable required signature remains hard-invalid. The only
+behavioral changes are: (1) this server stops _generating_ non-standard
+material, (2) this server ignores extra non-standard signatures when a required
+recognized signature is present, and (3) this server logs warnings when it
+encounters non-standard material from others — none of which changes the room
+DAG.
 
 ### Phase 2: Strict Enforcement (Room Version Bump Required)
 
@@ -119,12 +157,18 @@ In Room Version N:
 
 - Events whose `signatures` dictionary contains **only** unrecognized algorithm
   entries and no valid `ed25519` or `fn-dsa-512` signature from the expected
-  origin server MUST be rejected as unauthorized.
+  origin server are **hard-invalid candidate PDUs** and MUST be rejected before
+  room-version auth evaluation.
 - The set of recognized algorithms for Room Version N is explicitly: `ed25519`
   and `fn-dsa-512` (if MSC 00EF is accepted by the time Room Version N is
   specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a
   recognized algorithm fails.
+
+In particular, unsupported or malformed required signature algorithms are not a
+soft-fail condition and not an auth-rejection condition. They fail earlier, at
+the required-signature validation stage, before the event can be treated as a
+room event for DAG or auth purposes.
 
 **Historical code caveat.** Because Matrix rooms are immutable DAGs, homeserver
 implementations cannot delete support for legacy algorithms entirely. Events in
@@ -207,6 +251,13 @@ corresponding MSC.
   homeserver implementations (Synapse, Dendrite, Conduit, Conduwuit,
   Continuwuity, etc.) can verify each other's signatures without maintaining
   compatibility shims for unknown primitives.
+
+- **Correct failure classification.** Unsupported or malformed required signing
+  algorithms must not be misclassified as soft-failed or auth-rejected events.
+  Those categories are for events that are already valid Matrix room events with
+  valid required signatures. Treating signature-invalid PDUs as if they had
+  entered the room DAG would blur implementation boundaries and risk
+  inconsistent persistence or relay behavior across homeservers.
 
 - **No monoculture risk.** This MSC restricts the _current_ set but explicitly
   preserves the MSC process as the extension mechanism. If `ed25519` is
