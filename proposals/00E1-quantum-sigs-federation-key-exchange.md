@@ -462,6 +462,30 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
+**Multi-notary corroboration for first observation.** Because a server's very
+first FN-DSA key observation is TOFU and authenticates only via the existing
+Ed25519 trust model (see [Server key trust model](#server-key-trust-model)),
+it is vulnerable to an attacker positioned on that specific fetch path — a
+targeted, localized man-in-the-middle rather than a global compromise.
+Receiving servers SHOULD, for a server's first-ever observed FN-DSA key, query
+at least two independently-operated notaries in addition to (or instead of) a
+direct fetch, and SHOULD treat agreement across all queried sources as a
+precondition for caching the key. Sources include any independent notary the
+receiving server is configured to consult, plus a direct origin fetch if
+performed. If independent sources disagree on the observed FN-DSA key body for
+the same `server_name`, the receiving server MUST NOT cache any of the
+disagreeing keys and SHOULD alert the operator; this is the same posture as an
+unresolved hash-prefix collision (see
+[Key ID format](#key-id-format)) — a disagreement is itself diagnostic
+regardless of which value is "correct." This corroboration step raises the
+cost of a targeted path-level attacker from controlling one fetch route to
+controlling or colluding with multiple independent vantage points
+simultaneously; it does not protect against compromise of the origin's actual
+signing key, nor is it a substitute for the transport half of the threat model
+in [Security considerations](#security-considerations). Once a key has been
+cached from an initial observation, subsequent fetches of the same
+already-trusted key do not require repeating this corroboration.
+
 ### Federation HTTP authentication
 
 Sending servers that support this MSC MUST include the `X-Matrix-PQC` header on
@@ -768,25 +792,34 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   and server-key responses. This MSC mitigates the transport half of that vector
   for as long as a server's FN-DSA key itself remains uncompromised:
   `X-Matrix-PQC` requests are signed with FN-DSA, so an attacker who has only
-  broken Ed25519 cannot forge live federation traffic. It does **not** prevent
-  that same attacker from publishing a brand-new, validly self-signed FN-DSA key
-  under a forged Ed25519 signature — replacement key publication in this MSC is
-  authenticated solely by the existing Ed25519 trust model (see
-  [Server key trust model](#server-key-trust-model)), with no requirement that a
-  replacement be signed by a prior FN-DSA key. A quantum-capable attacker who
-  can forge Ed25519 signatures can therefore still take over a server's PQC
-  identity going forward, exactly as it could with Ed25519 alone today; this MSC
-  does not close that gap. Forged _events_ are addressed by MSC 45YY.
+  derived a server's Ed25519 private key — with no other capability — cannot
+  forge live federation traffic or get a forged key response accepted. Key
+  publication and replacement in this MSC authenticate the same way initial
+  publication does: a valid self-signature plus the existing Matrix server-key
+  trust model (fetched from the origin over TLS, or via a notary who did) — see
+  [Server key trust model](#server-key-trust-model). That combination proves
+  only "whoever currently controls this domain's origin, as observed over this
+  fetch, produced this key," identical in strength to what web PKI already
+  provides for TLS certificates; it does not, and is not intended to, prove
+  continuity with any previously-observed key. Consequently, merely deriving a
+  private key is not sufficient to hijack a server's identity: the attacker
+  additionally needs an active position on a verifier's fetch path (a real-time
+  MITM) or control of a notary a verifier relies on — i.e., exactly the
+  additional capability already required to impersonate a server under Matrix's
+  existing Ed25519-only model. This MSC does not add a new identity-continuity
+  guarantee the classical layer never had; it upgrades the signature algorithm
+  used within the same trust model. Forged _events_ are addressed by MSC 45YY.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
-  Ed25519 and is therefore not post-quantum secure. This is an argument for
-  deploying this MSC as early and widely as possible: a server's FN-DSA key,
-  once cached, protects that server's live transport traffic for as long as the
-  key stays in use and uncompromised — see **Real-time impersonation** above for
-  the important caveat that key _replacement_ is not itself protected against a
-  quantum-capable forger. Ordinary TLS termination, including common nginx
-  deployments using classical TLS certificates and classical key agreement, does
-  not remove this TOFU bootstrap window.
+  Ed25519 and the existing server-key trust model, and is therefore only as
+  post-quantum secure as that model's real-time guarantees (see
+  **Real-time impersonation** above). This is still an argument for deploying
+  this MSC as early and widely as possible: pre-distributing FN-DSA keys means
+  `X-Matrix-PQC` traffic is quantum-resistant against passive interception and
+  against an attacker who lacks an active fetch-path position, from the moment
+  a key is cached. Ordinary TLS termination, including common nginx deployments
+  using classical TLS certificates and classical key agreement, does not remove
+  this TOFU bootstrap window.
 
 - **Downgrade attacks.** During the advisory period, an attacker who can strip
   HTTP headers (i.e. who controls TLS termination or a private key) could
