@@ -227,6 +227,18 @@ before the FN-DSA key was observed. Post-quantum protection for server identity
 applies once an FN-DSA key has been successfully verified and cached by the
 receiving server.
 
+FN-DSA key publication does not require a post-quantum-secure HTTP transport
+layer. This is intentional: requiring PQC transport before FN-DSA keys are
+distributed would make the migration circular. In typical deployments, the
+`/_matrix/key/v2/server` response may still traverse ordinary TLS termination
+such as nginx using classical certificate authentication and classical key
+agreement; such transport is not post-quantum secure. The security property of
+this MSC therefore comes from Matrix-layer self-signatures and post-first-use
+FN-DSA continuity, not from assuming that the first HTTP fetch was PQ-secure.
+Servers SHOULD use PQC-capable TLS and `X-Matrix-PQC` authentication for key
+refreshes when available, but transport protection is not a substitute for
+verifying FN-DSA self-signatures and enforcing the replacement rules below.
+
 Once a receiving server has successfully verified and cached a valid FN-DSA
 signing key for a remote server, subsequent FN-DSA key changes MUST be
 authenticated: the replacement key response MUST be signed by a previously
@@ -711,6 +723,9 @@ libraries following FIPS 203 finalization.
   Ed25519 and is therefore not post-quantum secure. This is an argument for
   deploying this MSC as early and widely as possible: keys pinned before
   cryptographically relevant quantum computers exist are protected thereafter.
+  Ordinary TLS termination, including common nginx deployments using classical
+  TLS certificates and classical key agreement, does not remove this TOFU
+  bootstrap window.
 
 - **Downgrade attacks.** During the advisory period, an attacker who can strip
   HTTP headers (i.e. who controls TLS termination or a private key) could
