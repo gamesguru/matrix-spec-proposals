@@ -248,10 +248,12 @@ The `GET /_matrix/key/v2/server` response includes both key types:
 FN-DSA public keys are encoded as unpadded base64. Servers SHOULD begin
 publishing FN-DSA keys immediately, to pre-distribute public keys across the
 federation ahead of any downstream use (transport authentication in this MSC;
-PDU signing in MSC 45YY). Pre-distribution matters: every server whose FN-DSA
-key is observed, verified, and cached _before_ a quantum adversary exists gains
-post-quantum protection thereafter (see
-[Server key trust model](#server-key-trust-model)).
+PDU signing in MSC 45YY). Pre-distribution narrows the TOFU exposure window
+described in [Server key trust model](#server-key-trust-model): a server whose
+FN-DSA key is observed, verified, and cached _before_ a quantum adversary exists
+is protected for as long as that specific key stays in use and uncompromised.
+That protection does not automatically survive a key _replacement_ — see
+[Security considerations](#security-considerations).
 
 FN-DSA keys are distributed as self-signed, domain-bound key objects: the server
 signs the `/_matrix/key/v2/server` object containing both `server_name` and its
@@ -284,8 +286,12 @@ by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
 attestation). First-use discovery is not post-quantum secure against an attacker
 who has already compromised or quantum-derived the server's Ed25519 signing key
 before the FN-DSA key was observed. Post-quantum protection for server identity
-applies once an FN-DSA key has been successfully verified and cached by the
-receiving server.
+applies to traffic authenticated under a cached FN-DSA key for as long as that
+key stays in use and uncompromised; it does not extend across a key
+_replacement_, since replacement publication in this MSC is authenticated solely
+by the existing Ed25519 trust model — see
+[Security considerations](#security-considerations) for the resulting
+limitation.
 
 FN-DSA key publication does not require a post-quantum-secure HTTP transport
 layer. This is intentional: requiring PQC transport before FN-DSA keys are
@@ -724,19 +730,28 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
 
 - **Real-time impersonation.** The primary real-time quantum threat is an
   attacker deriving a server's Ed25519 private key to spoof federation traffic
-  and server-key responses. This MSC mitigates the transport half of that
-  vector: once FN-DSA keys are distributed and cached, `X-Matrix-PQC` provides
-  quantum-resistant request authentication, and the key trust model prevents a
-  quantum-equipped attacker from silently replacing a cached FN-DSA key using
-  only a broken Ed25519 key. Forged _events_ are addressed by MSC 45YY.
+  and server-key responses. This MSC mitigates the transport half of that vector
+  for as long as a server's FN-DSA key itself remains uncompromised:
+  `X-Matrix-PQC` requests are signed with FN-DSA, so an attacker who has only
+  broken Ed25519 cannot forge live federation traffic. It does **not** prevent
+  that same attacker from publishing a brand-new, validly self-signed FN-DSA key
+  under a forged Ed25519 signature — replacement key publication in this MSC is
+  authenticated solely by the existing Ed25519 trust model (see
+  [Server key trust model](#server-key-trust-model)), with no requirement that a
+  replacement be signed by a prior FN-DSA key. A quantum-capable attacker who
+  can forge Ed25519 signatures can therefore still take over a server's PQC
+  identity going forward, exactly as it could with Ed25519 alone today; this MSC
+  does not close that gap. Forged _events_ are addressed by MSC 45YY.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
   Ed25519 and is therefore not post-quantum secure. This is an argument for
-  deploying this MSC as early and widely as possible: keys discovered before
-  cryptographically relevant quantum computers exist are protected thereafter.
-  Ordinary TLS termination, including common nginx deployments using classical
-  TLS certificates and classical key agreement, does not remove this TOFU
-  bootstrap window.
+  deploying this MSC as early and widely as possible: a server's FN-DSA key,
+  once cached, protects that server's live transport traffic for as long as the
+  key stays in use and uncompromised — see **Real-time impersonation** above for
+  the important caveat that key _replacement_ is not itself protected against a
+  quantum-capable forger. Ordinary TLS termination, including common nginx
+  deployments using classical TLS certificates and classical key agreement, does
+  not remove this TOFU bootstrap window.
 
 - **Downgrade attacks.** During the advisory period, an attacker who can strip
   HTTP headers (i.e. who controls TLS termination or a private key) could
