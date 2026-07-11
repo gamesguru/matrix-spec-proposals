@@ -117,11 +117,11 @@ distinct advertised key bodies validating the same signature is
 cryptographically anomalous and indicates malformed or adversarial key material,
 so the rule fails closed. Receiving servers SHOULD bound the number of colliding
 key bodies retained per key ID (a limit of 4 is RECOMMENDED) and MUST treat key
-bodies beyond that bound as an unattested-replacement event under the
-[key replacement state machine](#fn-dsa-key-replacement-state-machine), so that
-a server cannot inflate its peers' verification work by advertising manufactured
-collisions. Note that only the key's owner (or an attacker holding its signing
-keys) can introduce such collisions, since key responses are self-signed; see
+bodies beyond that bound as an unattested-replacement event under the key
+validity rules above, so that a server cannot inflate its peers' verification
+work by advertising manufactured collisions. Note that only the key's owner (or
+an attacker holding its signing keys) can introduce such collisions, since key
+responses are self-signed; see
 [Security Considerations](#security-considerations) for the collision cost
 analysis.
 
@@ -663,12 +663,11 @@ libraries following FIPS 203 finalization.
   [Key Identifier Format](#key-identifier-format); it cannot make a signature
   verify under a key the signer does not hold.
 
-- **Proof-of-work is a throttle, not trust.** A valid Cuckoo Cycle proof only
-  spends the prover's resources; it says nothing about the prover's legitimacy.
-  The recovery gate therefore MUST NOT convert a valid proof into key trust —
-  trust transitions remain governed exclusively by the
-  [key replacement state machine](#fn-dsa-key-replacement-state-machine) and
-  operator action.
+- **Proof-of-work is a throttle, not trust.** A valid Cuckoo Cycle[^9] proof
+  only spends the prover's resources; it says nothing about the prover's
+  legitimacy. The publication gate therefore MUST NOT convert a valid proof into
+  key trust. Trust transitions remain governed exclusively by the key validity
+  rules above and operator action.
 
 - **Session key hygiene (optional extension).** Session keys are derived from
   ephemeral ML-KEM keys and MUST NOT outlive `expires_ts`. Compromise of a
