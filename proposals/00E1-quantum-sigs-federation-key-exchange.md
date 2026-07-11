@@ -19,7 +19,9 @@ post-quantum signing keys: it pins the exact FIPS 206 revision, encodings, and
 signing operation that every subsequent post-quantum MSC builds on by reference,
 and it sets the implementation-quality bar below which production FN-DSA keys
 must not be published. The associated normative requirements are specified in
-[Implementation conformance](#implementation-conformance).
+[Implementation conformance](#implementation-conformance). Where relevant, this
+MSC incorporates cleanup from MSC4499, including FN-DSA key IDs being
+hash-derived and notaries indexing keys by their canonical fingerprints.
 
 PQC PDU signing and the co-requisite room version upgrade will be addressed in a
 companion proposal (working draft: MSC 45YY) that builds on the primitives
@@ -205,26 +207,17 @@ The `GET /_matrix/key/v2/server` response includes both key types:
             "key": "<unpadded-base64-ed25519-pubkey>"
         },
         "fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
-            "key": "<unpadded-base64-fn-dsa-512-pubkey>"
-        }
-    },
-    "pqc_key_metadata": {
-        "fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
+            "key": "<unpadded-base64-fn-dsa-512-pubkey>",
             "fips_206_revision": "ipd-2025-08",
-            "claims": ["constant-time-keygen", "constant-time-signing"],
-            "profile": "opaque-operator-defined-profile",
-            "attestations": [
-                {
-                    "type": "audit-report-sha256",
-                    "sha256": "<unpadded-base64url-sha256>"
-                }
-            ]
+            "claims": ["constant-time-keygen", "constant-time-signing"]
         }
     },
     "old_verify_keys": {
         "fn-dsa-512:Rd3x2U9cQK8mV4sA": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
-            "expired_ts": 1798761600000
+            "expired_ts": 1798761600000,
+            "fips_206_revision": "ipd-2025-08",
+            "claims": ["constant-time-keygen", "constant-time-signing"]
         }
     },
     "signatures": {
@@ -251,16 +244,16 @@ own public key in the `signatures` field, and receivers verify that
 self-signature before trusting the key. A self-signature made for one
 `server_name` MUST NOT be accepted for any other `server_name`.
 
-The optional `pqc_key_metadata` object contains implementation metadata for PQC
-keys, indexed by key ID. Because Matrix signatures cover the server-key response
+FN-DSA key objects MAY include implementation metadata. The `fips_206_revision`
+field SHOULD be present before FIPS 206 finalization. The `claims` field is a
+list of auditable implementation claims such as `constant-time-keygen` and
+`constant-time-signing`. Because Matrix signatures cover the server-key response
 after removing only `signatures` and `unsigned`, this metadata is covered by the
-FN-DSA self-signature when present. The `fips_206_revision` field SHOULD be
-present before FIPS 206 finalization. The `claims`, `profile`, and
-`attestations` fields are policy metadata: verifiers and notaries MUST NOT treat
-them as cryptographic proof that key generation or signing was constant-time
-unless local policy explicitly trusts the named attestation mechanism.
-Implementations SHOULD NOT publish exact library names, versions, host details,
-CPU features, or build fingerprints unless the operator explicitly opts in.
+FN-DSA self-signature when present. Verifiers and notaries MUST treat these
+fields as policy metadata only; they are not cryptographic proof that key
+generation or signing was constant-time. Implementations SHOULD NOT publish
+exact library names, versions, host details, CPU features, or build fingerprints
+unless the operator explicitly opts in.
 
 #### Server key trust model
 
@@ -313,11 +306,8 @@ that a replacement key be signed by a prior FN-DSA key.
         "server_name": "example.com",
         "key_id": "fn-dsa-512:5FQ2xg4sWqj3Kp9N",
         "key_identity_sha256": "<unpadded-base64url-sha256>",
-        "implementation_sha256": "<unpadded-base64url-sha256>",
-        "implementation_claims": [
-            "constant-time-keygen",
-            "constant-time-signing"
-        ],
+        "key_metadata_sha256": "<unpadded-base64url-sha256>",
+        "claims": ["constant-time-keygen", "constant-time-signing"],
         "fips_206_revision": "ipd-2025-08"
     }
 }
@@ -330,14 +320,15 @@ FN-DSA public key body and `resource.server_name`. If either value does not
 match the domain-bound key identity, the proof MUST be rejected without
 evaluating the puzzle.
 
-The optional `resource.implementation_sha256` field is the SHA-256 digest of the
-Canonical JSON representation of the corresponding `pqc_key_metadata` entry. The
-optional `resource.implementation_claims` and `resource.fips_206_revision`
-fields mirror selected metadata into the proof-of-work resource for notary
-policy and operator diagnostics. These fields can be bound into the
-proof-of-work challenge, but they do not cryptographically prove that the FN-DSA
-key was generated or used with constant-time code. Verifiers and notaries MUST
-treat them as policy metadata only.
+The optional `resource.key_metadata_sha256` field is the SHA-256 digest of the
+Canonical JSON representation of the corresponding FN-DSA key object from
+`verify_keys` or `old_verify_keys`, including its implementation metadata. The
+optional `resource.claims` and `resource.fips_206_revision` fields mirror
+selected metadata into the proof-of-work resource for notary policy and operator
+diagnostics. These fields can be bound into the proof-of-work challenge, but
+they do not cryptographically prove that the FN-DSA key was generated or used
+with constant-time code. Verifiers and notaries MUST treat them as policy
+metadata only.
 
 **Graph derivation.** A given challenge graph contains a 42-cycle only with some
 probability, so the prover iterates a nonce:
@@ -850,14 +841,14 @@ that preserves verifier safety:
 
 - **Patch changes** add optional metadata or clarify validation without changing
   key ID derivation, signature inputs, encodings, or required verification
-  behavior. Examples include adding optional `pqc_key_metadata` fields, optional
-  attestation types, or additional policy claims. Patch fields MUST be safely
-  ignored by implementations that do not understand them.
+  behavior. Examples include adding optional FN-DSA key-object metadata fields
+  or additional policy claims. Patch fields MUST be safely ignored by
+  implementations that do not understand them.
 - **Minor changes** add a compatible extension that requires explicit support by
   both peers, while preserving the baseline behavior in this MSC. Examples
-  include a new proof-of-work profile, a new attestation format, or an optional
-  session-authentication variant. Minor extensions MUST use distinct identifiers
-  and MUST fall back to the mandatory baseline when unsupported.
+  include a new proof-of-work profile, a new metadata commitment format, or an
+  optional session-authentication variant. Minor extensions MUST use distinct
+  identifiers and MUST fall back to the mandatory baseline when unsupported.
 - **Major changes** alter cryptographic interpretation or break existing
   verification. Examples include changing FN-DSA encodings, signature sizes,
   signing inputs, key ID derivation, or mandatory verification rules. Major
