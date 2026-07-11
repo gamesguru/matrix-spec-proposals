@@ -203,7 +203,7 @@ publishing FN-DSA keys immediately, to pre-distribute public keys across the
 federation ahead of any downstream use (transport authentication in this MSC;
 PDU signing in MSC 45YY). Pre-distribution matters: every server whose FN-DSA
 key is observed, verified, and cached _before_ a quantum adversary exists gains
-post-quantum identity continuity from that point forward (see
+post-quantum protection thereafter (see
 [Server Key Trust Model](#server-key-trust-model)).
 
 FN-DSA keys are distributed as self-signed key objects: the server signs its own
@@ -234,108 +234,22 @@ distributed would make the migration circular. In typical deployments, the
 such as nginx using classical certificate authentication and classical key
 agreement; such transport is not post-quantum secure. The security property of
 this MSC therefore comes from Matrix-layer self-signatures and post-first-use
-FN-DSA continuity, not from assuming that the first HTTP fetch was PQ-secure.
+FN-DSA caching, not from assuming that the first HTTP fetch was PQ-secure.
 Servers SHOULD use PQC-capable TLS and `X-Matrix-PQC` authentication for key
 refreshes when available, but transport protection is not a substitute for
-verifying FN-DSA self-signatures and enforcing the replacement rules below.
+verifying FN-DSA self-signatures and enforcing the hash-derived key-ID rules
+below.
 
-Once a receiving server has successfully verified and cached a valid FN-DSA
-signing key for a remote server, subsequent FN-DSA key changes MUST be
-authenticated: the replacement key response MUST be signed by a previously
-trusted FN-DSA key (which MAY have been retired to `old_verify_keys` with a
-non-expired `expired_ts`). A new FN-DSA key MUST NOT be accepted solely on the
-basis of Ed25519 authentication if the receiving server has previously observed
-a valid FN-DSA key for that server. Because FN-DSA key IDs are hash-derived, a
-replacement FN-DSA key will necessarily appear under a new key ID.
+Replacement key publication follows the normal Matrix server-key model: a key
+response MUST include an FN-DSA self-signature in `signatures`, the receiving
+server MUST verify that self-signature, and the advertised key ID MUST match the
+hash-derived ID computed from the public key body. If the response is
+well-formed and authenticates under the existing Matrix server-key trust model
+(Ed25519 signatures and/or notary attestation), the receiving server caches the
+new key body. This MSC does not add any requirement that a replacement key be
+signed by a prior FN-DSA key.
 
-Servers SHOULD pin observed FN-DSA keys and treat unexpected key changes —
-particularly the disappearance of a previously-observed FN-DSA key or the
-appearance of an unattested replacement — as potential compromise indicators
-worthy of operator alerts. If a receiving server has previously pinned a valid
-FN-DSA key and later encounters a replacement that is not authenticated by a
-previously trusted non-expired FN-DSA key, it MUST treat the replacement as
-untrusted by default. Implementations MAY provide an explicit administrative
-recovery mechanism for legitimate key-loss scenarios; specification of an
-authenticated PQ key-reset protocol is deferred to future work.
-
-#### FN-DSA Key Replacement State Machine
-
-When a receiving server observes an FN-DSA key set for a remote server, it MUST
-process the key state as follows:
-
-1. **No pinned FN-DSA key.** If the receiving server has not previously verified
-   and cached a valid FN-DSA key for the remote server, it MAY accept an FN-DSA
-   key whose self-signature verifies under the published key. This initial
-   observation is TOFU and is not post-quantum secure against an attacker that
-   has already compromised the remote server's Ed25519 key.
-2. **Previously pinned key still present.** If the response contains a
-   previously trusted non-expired FN-DSA key, the receiving server MUST continue
-   to trust that key according to the normal validity rules.
-3. **Authenticated replacement.** If the response introduces a new FN-DSA key,
-   the receiving server MUST accept it only if the key response is signed by a
-   previously trusted non-expired FN-DSA key. The new key's self-signature MUST
-   also verify before the key is trusted.
-4. **Unattested replacement or disappearance.** If a previously pinned FN-DSA
-   key disappears, or a new FN-DSA key appears without authentication from a
-   previously trusted non-expired FN-DSA key, the receiving server MUST treat
-   the new key material as untrusted by default and SHOULD alert the operator.
-5. **Administrative recovery.** Implementations MAY provide an explicit
-   administrative recovery mechanism for legitimate key-loss scenarios. Such
-   recovery MUST be operator-gated and MUST NOT be triggerable by federation
-   traffic alone.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant O as Origin Server
-    participant R as Receiving Server
-    participant N as Notary
-
-    O-->>R: Publish FN-DSA key A with self-signature
-    R-->>R: Verify self-signature and cache A as TOFU-pinned key
-
-    O-->>R: Publish replacement key B signed by A
-    R-->>R: Verify A signature and B self-signature and trust B
-
-    O-->>N: Publish replacement key C without signature from A
-    N-->>R: Attest key C
-    R-->>R: Reject C as unattested despite notary attestation
-
-    O-->>R: Publish key set where A disappears
-    R-->>R: Treat as possible compromise and keep pinned trust state
-```
-
-#### Recovery Proof-of-Work Gate
-
-Implementations MAY require proof-of-work before accepting an unattested FN-DSA
-replacement into an administrative recovery queue, notary forensic index, or
-operator alert pipeline. Proof-of-work is only an abuse throttle: a valid proof
-MUST NOT cause an unattested replacement key to become trusted. This gate also
-makes deliberate attempts to flood a server or notary with candidate keys for a
-short hash-prefix collision operationally expensive, although a 16-character
-prefix collision remains more plausible than a full SHA-256 collision.
-
-To ensure federation-wide compatibility, this MSC defines exactly one
-proof-of-work profile for such recovery gates:
-`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256`, an instantiation of Cuckoo
-Cycle[^9] — chosen because it is memory-bound (resisting extreme ASIC/GPU
-asymmetry) and cheap to verify relative to solving (84 `SipHash` evaluations
-plus a cycle check). Implementations that expose a federation-visible
-proof-of-work challenge for FN-DSA recovery MUST support this profile and MUST
-NOT require Equihash or any other proof-of-work algorithm for MSC 45XX
-interoperability. A future MSC may define a new profile, but it must do so under
-a distinct algorithm identifier.
-
-This section fully specifies the challenge and proof _objects_ and their
-verification, so that the profile is a complete, interoperable primitive. The
-transport over which challenges are issued and proofs are submitted is
-deliberately not specified here: it belongs to the future authenticated
-key-reset MSC deferred above. Purely local uses (e.g. gating an operator alert
-pipeline) need no interoperability and MAY use this profile without any
-federation-visible surface.
-
-The proof input MUST commit to the attempted recovery target. The challenge
-object is:
+#### Key Publication Proof of Work
 
 ```json
 {
@@ -343,7 +257,7 @@ object is:
     "challenge": "<unpadded-base64url-random>",
     "expires_ts": 1798848000000,
     "resource": {
-        "action": "fn-dsa-key-recovery",
+        "action": "fn-dsa-key-publication",
         "server_name": "example.com",
         "key_id": "fn-dsa-512:5FQ2xg4sWqj3Kp9N",
         "key_body_sha256": "<unpadded-base64url-sha256>"
@@ -453,20 +367,18 @@ it can be deployed federation-wide without any flag day:
   whenever it is present and the sending server has a published FN-DSA key.
 - A verification failure SHOULD be logged as a warning but MUST NOT cause
   request rejection, provided the Ed25519 `Authorization` header is valid.
-- If a receiving server has pinned an FN-DSA key for the sending server (see
-  [Server Key Trust Model](#server-key-trust-model)), the _absence_ of the
+- If a receiving server has already cached an FN-DSA key for the sending server
+  (see [Server Key Trust Model](#server-key-trust-model)), the absence of the
   `X-Matrix-PQC` header on requests from that server SHOULD be logged as a
-  potential downgrade indicator. Implementations MAY offer an operator-level
-  strict mode that rejects unauthenticated requests from peers with pinned
-  FN-DSA keys, but this is not required by this MSC.
+  potential downgrade indicator.
 - Legacy servers that do not support this MSC ignore the `X-Matrix-PQC` header
   entirely.
 
 Mandatory enforcement is intentionally out of scope here: it is defined by MSC
 45YY, which requires a valid `X-Matrix-PQC` header for federation traffic scoped
 to PQC-required rooms. Splitting the mechanism (this MSC) from the enforcement
-trigger (MSC 45YY) means the header can reach wide deployment — and FN-DSA keys
-can be pinned across the federation — before anything depends on it.
+trigger (MSC 45YY) means the header can reach wide deployment before anything
+depends on it.
 
 The Ed25519 `Authorization` header remains required on all federation requests
 as long as any legacy room version exists in the federation.
@@ -660,8 +572,7 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 
 - **Waiting for FIPS 206 finalization.** Delaying extends the vulnerability
   window. Unstable prefixes allow early adoption without committing to final
-  identifiers — and every year of pre-distributed, pinned FN-DSA keys shrinks
-  the TOFU exposure window.
+  identifiers.
 
 - **PQC TLS instead of application-layer auth.** Post-quantum TLS (X25519 +
   ML-KEM hybrid key exchange) is being deployed by CDNs and browsers and
@@ -714,14 +625,14 @@ libraries following FIPS 203 finalization.
 - **Real-time impersonation.** The primary real-time quantum threat is an
   attacker deriving a server's Ed25519 private key to spoof federation traffic
   and server-key responses. This MSC mitigates the transport half of that
-  vector: once FN-DSA keys are distributed and pinned, `X-Matrix-PQC` provides
+  vector: once FN-DSA keys are distributed and cached, `X-Matrix-PQC` provides
   quantum-resistant request authentication, and the key trust model prevents a
-  quantum-equipped attacker from silently replacing a pinned FN-DSA key using
+  quantum-equipped attacker from silently replacing a cached FN-DSA key using
   only a broken Ed25519 key. Forged _events_ are addressed by MSC 45YY.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
   Ed25519 and is therefore not post-quantum secure. This is an argument for
-  deploying this MSC as early and widely as possible: keys pinned before
+  deploying this MSC as early and widely as possible: keys discovered before
   cryptographically relevant quantum computers exist are protected thereafter.
   Ordinary TLS termination, including common nginx deployments using classical
   TLS certificates and classical key agreement, does not remove this TOFU
