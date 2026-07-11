@@ -102,24 +102,18 @@ of the SHA-256 digest of the domain-bound key identity bytes, without padding.
 The identity bytes are:
 
 ```text
-uint16_be(len(key_id_domain_label)) || key_id_domain_label
-    || uint16_be(len(server_name)) || server_name
-    || raw_fn_dsa_512_public_key_bytes
+uint16_be(len(server_name)) || server_name || raw_fn_dsa_512_public_key_bytes
 ```
 
-where `key_id_domain_label` is the protocol label for this key ID namespace;
-`server_name` is the exact Matrix server name from the enclosing
+where `server_name` is the exact Matrix server name from the enclosing
 `/_matrix/key/v2/server` response, encoded as UTF-8; `uint16_be(len(x))` is the
 length of `x` in bytes as a two-byte big-endian unsigned integer; and the public
 key bytes are the raw FN-DSA-512 public key byte string as defined by FIPS 206.
-For unstable deployments, `key_id_domain_label` is the UTF-8 byte sequence
-`tk.nutra.msc45xx.fn-dsa-512.key-id.v1`. Once this MSC is accepted into the
-Matrix specification, the stable label is `org.matrix.fn-dsa-512.key-id.v1`. The
-label is length-prefixed so unstable and stable key IDs cannot collide or be
-ambiguous. Changing the label changes the derived key ID and therefore requires
-publishing a new key entry. A given `(server_name, public key body)` pair
-therefore has a single, deterministic hash-derived key ID. The same public key
-body published for a different server name has a different key ID.
+A given `(server_name, public key body)` pair thus has a single, deterministic
+hash-derived key ID. The same public key body published for a different server
+name has a different key ID. Such a publication is valid only if the enclosing
+server-key response carries a valid FN-DSA self-signature for that exact
+`server_name`.
 
 Implementations MUST use the exact Matrix `server_name` for key ID derivation
 and self-signature verification. Parent-domain, registrable-domain, wildcard,
