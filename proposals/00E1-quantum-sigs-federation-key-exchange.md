@@ -243,17 +243,17 @@ sequenceDiagram
     participant N as Notary
 
     O-->>R: Publish FN-DSA key A with self-signature
-    Note over R: Verify self-signature; cache A as TOFU-pinned key
+    R-->>R: Verify self-signature and cache A as TOFU-pinned key
 
     O-->>R: Publish replacement key B signed by A
-    Note over R: Verify A signature and B self-signature; trust B
+    R-->>R: Verify A signature and B self-signature and trust B
 
     O-->>N: Publish replacement key C without signature from A
     N-->>R: Attest key C
-    Note over R: Reject C as unattested despite notary attestation
+    R-->>R: Reject C as unattested despite notary attestation
 
     O-->>R: Publish key set where A disappears
-    Note over R: Treat as possible compromise; keep pinned trust state
+    R-->>R: Treat as possible compromise and keep pinned trust state
 ```
 
 #### Recovery Proof-of-Work Gate
@@ -732,12 +732,49 @@ This proposal is fully backwards-compatible:
 
 ## References
 
-- [NIST FIPS 206 Initial Public Draft: FN-DSA](https://csrc.nist.gov/pubs/fips/206/ipd)
-- [NIST FIPS 206 Status Update, Ray Perlner, 6th PQC Standardization Conference](<https://csrc.nist.gov/csrc/media/presentations/2025/fips-206-fn-dsa-(falcon)/images-media/fips_206-perlner_2.1.pdf>)
-- [Falcon specification and reference implementation](https://falcon-sign.info/)
-- [Thomas Pornin, New Efficient, Constant-Time Implementations of Falcon](https://eprint.iacr.org/2019/893.pdf)
-- [James Howe, Thomas Prest, Thomas Ricosset, and Melissa Rossi, Isochronous Gaussian Sampling: From Inception to Implementation With Applications to the Falcon Signature Scheme](https://eprint.iacr.org/2019/1411.pdf)
-- [Pierre-Alain Fouque, Paul Kirchner, Mehdi Tibouchi, Alexandre Wallet, and Yang Yu, Do Not Disturb a Sleeping Falcon](https://eprint.iacr.org/2024/1709.pdf)
-- [Jinyi Qiu and Aydin Aysu, SHIFT SNARE: Uncovering Secret Keys in FALCON via Single-Trace Analysis](https://arxiv.org/abs/2504.00320)
-- [NIST FIPS 203: ML-KEM](https://csrc.nist.gov/pubs/fips/203/final)
-- [John Tromp, Cuckoo Cycle proof-of-work](https://github.com/tromp/cuckoo)
+[^1]:
+    **National Institute of Standards and Technology.** _FIPS 206 Initial Public
+    Draft: FN-DSA._ Computer Security Resource Center. Available at:
+    <https://csrc.nist.gov/pubs/fips/206/ipd>
+
+[^2]:
+    **Perlner, R. (2025).** _FIPS 206 Status Update._ 6th NIST PQC
+    Standardization Conference. Available at:
+    <https://csrc.nist.gov/csrc/media/presentations/2025/fips-206-fn-dsa-(falcon)/images-media/fips_206-perlner_2.1.pdf>
+
+[^3]:
+    **Fouque, P.-A., Hoffstein, J., Kirchner, P., Lyubashevsky, V., Pornin, T.,
+    Prest, T., Ricosset, T., Seiler, G., Whyte, W., & Zhang, Z.** _Falcon:
+    Fast-Fourier Lattice-based Compact Signatures over NTRU._ Specification and
+    reference implementation. Available at: <https://falcon-sign.info/>
+
+[^4]:
+    **Pornin, T. (2019).** _New Efficient, Constant-Time Implementations of
+    Falcon._ IACR Cryptology ePrint Archive, 2019/893. Available at:
+    <https://eprint.iacr.org/2019/893>
+
+[^5]:
+    **Howe, J., Prest, T., Ricosset, T., & Rossi, M. (2019).** _Isochronous
+    Gaussian Sampling: From Inception to Implementation With Applications to the
+    Falcon Signature Scheme._ IACR Cryptology ePrint Archive, 2019/1411.
+    Available at: <https://eprint.iacr.org/2019/1411>
+
+[^6]:
+    **Fouque, P.-A., Kirchner, P., Tibouchi, M., Wallet, A., & Yu, Y. (2024).**
+    _Do Not Disturb a Sleeping Falcon._ IACR Cryptology ePrint Archive,
+    2024/1709. Available at: <https://eprint.iacr.org/2024/1709>
+
+[^7]:
+    **Qiu, J., & Aysu, A. (2025).** _SHIFT SNARE: Uncovering Secret Keys in
+    FALCON via Single-Trace Analysis._ arXiv:2504.00320. Available at:
+    <https://arxiv.org/abs/2504.00320>
+
+[^8]:
+    **National Institute of Standards and Technology. (2024).** _FIPS 203:
+    Module-Lattice-Based Key-Encapsulation Mechanism Standard._ Computer
+    Security Resource Center. Available at:
+    <https://csrc.nist.gov/pubs/fips/203/final>
+
+[^9]:
+    **Tromp, J.** _Cuckoo Cycle: a memory-bound graph-theoretic proof-of-work
+    system._ Available at: <https://github.com/tromp/cuckoo>
