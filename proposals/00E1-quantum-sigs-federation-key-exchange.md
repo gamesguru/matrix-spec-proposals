@@ -84,18 +84,16 @@ implementations SHOULD coalesce around a common, agreed standard.
 > fields (key IDs, signature entries, algorithm names, and meta-data). See
 > [Unstable Prefix](#unstable-prefix) for the full mapping.
 
-<!-- Edit marker.  -->
-
 ### Key ID format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g.,
 `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers
 and makes PQC key IDs hash-derived:
 
-| Key Algorithm | Description                  | Key ID Format       |
-| ------------- | ---------------------------- | ------------------- |
-| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`  |
-| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<hash>` |
+| Key Algorithm | Description                  | Key ID format (stable) |
+| ------------- | ---------------------------- | ---------------------- |
+| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`     |
+| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<hash>`    |
 
 For `fn-dsa-512`, the `hash` component MUST be the first 16 base64url characters
 of the SHA-256 digest of the domain-bound key identity bytes, without padding.
@@ -105,15 +103,27 @@ The identity bytes are:
 uint16_be(len(server_name)) || server_name || raw_fn_dsa_512_public_key_bytes
 ```
 
-where `server_name` is the exact Matrix server name from the enclosing
-`/_matrix/key/v2/server` response, encoded as UTF-8; `uint16_be(len(x))` is the
-length of `x` in bytes as a two-byte big-endian unsigned integer; and the public
-key bytes are the raw FN-DSA-512 public key byte string as defined by FIPS 206.
+where:
+
+- `server_name` is the exact Matrix server name from the enclosing
+  `/_matrix/key/v2/server` response, encoded as UTF-8;
+- `uint16_be(len(x))` is the length of `x` in bytes as a two-byte big-endian
+  unsigned integer; and the public key bytes are the raw FN-DSA-512 public key
+  byte string as defined by FIPS 206.
+
+<!-- TODO: is this binding necessary? Should we just use the key body?  -->
+
 A given `(server_name, public key body)` pair thus has a single, deterministic
 hash-derived key ID. The same public key body published for a different server
 name has a different key ID. Such a publication is valid only if the enclosing
 server-key response carries a valid FN-DSA self-signature for that exact
-`server_name`.
+`server_name` and at least one of the following are true:
+
+1. The key was fetched from the origin and the request passed TLS checks, or
+2. The key was fetched from a trusted notary whose implementation enforced
+   rule 1.
+
+<!-- Edit marker.  -->
 
 Implementations MUST use the exact Matrix `server_name` for key ID derivation
 and self-signature verification. Parent-domain, registrable-domain, wildcard,
@@ -147,7 +157,7 @@ under the key validity rules above, so that a server cannot inflate its peers'
 verification work by advertising manufactured collisions. Note that only the
 key's owner (or an attacker holding its signing keys) can introduce such
 collisions, since key responses are self-signed; see
-[Security Considerations](#security-considerations) for the collision cost
+[Security considerations](#security-considerations) for the collision cost
 analysis.
 
 Except for verified FN-DSA hash-prefix collisions as described above, key IDs
@@ -241,7 +251,7 @@ federation ahead of any downstream use (transport authentication in this MSC;
 PDU signing in MSC 45YY). Pre-distribution matters: every server whose FN-DSA
 key is observed, verified, and cached _before_ a quantum adversary exists gains
 post-quantum protection thereafter (see
-[Server Key Trust Model](#server-key-trust-model)).
+[Server key trust model](#server-key-trust-model)).
 
 FN-DSA keys are distributed as self-signed, domain-bound key objects: the server
 signs the `/_matrix/key/v2/server` object containing both `server_name` and its
@@ -266,8 +276,8 @@ Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server`
 response MUST include an FN-DSA self-signature in the `signatures` field
 alongside the existing Ed25519 signature. The `key_id` used for that signature
 MUST be derived from the response `server_name` and the FN-DSA public key body
-as specified in [Key Identifier Format](#key-id-format). Receiving servers MUST
-verify this self-signature before trusting the FN-DSA key.
+as specified in [Key ID format](#key-id-format). Receiving servers MUST verify
+this self-signature before trusting the FN-DSA key.
 
 Initial FN-DSA key discovery is trust-on-first-use (TOFU): it is authenticated
 by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
@@ -434,7 +444,7 @@ it can be deployed federation-wide without any flag day:
 - A verification failure SHOULD be logged as a warning but MUST NOT cause
   request rejection, provided the Ed25519 `Authorization` header is valid.
 - If a receiving server has already cached an FN-DSA key for the sending server
-  (see [Server Key Trust Model](#server-key-trust-model)), the absence of the
+  (see [Server key trust model](#server-key-trust-model)), the absence of the
   `X-Matrix-PQC` header on requests from that server SHOULD be logged as a
   potential downgrade indicator.
 - Legacy servers that do not support this MSC ignore the `X-Matrix-PQC` header
@@ -604,7 +614,7 @@ verification into a hard requirement for traffic scoped to PQC rooms.
   implementations can leak private keys through timing, cache, or power side
   channels. Implementations MUST use an audited FN-DSA library that provides
   constant-time Gaussian sampling and signing. The libraries listed under
-  [Implementation Guidance](#implementation-guidance) are non-normative
+  [Implementation guidance](#implementation-guidance) are non-normative
   examples.
 
 - **Key rotation complexity.** Servers must now manage and rotate two
@@ -622,7 +632,7 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 
 - **Advisory enforcement window.** Until MSC 45YY (or an operator strict mode)
   makes verification mandatory, `X-Matrix-PQC` failures only produce warnings.
-  This is deliberate — see [Security Considerations](#security-considerations)
+  This is deliberate — see [Security considerations](#security-considerations)
   on downgrade.
 
 ## Alternatives
@@ -738,8 +748,8 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
 - **Timing and power side-channels.** FN-DSA's discrete Gaussian sampler leaks
   private keys via timing analysis if implemented incorrectly, and single-trace
   power analysis of Falcon signing has been demonstrated[^7]. All
-  implementations MUST use audited, constant-time libraries (see Implementation
-  Guidance).
+  implementations MUST use audited, constant-time libraries (see
+  [Implementation guidance](#implementation-guidance)).
 
 - **Hash-derived key ID collisions.** The key ID commits to 96 bits of the
   domain-bound key identity digest. A second preimage against a _specific_
