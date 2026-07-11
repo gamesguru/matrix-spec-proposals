@@ -2,7 +2,8 @@
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
-elliptic-curve and RSA schemes.
+elliptic-curve and RSA schemes. A sufficiently capable attacker might eventually
+intercept, decrypt, and manipulate these requests as if they were insecure HTTP.
 
 This MSC is the first step of the post-quantum migration: it defines the
 post-quantum signature primitive for Matrix, distributes post-quantum server
