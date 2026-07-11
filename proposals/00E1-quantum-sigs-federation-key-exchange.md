@@ -48,7 +48,7 @@ key publication, self-signing, and federation transport authentication.
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g.,
 `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers
-and makes PQC key IDs content-addressed:
+and makes PQC key IDs hash-derived:
 
 | Key Algorithm | Description                  | Key ID Format       |
 | ------------- | ---------------------------- | ------------------- |
@@ -59,8 +59,8 @@ For `fn-dsa-512`, the `hash` component MUST be the first 16 base64url characters
 of the SHA-256 digest of the canonical public key bytes, without padding. The
 canonical public key bytes are the raw FN-DSA-512 public key byte string as
 defined by FIPS 206. A given public key body therefore has a single,
-deterministic key ID, and a given key ID MUST map to exactly one public key body
-for a given server.
+deterministic hash-derived key ID, and a given key ID MUST map to exactly one
+public key body for a given server.
 
 Key IDs MUST be unique within each algorithm namespace on a given server.
 
@@ -154,8 +154,8 @@ authenticated: the replacement key response MUST be signed by a previously
 trusted FN-DSA key (which MAY have been retired to `old_verify_keys` with a
 non-expired `expired_ts`). A new FN-DSA key MUST NOT be accepted solely on the
 basis of Ed25519 authentication if the receiving server has previously observed
-a valid FN-DSA key for that server. Because FN-DSA key IDs are content-
-addressed, a replacement FN-DSA key will necessarily appear under a new key ID.
+a valid FN-DSA key for that server. Because FN-DSA key IDs are hash-derived, a
+replacement FN-DSA key will necessarily appear under a new key ID.
 
 Servers SHOULD pin observed FN-DSA keys and treat unexpected key changes —
 particularly the disappearance of a previously-observed FN-DSA key or the
@@ -525,14 +525,14 @@ before finalization MUST observe the following constraints:
 - **Pin a specific draft revision.** Implementations MUST document which FIPS
   206 draft revision they target. Interoperability between implementations
   targeting different draft revisions is not guaranteed.
-- **Use unstable algorithm prefixes, but stable content-addressed key IDs.**
-  During the draft period, `/_matrix/key/v2/server` key entries and
-  `X-Matrix-PQC` header `key` parameters MUST use the unstable algorithm
-  identifier (`tk.nutra.msc45xx.fn-dsa-512`) as the prefix, but the suffix MUST
-  still be the content-addressed key ID derived from the FN-DSA public key body.
-  This ensures that draft-era signatures are distinguishable from signatures
-  produced under the finalized standard, while preserving the
-  collision-resistant lookup property.
+- **Use unstable algorithm prefixes, but stable hash-derived key IDs.** During
+  the draft period, `/_matrix/key/v2/server` key entries and `X-Matrix-PQC`
+  header `key` parameters MUST use the unstable algorithm identifier
+  (`tk.nutra.msc45xx.fn-dsa-512`) as the prefix, but the suffix MUST still be
+  the hash-derived key ID derived from the FN-DSA public key body. This ensures
+  that draft-era signatures are distinguishable from signatures produced under
+  the finalized standard, while preserving the collision-resistant lookup
+  property.
 - **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final
   standard changes the public key encoding, signature encoding, or algorithm
   semantics, all previously published unstable FN-DSA keys MUST be retired to
