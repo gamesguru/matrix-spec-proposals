@@ -1,4 +1,4 @@
-# MSC45XX: Post-quantum server key exchange and federation HTTP authentication
+# MSC45XX: Quantum-secure server key exchange and federation semantics
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
@@ -32,7 +32,7 @@ as the post-quantum signature scheme for Matrix. FN-DSA (Falcon)[^3] was
 selected by NIST for small signatures and fast verification — both critical for
 high-throughput federation.
 
-### Algorithm Parameters
+### Algorithm (`fn-dsa-512`)
 
 This MSC proposes a single, unified signature scheme. Offering ML-DSA
 (Dilithium) as a parallel or negotiable alternative would forfeit the reason for
@@ -49,19 +49,10 @@ FN-DSA is a signature scheme, so Cuckoo Cycle proof-of-work is not applicable to
 the primitive itself. The proof-of-work gate is defined separately below, where
 verification is intentionally cheap relative to proof generation.
 
-**Why NIST Level I.** Matrix event IDs and content hashes use SHA-256. Due to
-classical collision bounds (Birthday Paradox) and quantum preimage bounds
-(Grover's algorithm), SHA-256 provides at most ~128 bits of security. Deploying
-signatures beyond NIST Level I therefore offers limited additional benefit while
-Matrix's SHA-256-based constructions present a comparable security target
-elsewhere in the protocol. Note that hash collision resistance and signature
-unforgeability are distinct security properties; this comparison is a deployment
-tradeoff, not a formal security reduction.
-
 Homeservers that support this MSC MUST support `fn-dsa-512` for server signing
 key publication, self-signing, and federation transport authentication.
 
-#### Implementation Conformance
+#### Implementation conformance
 
 Implementations MUST generate FN-DSA keys, perform discrete Gaussian sampling,
 and produce FN-DSA signatures using side-channel-resistant, constant-time
@@ -82,7 +73,7 @@ Different libraries may interoperate, but only if they implement the exact FIPS
 > IDs, signature entries, and algorithm names). See
 > [Unstable Prefix](#unstable-prefix) for the full mapping.
 
-### Key Identifier Format
+### Key ID format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g.,
 `ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers
@@ -143,7 +134,7 @@ appear in protocol identifiers and may be embedded in URLs or routing paths.
 FN-DSA public keys and signatures themselves continue to use unpadded standard
 base64 as specified below.
 
-### FN-DSA Encoding and Signing Operation
+### FN-DSA encoding and signing
 
 This MSC targets FN-DSA-512 (n=512, q=12289) as specified by the FIPS 206
 initial public draft. Implementations MUST track the exact FIPS 206 revision
@@ -171,7 +162,7 @@ These encoding and signing rules are the normative definition of `fn-dsa-512`
 for the entire Matrix protocol; MSC 45YY (PDU signing) and MSC 0F00 (E2EE) build
 on them by reference.
 
-### Server Signing Keys
+### Server signing keys
 
 The `GET /_matrix/key/v2/server` response includes both key types:
 
@@ -214,14 +205,14 @@ FN-DSA keys are distributed as self-signed key objects: the server signs its own
 public key in the `signatures` field, and receivers verify that self-signature
 before trusting the key.
 
-#### Server Key Trust Model
+#### Server key trust model
 
 Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server`
 response MUST include an FN-DSA self-signature in the `signatures` field
 alongside the existing Ed25519 signature. The `key_id` used for that signature
 MUST be derived from the FN-DSA public key body as specified in
-[Key Identifier Format](#key-identifier-format). Receiving servers MUST verify
-this self-signature before trusting the FN-DSA key.
+[Key Identifier Format](#key-id-format). Receiving servers MUST verify this
+self-signature before trusting the FN-DSA key.
 
 Initial FN-DSA key discovery is trust-on-first-use (TOFU): it is authenticated
 by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
@@ -253,7 +244,7 @@ well-formed and authenticates under the existing Matrix server-key trust model
 new key body. This MSC does not add any requirement that a replacement key be
 signed by a prior FN-DSA key.
 
-#### Key Publication Proof of Work
+#### Key publication Proof-of-Work
 
 ```json
 {
@@ -279,7 +270,9 @@ MUST be rejected without evaluating the puzzle.
 probability, so the prover iterates a nonce:
 
 ```text
-graph_seed(nonce) = SHA-256( canonical_json(challenge_object) || uint64_le(nonce) )
+graph_seed(nonce) = SHA-256(
+    canonical_json(challenge_object) || uint64_le(nonce)
+)
 ```
 
 where `canonical_json` is Matrix Canonical JSON serialization,
@@ -319,7 +312,7 @@ endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
 The challenge MUST be rejected if `expires_ts` has passed or if the `challenge`
 value was not issued by the verifier.
 
-#### Notary Behavior and Key Validity
+#### Notary expectations and key validity
 
 Key notaries (`/_matrix/key/v2/query`) MUST include FN-DSA keys and their
 corresponding signatures in responses when present on the queried server.
@@ -336,7 +329,7 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
-### Federation HTTP Authentication
+### Federation HTTP authentication
 
 Sending servers that support this MSC MUST include the `X-Matrix-PQC` header on
 all outgoing federation requests. Unknown HTTP headers are safely ignored per
@@ -351,7 +344,7 @@ The FN-DSA signature MUST be computed over the same JSON signing object used for
 existing Matrix federation request authentication (containing `method`, `uri`,
 `origin`, `destination`, and `content` when present).
 
-#### Header Syntax
+#### Header syntax
 
 `X-Matrix-PQC` uses the same parameter syntax and parsing rules as the existing
 `Authorization: X-Matrix` header. Required parameters are `origin`,
@@ -362,7 +355,7 @@ signature. Malformed headers (invalid base64, missing required parameters,
 unparsable syntax) MUST be treated as absent for enforcement purposes and SHOULD
 be logged.
 
-#### Verification and Enforcement
+#### Verification and enforcement rules
 
 This MSC introduces the header with **advisory-but-verified** semantics, so that
 it can be deployed federation-wide without any flag day:
@@ -387,7 +380,7 @@ depends on it.
 The Ed25519 `Authorization` header remains required on all federation requests
 as long as any legacy room version exists in the federation.
 
-### Upgraded Connections: PQ Session Negotiation (Optional Extension)
+### Upgraded connections: PQ session negotiation (future MSC)
 
 The per-request `X-Matrix-PQC` header adds ~888 bytes (base64) of bandwidth
 overhead to every federation request. This section defines an OPTIONAL mechanism
@@ -399,7 +392,8 @@ PQC-capable servers.
 
 Per-request `X-Matrix-PQC` remains the baseline; servers MUST NOT assume peer
 support for session negotiation, and MUST fall back to per-request headers when
-negotiation is unavailable or a session is rejected.
+negotiation is unavailable or a session is rejected. A follow-up MSC will
+formally define this standard for ecosystem consistency.
 
 #### Endpoint
 
@@ -529,7 +523,7 @@ event, or client behavior changes.
 the sole, authoritative PDU signature scheme and turns `X-Matrix-PQC` transport
 verification into a hard requirement for traffic scoped to PQC rooms.
 
-## Potential Issues
+## Potential issues
 
 - **FIPS 206 not yet finalized.** FIPS 206 is in final stages but unpublished as
   of May 2026[^2]. Unstable prefixes allow parameter updates without breaking
@@ -554,7 +548,7 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 
 - **Per-request header overhead.** The `X-Matrix-PQC` header adds ~888 bytes of
   bandwidth per federation request. The optional
-  [session negotiation extension](#upgraded-connections-pq-session-negotiation-optional-extension)
+  [session negotiation extension](#upgraded-connections-pq-session-negotiation-future-msc)
   amortizes this to a 32-byte-key HMAC per request between supporting peers.
 
 - **Advisory enforcement window.** Until MSC 45YY (or an operator strict mode)
@@ -602,7 +596,7 @@ verification into a hard requirement for traffic scoped to PQC rooms.
   compression — ~1 KB of static text proves a server's identity to the entire
   world with zero consumable state.
 
-## Implementation Guidance
+## Implementation guidance
 
 FN-DSA libraries (status as of May 2026; FIPS 206 draft submitted August 2025,
 final standard expected late 2026–2027[^2]):
@@ -624,7 +618,7 @@ SHOULD prefer native (C/Rust) implementations. ML-KEM-768 (for the optional
 session extension) is available in liboqs and, increasingly, in mainstream TLS
 libraries following FIPS 203 finalization.
 
-## Security Considerations
+## Security considerations
 
 - **Real-time impersonation.** The primary real-time quantum threat is an
   attacker deriving a server's Ed25519 private key to spoof federation traffic
@@ -664,8 +658,8 @@ libraries following FIPS 203 finalization.
   signing keys) can place colliding key bodies into circulation: the attack is
   self-targeting. Its worst-case impact is bounded ambiguity handled by the
   exactly-one-verifies rule and the RECOMMENDED candidate cap in
-  [Key Identifier Format](#key-identifier-format); it cannot make a signature
-  verify under a key the signer does not hold.
+  [Key Identifier Format](#key-id-format); it cannot make a signature verify
+  under a key the signer does not hold.
 
 - **Proof-of-work is a throttle, not trust.** A valid Cuckoo Cycle[^9] proof
   only spends the prover's resources; it says nothing about the prover's
@@ -692,7 +686,7 @@ libraries following FIPS 203 finalization.
   trusted FN-DSA key, so servers SHOULD keep an offline backup of at least one
   FN-DSA key capable of signing a rotation.
 
-## Unstable Prefix
+## Unstable prefix
 
 While this MSC is in development, the following unstable prefixes are used:
 
@@ -722,7 +716,7 @@ Once this MSC is accepted but not yet merged into a released spec version,
 implementations SHOULD support both the unstable prefix and the stable
 identifier, accepting either.
 
-### Pre-Finalization Deployment Guidance
+### Pre-finalization deployment guidance
 
 FIPS 206 has not been finalized as of May 2026. Implementations deploying FN-DSA
 before finalization MUST observe the following constraints:
@@ -765,7 +759,7 @@ before finalization MUST observe the following constraints:
 
 This MSC has no dependency on MSC 45YY or MSC 0F00; they depend on it.
 
-## Backwards Compatibility
+## Backwards compatibility
 
 This proposal is fully backwards-compatible:
 
