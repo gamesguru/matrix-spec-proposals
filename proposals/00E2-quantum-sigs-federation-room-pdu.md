@@ -58,6 +58,10 @@ In room versions that require PQC signatures (see
   whose signature is required by the existing event signature verification rules
   for that room version. If no valid FN-DSA signature is present, the event MUST
   be rejected.
+- Receiving servers MUST reject the event if the required `fn-dsa-512` signature
+  references a malformed key ID, or if the referenced key was advertised under a
+  key ID that does not match the first 16 base64url characters of `SHA-256` over
+  the canonical FN-DSA public key bytes, as defined by MSC 45XX.
 - Receiving servers MUST ignore unrecognized or legacy signature algorithm
   entries in the `signatures` object; the presence of additional signatures
   (e.g., `ed25519`) MUST NOT cause event rejection. This prevents a

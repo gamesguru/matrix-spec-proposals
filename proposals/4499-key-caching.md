@@ -179,51 +179,6 @@ by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
 case. Notary-versus-notary conflicts (or the same notary at two different times)
 are also resolved by First Seen Wins among provisional observations.
 
-#### Unattested replacement state machine
-
-When a server observes a key response that introduces a new key body for a key
-ID that it has already cached, implementations MUST follow the state machine
-below:
-
-1. **No prior binding.** If the server has never cached the key ID before, it
-   MUST cache the observed key body and treat the binding as provisional if the
-   observation came from a notary, or permanent if it came directly from the
-   origin server.
-2. **Same body, new observation.** If the observed key body matches the cached
-   body, the server MUST accept the response as a refresh and update only the
-   validity timestamps.
-3. **Different body, provisional binding, direct fetch.** If the cached binding
-   is provisional and the conflicting observation is a direct fetch from the
-   origin server, the server MUST replace the provisional binding unless the
-   freeze rules below apply.
-4. **Different body, frozen binding.** If the cached binding is frozen under
-   [Provisional override freeze](#provisional-override-freeze-expirationretirement-guard),
-   the server MUST reject the new body as a collision.
-5. **Different body, permanent binding.** If the cached binding is permanent,
-   the server MUST reject the new body as a collision regardless of whether the
-   conflicting observation came from a notary or the origin server.
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant N as Notary
-    participant S as Receiving Server
-    participant O as Origin Server
-
-    O->>N: Publish key body A for key_id X
-    N-->>S: Return key body A for key_id X
-    Note over S: Cache A as provisional binding
-    S->>O: Direct fetch for key_id X
-    O-->>S: Return matching key body A
-    Note over S: Promote binding A to permanent
-
-    N-->>S: Return conflicting key body B for key_id X
-    Note over S: Reject B as a collision if binding A is permanent
-
-    O-->>S: Return conflicting key body B for key_id X
-    Note over S: If A is provisional and not frozen, direct fetch MAY override A
-```
-
 ### Key ID uniqueness invariant
 
 A key ID (`algorithm:key_id`) MUST map to exactly one public key body for a
@@ -313,7 +268,7 @@ this unavoidably leaves affected peers with a split-brain view of the room
 (requiring manual cache eviction or state resets to recover) if the origin
 server is not fixed, it creates an immediate, visible failure that forces the
 misconfigured administrator to correct their setup. Eliminating this collateral
-damage entirely requires a new room version mandating hash-derived key IDs,
+damage entirely requires a new room version mandating content-addressed key IDs,
 which is deferred to a future MSC (see
 [Future considerations](#future-considerations)).
 
@@ -690,7 +645,7 @@ This proposal is fully backwards-compatible:
 
 ## Future considerations
 
-### Hash-derived key IDs (stricter protocol requirements)
+### Content-addressed key IDs (stricter protocol requirements)
 
 The root cause of key ID collisions is that the `key_id` is currently an
 arbitrary, administrator-defined string (e.g., `ed25519:auto`). A future room

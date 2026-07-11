@@ -62,6 +62,14 @@ defined by FIPS 206. A given public key body therefore has a single,
 deterministic hash-derived key ID, and a given key ID MUST map to exactly one
 public key body for a given server.
 
+The `hash` component MUST contain exactly 16 characters from the base64url
+alphabet (`A-Z`, `a-z`, `0-9`, `_`, and `-`). When processing an FN-DSA public
+key from `verify_keys` or `old_verify_keys`, implementations MUST recompute the
+expected hash-derived key ID from the advertised public key bytes. If the
+advertised key ID does not exactly match the recomputed value, the key response
+MUST be rejected as malformed. Signature entries, `X-Matrix-PQC` headers, and
+PDU signatures that reference a malformed FN-DSA key ID MUST fail verification.
+
 Key IDs MUST be unique within each algorithm namespace on a given server.
 
 For FN-DSA specifically, notaries and caches SHOULD retain the full SHA-256
@@ -69,6 +77,11 @@ digest of the canonical public key bytes as the canonical fingerprint of the key
 body. The derived `key_id` is used for lookup and wire-format references; the
 full digest is used for collision forensics, deduplication, and canonical body
 comparison.
+
+This key ID derivation intentionally uses unpadded base64url because key IDs
+appear in protocol identifiers and may be embedded in URLs or routing paths.
+FN-DSA public keys and signatures themselves continue to use unpadded standard
+base64 as specified below.
 
 ### FN-DSA Encoding and Signing Operation
 
@@ -114,7 +127,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
         }
     },
     "old_verify_keys": {
-        "fn-dsa-512:pqc_retired": {
+        "fn-dsa-512:Rd3x2U9cQK8mV4sA": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
             "expired_ts": 1798761600000
         }
@@ -176,6 +189,108 @@ previously trusted non-expired FN-DSA key, it MUST treat the replacement as
 untrusted by default. Implementations MAY provide an explicit administrative
 recovery mechanism for legitimate key-loss scenarios; specification of an
 authenticated PQ key-reset protocol is deferred to future work.
+
+#### FN-DSA Key Replacement State Machine
+
+When a receiving server observes an FN-DSA key set for a remote server, it MUST
+process the key state as follows:
+
+1. **No pinned FN-DSA key.** If the receiving server has not previously verified
+   and cached a valid FN-DSA key for the remote server, it MAY accept an FN-DSA
+   key whose self-signature verifies under the published key. This initial
+   observation is TOFU and is not post-quantum secure against an attacker that
+   has already compromised the remote server's Ed25519 key.
+2. **Previously pinned key still present.** If the response contains a
+   previously trusted non-expired FN-DSA key, the receiving server MUST continue
+   to trust that key according to the normal validity rules.
+3. **Authenticated replacement.** If the response introduces a new FN-DSA key,
+   the receiving server MUST accept it only if the key response is signed by a
+   previously trusted non-expired FN-DSA key. The new key's self-signature MUST
+   also verify before the key is trusted.
+4. **Unattested replacement or disappearance.** If a previously pinned FN-DSA
+   key disappears, or a new FN-DSA key appears without authentication from a
+   previously trusted non-expired FN-DSA key, the receiving server MUST treat
+   the new key material as untrusted by default and SHOULD alert the operator.
+5. **Administrative recovery.** Implementations MAY provide an explicit
+   administrative recovery mechanism for legitimate key-loss scenarios. Such
+   recovery MUST be operator-gated and MUST NOT be triggerable by federation
+   traffic alone.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant O as Origin Server
+    participant R as Receiving Server
+    participant N as Notary
+
+    O-->>R: Publish FN-DSA key A with self-signature
+    Note over R: Verify self-signature; cache A as TOFU-pinned key
+
+    O-->>R: Publish replacement key B signed by A
+    Note over R: Verify A signature and B self-signature; trust B
+
+    O-->>N: Publish replacement key C without signature from A
+    N-->>R: Attest key C
+    Note over R: Reject C as unattested despite notary attestation
+
+    O-->>R: Publish key set where A disappears
+    Note over R: Treat as possible compromise; keep pinned trust state
+```
+
+#### Recovery Proof-of-Work Gate
+
+Implementations MAY require proof-of-work before accepting an unattested FN-DSA
+replacement into an administrative recovery queue, notary forensic index, or
+operator alert pipeline. Proof-of-work is only an abuse throttle: a valid proof
+MUST NOT cause an unattested replacement key to become trusted.
+
+To ensure federation-wide compatibility, this MSC defines exactly one
+proof-of-work profile for such recovery gates:
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256`. Implementations that expose a
+federation-visible proof-of-work challenge for FN-DSA recovery MUST support this
+profile and MUST NOT require Equihash or any other proof-of-work algorithm for
+MSC 45XX interoperability. A future MSC may define a new profile, but it must do
+so under a distinct algorithm identifier.
+
+The proof input MUST commit to the attempted recovery target. The challenge
+object is:
+
+```json
+{
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+    "challenge": "<unpadded-base64url-random>",
+    "expires_ts": 1798848000000,
+    "resource": {
+        "action": "fn-dsa-key-recovery",
+        "server_name": "example.com",
+        "key_id": "fn-dsa-512:5FQ2xg4sWqj3Kp9N",
+        "key_body_sha256": "<unpadded-base64url-sha256>"
+    }
+}
+```
+
+The `resource.key_id` and `resource.key_body_sha256` fields MUST correspond to
+the same advertised FN-DSA public key body. If either value does not match the
+public key body, the proof MUST be rejected without evaluating the puzzle. The
+challenge object MUST be serialized as Matrix Canonical JSON before deriving the
+Cuckoo Cycle graph seed. The graph seed is `SHA-256` over that canonical JSON
+byte string.
+
+The proof response is:
+
+```json
+{
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+    "challenge": "<unpadded-base64url-random>",
+    "solution": [123, 456, 789]
+}
+```
+
+The `solution` array MUST contain exactly 42 unsigned integer edge indices in
+strictly increasing order. Each edge index MUST be less than `2^29`.
+Verification MUST reject duplicate, unsorted, out-of-range, or non-integer
+entries before evaluating the Cuckoo Cycle proof. The challenge MUST be rejected
+if `expires_ts` has passed.
 
 Key notaries (`/_matrix/key/v2/query`) MUST include FN-DSA keys and their
 corresponding signatures in responses when present on the queried server.
