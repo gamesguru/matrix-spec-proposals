@@ -18,8 +18,8 @@ MSCs.
 
 ## Proposal
 
-This MSC introduces **FN-DSA**, a 128-bit secure lattice-based signature scheme
-specified by the
+This MSC introduces `fn-dsa-512`, a 128-bit secure lattice-based signature
+scheme specified by the
 [NIST FIPS 206 initial public draft](https://csrc.nist.gov/pubs/fips/206/ipd),
 as the post-quantum signature scheme for Matrix. FN-DSA (Falcon) was selected by
 NIST for small signatures and fast verification — both critical for
@@ -59,8 +59,7 @@ For `fn-dsa-512`, the `hash` component MUST be the first 16 base64url characters
 of the SHA-256 digest of the canonical public key bytes, without padding. The
 canonical public key bytes are the raw FN-DSA-512 public key byte string as
 defined by FIPS 206. A given public key body therefore has a single,
-deterministic hash-derived key ID, and a given key ID MUST map to exactly one
-public key body for a given server.
+deterministic hash-derived key ID.
 
 The `hash` component MUST contain exactly 16 characters from the base64url
 alphabet (`A-Z`, `a-z`, `0-9`, `_`, and `-`). When processing an FN-DSA public
@@ -70,7 +69,18 @@ advertised key ID does not exactly match the recomputed value, the key response
 MUST be rejected as malformed. Signature entries, `X-Matrix-PQC` headers, and
 PDU signatures that reference a malformed FN-DSA key ID MUST fail verification.
 
-Key IDs MUST be unique within each algorithm namespace on a given server.
+In the exceedingly unlikely event that a server advertises multiple distinct
+FN-DSA public key bodies whose SHA-256 digests share the same first 16 base64url
+characters, each advertised key body is well-formed for the same derived key ID.
+This is a hash-prefix collision, not a malformed key ID. A receiving server MUST
+retain each colliding key body under its full SHA-256 fingerprint and, when
+verifying a signature that references the shared key ID, MUST attempt
+verification against each non-expired candidate key body for that server and key
+ID. The signature is valid if exactly one candidate verifies. If no candidate
+verifies, or if more than one candidate verifies, verification MUST fail.
+
+Except for verified FN-DSA hash-prefix collisions as described above, key IDs
+MUST be unique within each algorithm namespace on a given server.
 
 For FN-DSA specifically, notaries and caches SHOULD retain the full SHA-256
 digest of the canonical public key bytes as the canonical fingerprint of the key
@@ -242,7 +252,10 @@ sequenceDiagram
 Implementations MAY require proof-of-work before accepting an unattested FN-DSA
 replacement into an administrative recovery queue, notary forensic index, or
 operator alert pipeline. Proof-of-work is only an abuse throttle: a valid proof
-MUST NOT cause an unattested replacement key to become trusted.
+MUST NOT cause an unattested replacement key to become trusted. This gate also
+makes deliberate attempts to flood a server or notary with candidate keys for a
+short hash-prefix collision operationally expensive, although a 16-character
+prefix collision remains more plausible than a full SHA-256 collision.
 
 To ensure federation-wide compatibility, this MSC defines exactly one
 proof-of-work profile for such recovery gates:

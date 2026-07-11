@@ -62,6 +62,11 @@ In room versions that require PQC signatures (see
   references a malformed key ID, or if the referenced key was advertised under a
   key ID that does not match the first 16 base64url characters of `SHA-256` over
   the canonical FN-DSA public key bytes, as defined by MSC 45XX.
+- If the required `fn-dsa-512` signature references a well-formed key ID that
+  corresponds to multiple non-expired FN-DSA key bodies due to a genuine
+  16-character hash-prefix collision, the receiving server MUST attempt
+  verification with each candidate key body for that server and key ID. The
+  event is valid only if exactly one candidate verifies.
 - Receiving servers MUST ignore unrecognized or legacy signature algorithm
   entries in the `signatures` object; the presence of additional signatures
   (e.g., `ed25519`) MUST NOT cause event rejection. This prevents a
