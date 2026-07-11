@@ -1,4 +1,4 @@
-# MSC45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication
+# MSC45XX: Post-quantum server key exchange and HTTP semantics
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
@@ -11,12 +11,10 @@ authentication to be quantum-resistant. It deliberately makes **no changes to
 events, PDUs, or room versions** — every mechanism in this proposal can be
 deployed immediately by any homeserver, with zero impact on rooms or clients.
 
-PQC PDU signing and the room version that requires it are addressed separately
-in
-[MSC 45YY: Post-Quantum PDU Signatures for Federation](https://github.com/matrix-org/matrix-spec-proposals/pull/45YY),
-which builds on the primitives defined here. E2EE device and cross-signing key
-migration is addressed in
-[MSC 0F00: Post-Quantum Digital Signatures for E2EE](https://github.com/matrix-org/matrix-spec-proposals/pull/0F00).
+PQC PDU signing and the requisite room version upgrade will be addressed in a
+separate proposal that builds on the primitives defined here. E2EE device and
+cross-signing key management and migration can also be addressed in follow-up
+MSCs.
 
 ## Proposal
 
@@ -29,20 +27,12 @@ high-throughput federation.
 
 ### Algorithm Parameters
 
-This MSC proposes a single, unified signature scheme.
+This MSC proposes a single, unified signature scheme. Allowing joint-Dilithium
+schemes defeats the purpose of Falcon based schemes: small signatures and keys.
 
 | Algorithm    | NIST Level  | Public Key | Signature  | Verification | Use Case                     |
 | ------------ | ----------- | ---------- | ---------- | ------------ | ---------------------------- |
 | `fn-dsa-512` | I (128-bit) | 897 bytes  | ~666 bytes | ~0.1 ms      | HTTP transport. PDU signing. |
-
-Matrix event IDs use SHA-256. Due to classical collision bounds (Birthday
-Paradox) and quantum preimage bounds (Grover's algorithm), SHA-256 provides a
-maximum of ~128 bits of security. Deploying signatures beyond NIST Level I
-(128-bit PQ) offers limited additional benefit in Matrix's current design, where
-SHA-256-based constructions elsewhere in the protocol present a comparable
-security target. Note that hash collision resistance and signature
-unforgeability are distinct security properties; this comparison is a deployment
-tradeoff, not a formal security reduction.
 
 Homeservers that support this MSC MUST support `fn-dsa-512` for server signing
 key publication, self-signing, and federation transport authentication.
@@ -567,3 +557,9 @@ This proposal is fully backwards-compatible:
 - **One new endpoint**, which is OPTIONAL, discoverable by its `404`, and has a
   mandatory fallback path.
 - **Zero impact on events, PDUs, room versions, or clients.**
+
+## References
+
+[^1]:
+    **FIPS 206 Status Update**
+    https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/1HXzjlMUU6Y
