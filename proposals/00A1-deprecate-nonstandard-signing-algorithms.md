@@ -33,9 +33,9 @@ For clarity, this MSC uses the following processing categories:
   room-version auth rules. It can affect the room DAG, room state, and client
   history.
 - **Outlier event.** Valid format and valid required signatures, but the
-  receiving server does not yet have enough surrounding room data to place it as
-  a normal timeline event. It may be persisted as an outlier candidate and later
-  de-outliered if the missing context arrives.
+  receiving server does not yet have enough surrounding room data to fully auth
+  or place it as a normal timeline event. It may be persisted as an outlier
+  candidate and later de-outliered if the missing context arrives.
 - **Soft-failed event.** Valid format, valid required signatures, and valid
   auth-at-event, but it fails checks against the receiver's current forward
   extremity view. It may be persisted and participate in state resolution or
@@ -49,7 +49,7 @@ For clarity, this MSC uses the following processing categories:
 - **Hard-invalid candidate PDU.** Parseable enough to identify as a candidate
   event, but it fails required non-auth validation such as a missing or
   mathematically invalid required signature, malformed required signing key
-  reference, unsupported required signing algorithm, malformed hashes, or other
+  material, unsupported required signing algorithm, malformed hashes, or other
   room-version-independent event validity checks. It MUST NOT be treated as a
   Matrix room event. Implementations may retain only its event ID, reference
   hash, or raw body for retry suppression, diagnostics, or abuse handling.
@@ -69,7 +69,7 @@ The following signing algorithms are recognized for Matrix federation:
 | Algorithm    | Status      | Specification                                                             |
 | ------------ | ----------- | ------------------------------------------------------------------------- |
 | `ed25519`    | **Active**  | Matrix spec                                                               |
-| `fn-dsa-512` | **Pending** | [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF) |
+| `fn-dsa-512` | **Pending** | [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1) |
 
 All other algorithm identifiers — including but not limited to custom elliptic
 curves, RSA-based schemes, vendor-specific key types, and any algorithm not
@@ -107,8 +107,9 @@ Homeserver implementations MUST:
   NOT cause event rejection or key response rejection, provided at least one
   recognized algorithm entry is present and valid. If a recognized algorithm
   signature (e.g., `ed25519`) is present but mathematically invalid, the event
-  is a **hard-invalid candidate PDU** and MUST be rejected. The server MUST NOT
-  fall back to attempting verification against an unrecognized algorithm entry.
+  is a **hard-invalid candidate PDU** and MUST NOT proceed to room-version auth
+  evaluation. The server MUST NOT fall back to attempting verification against
+  an unrecognized algorithm entry.
 - **Accept but quarantine legacy keys.** If a key response (from either the
   remote server's `/_matrix/key/v2/server` endpoint or a `/_matrix/key/v2/query`
   notary) contains **only** unrecognized algorithm keys (and no valid `ed25519`
@@ -126,10 +127,11 @@ unrecognized algorithm signatures and **no** recognized algorithm entry (e.g.,
 no `ed25519` or `fn-dsa-512` signature), the server MUST fall back to existing
 legacy signature verification behavior. Standard servers that lack the
 cryptographic libraries to verify the unrecognized algorithm will naturally fail
-verification, resulting in the event being treated as a **hard-invalid candidate
-PDU** — but this is the existing behavior, not a new room-version-independent
-protocol rule introduced by this MSC. Phase 2 formalizes the
-recognized-algorithm requirement for Room Version N and above.
+verification; for standard servers without support for that algorithm, this
+naturally results in the event being treated as a **hard-invalid candidate PDU**
+— but this is the existing behavior, not a new room-version-independent protocol
+rule introduced by this MSC. Phase 2 formalizes the recognized-algorithm
+requirement for Room Version N and above.
 
 Homeserver implementations SHOULD:
 
@@ -157,18 +159,19 @@ In Room Version N:
 
 - Events whose `signatures` dictionary contains **only** unrecognized algorithm
   entries and no valid `ed25519` or `fn-dsa-512` signature from the expected
-  origin server are **hard-invalid candidate PDUs** and MUST be rejected before
+  origin server are **hard-invalid candidate PDUs** and MUST NOT proceed to
   room-version auth evaluation.
 - The set of recognized algorithms for Room Version N is explicitly: `ed25519`
-  and `fn-dsa-512` (if MSC 00EF is accepted by the time Room Version N is
+  and `fn-dsa-512` (if MSC 00E1 is accepted by the time Room Version N is
   specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a
   recognized algorithm fails.
 
 In particular, unsupported or malformed required signature algorithms are not a
 soft-fail condition and not an auth-rejection condition. They fail earlier, at
-the required-signature validation stage, before the event can be treated as a
-room event for DAG or auth purposes.
+the required-signature validation stage, before the PDU can be treated as a
+Matrix room event for DAG or auth purposes. Implementations MAY retain failed
+candidate metadata for retry suppression, diagnostics, or abuse handling.
 
 **Historical code caveat.** Because Matrix rooms are immutable DAGs, homeserver
 implementations cannot delete support for legacy algorithms entirely. Events in
@@ -275,9 +278,9 @@ separate Room Version MSC.
 ## Dependencies
 
 - None. This MSC is independent of
-  [MSC 00EF](https://github.com/matrix-org/matrix-spec-proposals/pull/00EF)
+  [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1)
   (Post-Quantum Digital Signatures for Federation), although it is
-  complementary. If MSC 00EF is accepted before Room Version N is finalized,
+  complementary. If MSC 00E1 is accepted before Room Version N is finalized,
   `fn-dsa-512` is included in the recognized algorithm set.
 
 ## Backwards Compatibility
