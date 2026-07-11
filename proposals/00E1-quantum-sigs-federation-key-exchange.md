@@ -601,36 +601,13 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 FN-DSA libraries (status as of May 2026; FIPS 206 draft submitted August 2025,
 final standard expected late 2026–2027[^2]):
 
-- `liboqs` (C)
-    - FFI: Python, Rust, Go, Java, .NET
-    - Status: Round 3 Falcon; FIPS 206 update tracked in issue 2271
-    - Maturity: mature OQS reference; targets draft, not final FIPS 206
-    - Notes: reference PQC library; compiles to WASM via Emscripten; broadest
-      algorithm coverage
-- `oqs` / `liboqs-rust` (Rust FFI to C)
-    - FFI: wraps `liboqs`
-    - Status: tracks `liboqs`; v0.11.0 (May 2025)
-    - Maturity: stable; follows `liboqs` releases
-    - Notes: Rust bindings for `liboqs`; suitable for conduwuit and
-      Synapse-via-PyO3
-- `pqcrypto-falcon` (Rust)
-    - FFI: none; wraps PQClean C
-    - Status: Round 3 Falcon (PQClean); v0.4.1 (Aug 2025)
-    - Maturity: usable today; FIPS 206 update pending PQClean upstream
-    - Notes: pure-Rust build wrapper; no system C dependency, which simplifies
-      cross-compilation
-- `oqs-provider` (C, OpenSSL 3.x)
-    - FFI: N/A
-    - Status: experimental Falcon via `liboqs`; not natively in OpenSSL 3.5+
-    - Maturity: research/testing; not audited for production signing
-    - Notes: OpenSSL provider; useful for TLS experimentation, not directly for
-      Matrix JSON signing
-- `falcon-crypto` / `@btq-js/falcon-wasm` (JavaScript/WASM)
-    - FFI: none
-    - Status: Round 3 Falcon (Emscripten of reference C)
-    - Maturity: community; requires audit for constant-time WASM guarantees
-    - Notes: browser/Node.js; must verify FIPS 206 alignment and side-channel
-      resistance before production
+| Library                                                                                                                        | Language        | FFI                                | FN-DSA Status                                                                                              | Maturity                                                    | Notes                                                                                          |
+| ------------------------------------------------------------------------------------------------------------------------------ | --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| [liboqs](https://github.com/open-quantum-safe/liboqs)                                                                          | C               | Yes (Python, Rust, Go, Java, .NET) | Round 3 Falcon; FIPS 206 update tracked ([#2271](https://github.com/open-quantum-safe/liboqs/issues/2271)) | Mature (OQS reference); targets draft, not final FIPS 206   | Reference PQC library. Compiles to WASM via Emscripten. Most complete algorithm coverage.      |
+| [oqs](https://crates.io/crates/oqs) / [liboqs-rust](https://github.com/open-quantum-safe/liboqs-rust)                          | Rust (FFI to C) | Yes (wraps liboqs)                 | Tracks liboqs; v0.11.0 (May 2025)                                                                          | Stable; follows liboqs releases                             | Rust bindings for liboqs. Suitable for conduwuit, Synapse-via-PyO3.                            |
+| [pqcrypto-falcon](https://crates.io/crates/pqcrypto-falcon)                                                                    | Rust            | No (wraps PQClean C)               | Round 3 Falcon (PQClean); v0.4.1 (Aug 2025)                                                                | Usable today; FIPS 206 update pending PQClean upstream      | Pure-Rust build wrapper. No system C dependency — simplifies cross-compilation.                |
+| [oqs-provider](https://github.com/open-quantum-safe/oqs-provider)                                                              | C (OpenSSL 3.x) | N/A                                | Experimental Falcon via liboqs; not natively in OpenSSL 3.5+                                               | Research/testing; not audited for production signing        | OpenSSL provider. Useful for TLS experimentation, not directly for Matrix JSON signing.        |
+| [falcon-crypto](https://www.npmjs.com/package/falcon-crypto) / [@btq-js/falcon-wasm](https://github.com/nickthecook/falcon-js) | JavaScript/WASM | No                                 | Round 3 Falcon (Emscripten of reference C)                                                                 | Community; requires audit for constant-time WASM guarantees | Browser/Node.js. Must verify FIPS 206 alignment and side-channel resistance before production. |
 
 All implementations MUST use side-channel-resistant, constant-time key
 generation, Gaussian sampling, and signing operations; constant-time Falcon
