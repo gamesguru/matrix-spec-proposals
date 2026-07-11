@@ -103,6 +103,10 @@ FN-DSA-512 public key byte string as defined by FIPS 206. A given
 hash-derived key ID. The same public key body published for a different server
 name has a different key ID.
 
+Implementations MUST use the exact Matrix `server_name` for key ID derivation
+and self-signature verification. Parent-domain, registrable-domain, wildcard,
+and suffix-equivalent matches MUST NOT be accepted.
+
 The `hash` component MUST contain exactly 16 characters from the base64url
 alphabet of RFC 4648 §5 (`A-Z`, `a-z`, `0-9`, `-`, and `_`), encoding the first
 96 bits of the digest. When processing an FN-DSA public key from `verify_keys`
