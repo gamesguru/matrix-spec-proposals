@@ -1,30 +1,35 @@
-# MSC45XX: Quantum-secure server key exchange and federation semantics
+# MSC45XX: Quantum-secure server key exchange and revised federation semantics
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
 elliptic-curve and RSA schemes. A sufficiently capable attacker might eventually
 intercept, decrypt, and manipulate these requests as if they were insecure HTTP.
+They could broadly misrepresent themselves across the network as another entity.
 
-This MSC is the first step of the post-quantum migration: it defines the
-post-quantum signature primitive for Matrix, distributes post-quantum server
-signing keys across the federation, and upgrades server-to-server HTTP
-authentication to be quantum-resistant. It deliberately makes **no changes to
-events, PDUs, or room versions** — every mechanism in this proposal can be
-deployed immediately by any homeserver, with zero impact on rooms or clients.
+This MSC is the first step of the post-quantum migration: it defines the Falcon
+post-quantum signature primitive for Matrix, establishes a provisional mechanism
+of distributing post-quantum server signing keys across the federation, and
+provides the onboarding ramp for upgrading server-to-server HTTP authentication
+to quantum-resistant standards. It deliberately makes **no changes to events,
+PDUs, or room versions.** Every mechanism in this proposal can be deployed
+immediately by any server — zero impact on rooms, clients, or legacy federation.
 
 This MSC is also the compatibility anchor for Matrix's first deployed
 post-quantum signing keys: it pins the exact FIPS 206 revision, encodings, and
 signing operation that every subsequent post-quantum MSC builds on by reference,
 and it sets the implementation-quality bar below which production FN-DSA keys
-must not be published. The corresponding normative requirements are specified in
-[Implementation Conformance](#implementation-conformance).
+must not be published. The associated normative requirements are specified in
+[Implementation conformance](#implementation-conformance).
 
-PQC PDU signing and the requisite room version upgrade will be addressed in a
+PQC PDU signing and the co-requisite room version upgrade will be addressed in a
 companion proposal (working draft: MSC 45YY) that builds on the primitives
 defined here. E2EE device and cross-signing key management and migration can
 likewise be addressed in follow-up MSCs (working draft: MSC 0F00).
 
 ## Proposal
+
+<!-- Edit marker.  -->
+<!-- Read marker.  -->
 
 This MSC introduces `fn-dsa-512`, a 128-bit secure lattice-based signature
 scheme specified by the
@@ -66,7 +71,7 @@ requirement.
 
 Different libraries may interoperate, but only if they implement the exact FIPS
 206 revision, encodings, and signing operation specified by this MSC (see
-[Pre-Finalization Deployment Guidance](#pre-finalization-deployment-guidance)).
+[Pre-finalization deployment guidance](#pre-finalization-deployment-guidance)).
 
 > **Note:** For readability, this proposal uses the intended stable identifier
 > `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted
