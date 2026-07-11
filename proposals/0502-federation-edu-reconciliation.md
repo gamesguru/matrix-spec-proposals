@@ -7,8 +7,8 @@ Unlike PDUs, EDUs have no DAG, no persistence guarantee, and no retry mechanism.
 A dropped EDU is lost forever.
 
 This proposal introduces a lightweight state-snapshot reconciliation protocol
-for EDU streams, allowing federated servers to detect and repair stale
-ephemeral state without polling individual user accounts.
+for EDU streams, allowing federated servers to detect and repair stale ephemeral
+state without polling individual user accounts.
 
 ## Background
 
@@ -18,22 +18,21 @@ EDU delivery failures produce user-visible symptoms that are difficult to
 diagnose:
 
 1. **Stale presence.** A user appears permanently offline to remote servers
-   because the `m.presence` EDU announcing their online status was dropped.
-   The remote server has no mechanism to discover that its cached presence
-   is wrong.
+   because the `m.presence` EDU announcing their online status was dropped. The
+   remote server has no mechanism to discover that its cached presence is wrong.
 
-2. **Missing read receipts.** A user's read position appears frozen in
-   remote clients because `m.receipt` EDUs were dropped during a network
-   partition. The conversation shows a permanently stale read marker.
+2. **Missing read receipts.** A user's read position appears frozen in remote
+   clients because `m.receipt` EDUs were dropped during a network partition. The
+   conversation shows a permanently stale read marker.
 
 3. **Broken encryption.** Device list updates (`m.device_list_update`) are
-   critical for Olm/Megolm session management. A missed device list change
-   means remote servers continue encrypting to stale device keys, producing
+   critical for Olm/Megolm session management. A missed device list change means
+   remote servers continue encrypting to stale device keys, producing
    undecryptable messages (UTDs) with no automatic recovery.
 
-4. **Stale typing indicators.** Typing notifications (`m.typing`) are
-   inherently short-lived, but a missed "stopped typing" EDU can leave a
-   ghost typing indicator for minutes or until the next full sync.
+4. **Stale typing indicators.** Typing notifications (`m.typing`) are inherently
+   short-lived, but a missed "stopped typing" EDU can leave a ghost typing
+   indicator for minutes or until the next full sync.
 
 ### Why This Is Different From PDU Reconciliation
 
@@ -43,21 +42,21 @@ MSC0F01 addresses PDU divergence in the room DAG. PDUs are:
   linked graph.
 - **Append-only** — new events reference previous events; the history only
   grows.
-- **Set-reconcilable** — Bloom filters and merge-base walks can identify
-  missing entries in the graph.
+- **Set-reconcilable** — Bloom filters and merge-base walks can identify missing
+  entries in the graph.
 
 EDUs are fundamentally different:
 
-- **Ephemeral** — they represent _current state_, not history. Only the
-  latest value matters.
-- **Last-writer-wins** — a newer presence update supersedes an older one.
-  There is no merge conflict.
+- **Ephemeral** — they represent _current state_, not history. Only the latest
+  value matters.
+- **Last-writer-wins** — a newer presence update supersedes an older one. There
+  is no merge conflict.
 - **Scoped differently** — some EDUs are per-user-global (presence, device
   lists), others are per-user-per-room (receipts, typing).
 
-This means EDU reconciliation does not need graph traversal or Bloom filters.
-It needs **version-vector comparison** — a mechanism to ask "is your snapshot
-of user X's state newer than mine?"
+This means EDU reconciliation does not need graph traversal or Bloom filters. It
+needs **version-vector comparison** — a mechanism to ask "is your snapshot of
+user X's state newer than mine?"
 
 ## Proposal
 
@@ -67,8 +66,8 @@ for triggering reconciliation.
 ### 1. EDU State Digest: `GET /_matrix/federation/v1/edu_digest`
 
 Returns a compact summary of the responding server's EDU state versions for
-users that the requesting server shares rooms with. This allows the requester
-to identify which users have stale state locally.
+users that the requesting server shares rooms with. This allows the requester to
+identify which users have stale state locally.
 
 **Request:**
 
@@ -88,18 +87,18 @@ GET /_matrix/federation/v1/edu_digest
 
 ```json
 {
-  "users": {
-    "@alice:example.com": {
-      "version": 1716000042,
-      "content_hash": "xxh3:a1b2c3d4"
+    "users": {
+        "@alice:example.com": {
+            "version": 1716000042,
+            "content_hash": "xxh3:a1b2c3d4"
+        },
+        "@bob:example.com": {
+            "version": 1716000099,
+            "content_hash": "xxh3:e5f6g7h8"
+        }
     },
-    "@bob:example.com": {
-      "version": 1716000099,
-      "content_hash": "xxh3:e5f6g7h8"
-    }
-  },
-  "next_batch": "opaque_token_123",
-  "edu_type": "m.presence"
+    "next_batch": "opaque_token_123",
+    "edu_type": "m.presence"
 }
 ```
 
@@ -115,41 +114,43 @@ GET /_matrix/federation/v1/edu_digest
 
 **Version Semantics:**
 
-The `version` field MUST be a monotonically increasing integer that advances every
-time the user's EDU state of the given type changes. Servers MUST NOT rely solely
-on `origin_server_ts` as the version, as it is sensitive to clock skew.
+The `version` field MUST be a monotonically increasing integer that advances
+every time the user's EDU state of the given type changes. Servers MUST NOT rely
+solely on `origin_server_ts` as the version, as it is sensitive to clock skew.
 
 Instead, the version acts as a **Lamport sequence number**:
 
 - The server MUST maintain a strict counter per user/EDU-type.
-- When state changes, the server MUST set: `new_version = max(origin_server_ts, previous_version + 1)`.
-- This ensures the version is always strictly increasing even if the physical clock jumps backward.
+- When state changes, the server MUST set:
+  `new_version = max(origin_server_ts, previous_version + 1)`.
+- This ensures the version is always strictly increasing even if the physical
+  clock jumps backward.
 
-The `content_hash` is an XXH3-64 hash of the canonical JSON representation
-of the EDU content body. This serves as a tiebreaker — if two servers have
-the same `version` for a user but different `content_hash` values, their
-state has diverged. In this scenario, the state with the lexicographically
-larger `content_hash` value wins. This ensures deterministic, consistent
-Last-Writer-Wins resolution across all homeservers without split-brain or
-manual negotiation.
+The `content_hash` is an XXH3-64 hash of the canonical JSON representation of
+the EDU content body. This serves as a tiebreaker — if two servers have the same
+`version` for a user but different `content_hash` values, their state has
+diverged. In this scenario, the state with the lexicographically larger
+`content_hash` value wins. This ensures deterministic, consistent
+Last-Writer-Wins resolution across all homeservers without split-brain or manual
+negotiation.
 
 **Scoping (Privacy):**
 
-The responding server MUST only include users that share at least one room
-with the requesting server.
+The responding server MUST only include users that share at least one room with
+the requesting server.
 
 **Authorization (Privacy):**
 
 The responding server MUST perform a **strict S2S routing index intersection**.
 Before responding, the server MUST intersect the queried users against the
-homeserver's materialized S2S routing table (a list of all users sharing
-at least one room with the requester). If a user is not in this set,
-they MUST NOT be included in the response, preventing metadata leakage.
+homeserver's materialized S2S routing table (a list of all users sharing at
+least one room with the requester). If a user is not in this set, they MUST NOT
+be included in the response, preventing metadata leakage.
 
 ### 2. EDU State Fetch: `POST /_matrix/federation/v1/edu_state`
 
-Given a set of user IDs, returns the current EDU state for those users.
-This is the "give me the latest" endpoint.
+Given a set of user IDs, returns the current EDU state for those users. This is
+the "give me the latest" endpoint.
 
 **Request:**
 
@@ -159,8 +160,8 @@ POST /_matrix/federation/v1/edu_state
 
 ```json
 {
-  "edu_type": "m.presence",
-  "user_ids": ["@alice:example.com", "@bob:example.com"]
+    "edu_type": "m.presence",
+    "user_ids": ["@alice:example.com", "@bob:example.com"]
 }
 ```
 
@@ -176,25 +177,25 @@ POST /_matrix/federation/v1/edu_state
 
 ```json
 {
-  "edu_type": "m.presence",
-  "states": {
-    "@alice:example.com": {
-      "version": 1716000042,
-      "content": {
-        "presence": "online",
-        "last_active_ago": 5000,
-        "status_msg": "Working on MSCs"
-      }
+    "edu_type": "m.presence",
+    "states": {
+        "@alice:example.com": {
+            "version": 1716000042,
+            "content": {
+                "presence": "online",
+                "last_active_ago": 5000,
+                "status_msg": "Working on MSCs"
+            }
+        },
+        "@bob:example.com": {
+            "version": 1716000099,
+            "content": {
+                "presence": "unavailable",
+                "last_active_ago": 300000
+            }
+        }
     },
-    "@bob:example.com": {
-      "version": 1716000099,
-      "content": {
-        "presence": "unavailable",
-        "last_active_ago": 300000
-      }
-    }
-  },
-  "unknown_user_ids": []
+    "unknown_user_ids": []
 }
 ```
 
@@ -224,36 +225,36 @@ The following EDU types are eligible for state reconciliation:
 
 **Per-user-room scoping (receipts):**
 
-For EDU types scoped to a user-room pair, the `edu_digest` response includes
-a nested structure:
+For EDU types scoped to a user-room pair, the `edu_digest` response includes a
+nested structure:
 
 ```json
 {
-  "users": {
-    "@alice:example.com": {
-      "rooms": {
-        "!room1:example.com": {
-          "version": 1716000042,
-          "content_hash": "xxh3:a1b2c3d4"
-        },
-        "!room2:example.com": {
-          "version": 1716000050,
-          "content_hash": "xxh3:b2c3d4e5"
+    "users": {
+        "@alice:example.com": {
+            "rooms": {
+                "!room1:example.com": {
+                    "version": 1716000042,
+                    "content_hash": "xxh3:a1b2c3d4"
+                },
+                "!room2:example.com": {
+                    "version": 1716000050,
+                    "content_hash": "xxh3:b2c3d4e5"
+                }
+            }
         }
-      }
     }
-  }
 }
 ```
 
-For receipts, the `version` SHOULD be the `origin_server_ts` of the event
-that the receipt points to (not the receipt's own timestamp), ensuring that
-receipts always advance monotonically with the room timeline.
+For receipts, the `version` SHOULD be the `origin_server_ts` of the event that
+the receipt points to (not the receipt's own timestamp), ensuring that receipts
+always advance monotonically with the room timeline.
 
 ### Reconciliation Protocol
 
-The EDU reconciliation flow is simpler than PDU reconciliation because
-there is no graph to traverse — only snapshots to compare:
+The EDU reconciliation flow is simpler than PDU reconciliation because there is
+no graph to traverse — only snapshots to compare:
 
 ```text
     Server A (stale state)                Server B (origin)
@@ -286,30 +287,33 @@ there is no graph to traverse — only snapshots to compare:
 
 ### Gossip Scheduling
 
-EDU reconciliation SHOULD be scheduled independently from PDU reconciliation (MSC0F01), with
-different intervals reflecting the urgency of each EDU type. To prevent cluster-wide "thundering
-herd" synchronization waves during large homeserver restarts or network partition recovery,
-implementations MUST apply a **randomized scheduling jitter of ±15%** to all base scheduling intervals:
+EDU reconciliation SHOULD be scheduled independently from PDU reconciliation
+(MSC0F01), with different intervals reflecting the urgency of each EDU type. To
+prevent cluster-wide "thundering herd" synchronization waves during large
+homeserver restarts or network partition recovery, implementations MUST apply a
+**randomized scheduling jitter of ±15%** to all base scheduling intervals:
 
-1. **`m.presence`** — Reconcile every 60 seconds with each peer. Presence staleness is highly
-   visible to end users and should be corrected quickly.
+1. **`m.presence`** — Reconcile every 60 seconds with each peer. Presence
+   staleness is highly visible to end users and should be corrected quickly.
 
-2. **`m.device_list_update`** — Reconcile every 30 seconds. Device list staleness directly causes
-   encryption failures and Undecryptable Messages (UTDs), which are critical to user trust. Because
-   of this, homeservers MUST aggressively prioritize device list reconciliation over other EDU
-   types and execute it immediately when a new S2S connection is established.
+2. **`m.device_list_update`** — Reconcile every 30 seconds. Device list
+   staleness directly causes encryption failures and Undecryptable Messages
+   (UTDs), which are critical to user trust. Because of this, homeservers MUST
+   aggressively prioritize device list reconciliation over other EDU types and
+   execute it immediately when a new S2S connection is established.
 
-3. **`m.receipt`** — Reconcile every 300 seconds. Read receipt staleness is cosmetically annoying
-   but not functionally harmful.
+3. **`m.receipt`** — Reconcile every 300 seconds. Read receipt staleness is
+   cosmetically annoying but not functionally harmful.
 
-4. **Back-off** — If a peer's `edu_digest` shows no version changes across 3 consecutive polls, the
-   server SHOULD double the interval for that peer up to a maximum of 3600 seconds (applying the
-   ±15% jitter to the backed-off intervals). Any incoming EDU from the peer resets the back-off.
+4. **Back-off** — If a peer's `edu_digest` shows no version changes across 3
+   consecutive polls, the server SHOULD double the interval for that peer up to
+   a maximum of 3600 seconds (applying the ±15% jitter to the backed-off
+   intervals). Any incoming EDU from the peer resets the back-off.
 
 ### ETag Optimization
 
-The `edu_digest` endpoint supports conditional requests using the same
-pattern as MSC0F01:
+The `edu_digest` endpoint supports conditional requests using the same pattern
+as MSC0F01:
 
 ```http
 GET /_matrix/federation/v1/edu_digest?edu_type=m.presence
@@ -320,25 +324,25 @@ The ETag SHOULD be computed as:
 
 > `XXH3-64(max(all user versions for this edu_type))`
 
-Because versions are monotonically increasing, if the maximum version
-has not changed, no user's state has changed. This allows the server to
-evaluate the ETag in O(1) if it maintains a running maximum.
+Because versions are monotonically increasing, if the maximum version has not
+changed, no user's state has changed. This allows the server to evaluate the
+ETag in O(1) if it maintains a running maximum.
 
 ## Potential issues
 
 ### Scale with Large User Bases
 
-A large homeserver (e.g., matrix.org) may have hundreds of thousands of
-users sharing rooms with a given peer. The stream-based `edu_digest` (using
-`since` tokens) mitigates this by only fetching incremental changes.
+A large homeserver (e.g., matrix.org) may have hundreds of thousands of users
+sharing rooms with a given peer. The stream-based `edu_digest` (using `since`
+tokens) mitigates this by only fetching incremental changes.
 
 ### Privacy Implications of Presence Probing
 
 The `edu_digest` endpoint could be used to probe whether a specific user is
 online without being in a shared room.
 
-- **Mitigation:** The responding server MUST perform strict S2S routing
-  index intersection to ensure only users sharing at least one room with the
+- **Mitigation:** The responding server MUST perform strict S2S routing index
+  intersection to ensure only users sharing at least one room with the
   requesting server are included.
 
 ## Alternatives
@@ -346,38 +350,37 @@ online without being in a shared room.
 ### Piggybacking on `/send` Transactions
 
 Instead of dedicated endpoints, EDU state could be reconciled by including
-"state refresh" EDUs in regular `/send` transactions. The origin server
-would periodically re-send the current state for all users, ensuring that
-even if the original EDU was dropped, a refresh will eventually arrive.
+"state refresh" EDUs in regular `/send` transactions. The origin server would
+periodically re-send the current state for all users, ensuring that even if the
+original EDU was dropped, a refresh will eventually arrive.
 
 This was rejected because:
 
-1. It wastes bandwidth by re-sending state that the remote server already
-   has (no diffing mechanism).
+1. It wastes bandwidth by re-sending state that the remote server already has
+   (no diffing mechanism).
 2. It couples EDU refresh frequency to `/send` transaction frequency, which
    varies wildly between active and idle rooms.
-3. It does not allow the requesting server to selectively fetch only the
-   users whose state is stale.
+3. It does not allow the requesting server to selectively fetch only the users
+   whose state is stale.
 
 ### Per-Room EDU Sync
 
 An alternative design would scope EDU reconciliation to individual rooms
 (similar to MSC0F01's per-room approach). This was rejected because:
 
-1. Presence and device lists are per-user, not per-room. A per-room
-   approach would require redundant queries for users in multiple shared
-   rooms.
-2. The version-vector approach naturally handles per-user state with a
-   single digest query per peer.
+1. Presence and device lists are per-user, not per-room. A per-room approach
+   would require redundant queries for users in multiple shared rooms.
+2. The version-vector approach naturally handles per-user state with a single
+   digest query per peer.
 
 ### Extending MSC0F01
 
-EDU reconciliation could be added as an extension to MSC0F01 rather than
-a separate proposal. This was rejected because:
+EDU reconciliation could be added as an extension to MSC0F01 rather than a
+separate proposal. This was rejected because:
 
 1. The data models are fundamentally different (DAG vs. last-writer-wins).
-2. The reconciliation algorithms are different (Bloom filter + merge-base
-   walk vs. version-vector comparison).
+2. The reconciliation algorithms are different (Bloom filter + merge-base walk
+   vs. version-vector comparison).
 3. Separate proposals allow independent review and implementation timelines.
 4. Gossip scheduling parameters differ significantly between PDUs and EDUs.
 
@@ -386,18 +389,18 @@ a separate proposal. This was rejected because:
 ### Information Disclosure
 
 The `edu_digest` endpoint reveals which users are hosted on the responding
-server and their EDU activity patterns (version advancement rate). The
-S2S routing intersection requirement minimizes this metadata leakage.
+server and their EDU activity patterns (version advancement rate). The S2S
+routing intersection requirement minimizes this metadata leakage.
 
 ### Denial of Service
 
-- **Rate limiting:** Servers MUST apply per-peer rate limiting.
-  Recommended: 1 `edu_digest` request per 10 seconds per EDU type per peer;
-  1 `edu_state` request per 10 seconds per peer.
-- **Pagination caps:** The `limit` parameter on `edu_digest` bounds the
-  response size. Servers MUST enforce `limit <= 1000`.
-- **User ID caps:** The `edu_state` endpoint accepts at most 200 user IDs
-  per request.
+- **Rate limiting:** Servers MUST apply per-peer rate limiting. Recommended: 1
+  `edu_digest` request per 10 seconds per EDU type per peer; 1 `edu_state`
+  request per 10 seconds per peer.
+- **Pagination caps:** The `limit` parameter on `edu_digest` bounds the response
+  size. Servers MUST enforce `limit <= 1000`.
+- **User ID caps:** The `edu_state` endpoint accepts at most 200 user IDs per
+  request.
 
 ### Replay Attacks
 
@@ -406,14 +409,15 @@ version number, causing the requesting server to accept outdated state and
 ignore future legitimate updates.
 
 Mitigation: servers SHOULD cross-validate the `content_hash` against the
-returned content. If the hash does not match, the response MUST be
-discarded. Additionally, servers SHOULD prefer EDU state received via
-normal `/send` transactions over reconciliation responses when the `/send`
-state has a higher version.
+returned content. If the hash does not match, the response MUST be discarded.
+Additionally, servers SHOULD prefer EDU state received via normal `/send`
+transactions over reconciliation responses when the `/send` state has a higher
+version.
 
 ## Unstable prefix
 
-The following mapping will be used for identifiers in this MSC during development:
+The following mapping will be used for identifiers in this MSC during
+development:
 
 | Proposed final identifier           | Development identifier                                       |
 | ----------------------------------- | ------------------------------------------------------------ |

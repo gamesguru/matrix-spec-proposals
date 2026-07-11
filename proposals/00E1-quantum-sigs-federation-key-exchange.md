@@ -1,7 +1,7 @@
 # MSC 45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication
 
-Matrix federation authentication currently uses `ed25519`. Quantum computers
-can theoretically reverse engineer private keys using Shor's algorithm, breaking
+Matrix federation authentication currently uses `ed25519`. Quantum computers can
+theoretically reverse engineer private keys using Shor's algorithm, breaking
 elliptic-curve and RSA schemes.
 
 This MSC is the first step of the post-quantum migration: it defines the
@@ -31,8 +31,8 @@ high-throughput federation.
 
 This MSC proposes a single, unified signature scheme.
 
-| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                    |
-| ------------- | -------------- | ---------- | ---------- | ------------ | ------------------------------------------- |
+| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                     |
+| ------------- | -------------- | ---------- | ---------- | ------------ | -------------------------------------------- |
 | `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys and transport signatures |
 
 Matrix event IDs use SHA-256. Due to classical collision bounds (Birthday
@@ -50,8 +50,8 @@ key publication, self-signing, and federation transport authentication.
 > **Note:** For readability, this proposal uses the intended stable identifier
 > `fn-dsa-512` throughout the main text and examples. Until this MSC is accepted
 > and merged into the Matrix specification, implementations MUST use the
-> unstable identifier `tk.nutra.msc45xx.fn-dsa-512` in all protocol fields
-> (key IDs, signature entries, and algorithm names). See
+> unstable identifier `tk.nutra.msc45xx.fn-dsa-512` in all protocol fields (key
+> IDs, signature entries, and algorithm names). See
 > [Unstable Prefix](#unstable-prefix) for the full mapping.
 
 ### Key Identifier Format
@@ -91,8 +91,8 @@ invoked in pure (non-prehash) mode with an empty context string. Implementations
 MUST reject non-canonical public key and signature encodings.
 
 These encoding and signing rules are the normative definition of `fn-dsa-512`
-for the entire Matrix protocol; MSC 45YY (PDU signing) and MSC 0F00 (E2EE)
-build on them by reference.
+for the entire Matrix protocol; MSC 45YY (PDU signing) and MSC 0F00 (E2EE) build
+on them by reference.
 
 ### Server Signing Keys
 
@@ -129,7 +129,7 @@ FN-DSA public keys are encoded as unpadded base64. Servers SHOULD begin
 publishing FN-DSA keys immediately, to pre-distribute public keys across the
 federation ahead of any downstream use (transport authentication in this MSC;
 PDU signing in MSC 45YY). Pre-distribution matters: every server whose FN-DSA
-key is observed, verified, and cached *before* a quantum adversary exists gains
+key is observed, verified, and cached _before_ a quantum adversary exists gains
 post-quantum identity continuity from that point forward (see
 [Server Key Trust Model](#server-key-trust-model)).
 
@@ -216,7 +216,7 @@ it can be deployed federation-wide without any flag day:
 - A verification failure SHOULD be logged as a warning but MUST NOT cause
   request rejection, provided the Ed25519 `Authorization` header is valid.
 - If a receiving server has pinned an FN-DSA key for the sending server (see
-  [Server Key Trust Model](#server-key-trust-model)), the *absence* of the
+  [Server Key Trust Model](#server-key-trust-model)), the _absence_ of the
   `X-Matrix-PQC` header on requests from that server SHOULD be logged as a
   potential downgrade indicator. Implementations MAY offer an operator-level
   strict mode that rejects unauthenticated requests from peers with pinned
@@ -224,12 +224,11 @@ it can be deployed federation-wide without any flag day:
 - Legacy servers that do not support this MSC ignore the `X-Matrix-PQC` header
   entirely.
 
-Mandatory enforcement is intentionally out of scope here: it is defined by
-MSC 45YY, which requires a valid `X-Matrix-PQC` header for federation traffic
-scoped to PQC-required rooms. Splitting the mechanism (this MSC) from the
-enforcement trigger (MSC 45YY) means the header can reach wide deployment —
-and FN-DSA keys can be pinned across the federation — before anything depends
-on it.
+Mandatory enforcement is intentionally out of scope here: it is defined by MSC
+45YY, which requires a valid `X-Matrix-PQC` header for federation traffic scoped
+to PQC-required rooms. Splitting the mechanism (this MSC) from the enforcement
+trigger (MSC 45YY) means the header can reach wide deployment — and FN-DSA keys
+can be pinned across the federation — before anything depends on it.
 
 The Ed25519 `Authorization` header remains required on all federation requests
 as long as any legacy room version exists in the federation.
@@ -237,12 +236,12 @@ as long as any legacy room version exists in the federation.
 ### Upgraded Connections: PQ Session Negotiation (Optional Extension)
 
 The per-request `X-Matrix-PQC` header adds ~888 bytes (base64) of bandwidth
-overhead to every federation request. This section defines an OPTIONAL
-mechanism for a pair of servers to negotiate a symmetric session key via a
-post-quantum KEM (ML-KEM-768,
-[NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final)) and amortize that
-cost by replacing per-request asymmetric signatures with session-based HMAC
-authentication — an "upgraded" HTTP connection between two PQC-capable servers.
+overhead to every federation request. This section defines an OPTIONAL mechanism
+for a pair of servers to negotiate a symmetric session key via a post-quantum
+KEM (ML-KEM-768, [NIST FIPS 203](https://csrc.nist.gov/pubs/fips/203/final)) and
+amortize that cost by replacing per-request asymmetric signatures with
+session-based HMAC authentication — an "upgraded" HTTP connection between two
+PQC-capable servers.
 
 Per-request `X-Matrix-PQC` remains the baseline; servers MUST NOT assume peer
 support for session negotiation, and MUST fall back to per-request headers when
@@ -323,11 +322,10 @@ Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize
 or no longer holds the `session_id`, it MUST treat the header as absent for
 enforcement purposes; the sender then falls back to per-request `X-Matrix-PQC`
-and MAY renegotiate. A valid `X-Matrix-PQC-Session` MAC is equivalent to a
-valid `X-Matrix-PQC` signature for all verification and (future) enforcement
-purposes.
+and MAY renegotiate. A valid `X-Matrix-PQC-Session` MAC is equivalent to a valid
+`X-Matrix-PQC` signature for all verification and (future) enforcement purposes.
 
-Note that this mechanism provides *authentication amortization only* — it does
+Note that this mechanism provides _authentication amortization only_ — it does
 not provide confidentiality (TLS continues to provide transport encryption) and
 symmetric MACs do not provide non-repudiation, which transport authentication
 does not require. Anti-replay properties are inherited from TLS, identically to
@@ -376,8 +374,8 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 
 - **Advisory enforcement window.** Until MSC 45YY (or an operator strict mode)
   makes verification mandatory, `X-Matrix-PQC` failures only produce warnings.
-  This is deliberate — see
-  [Security Considerations](#security-considerations) on downgrade.
+  This is deliberate — see [Security Considerations](#security-considerations)
+  on downgrade.
 
 ## Alternatives
 
@@ -388,8 +386,8 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 
 - **SLH-DSA (FIPS 205 / SPHINCS+).** Most conservative (hash-based, no lattice
   assumptions), but 17,088-byte signatures are impractical for per-request
-  transport authentication. Potentially useful for long-lived trust anchors in
-  a future MSC.
+  transport authentication. Potentially useful for long-lived trust anchors in a
+  future MSC.
 
 - **Waiting for FIPS 206 finalization.** Delaying extends the vulnerability
   window. Unstable prefixes allow early adoption without committing to final
@@ -399,8 +397,8 @@ verification into a hard requirement for traffic scoped to PQC rooms.
 - **PQC TLS instead of application-layer auth.** Post-quantum TLS (X25519 +
   ML-KEM hybrid key exchange) is being deployed by CDNs and browsers and
   protects channel confidentiality, but Matrix federation identity is
-  authenticated at the application layer via server signing keys, not client
-  TLS certificates. Relying on TLS alone would leave server identity —
+  authenticated at the application layer via server signing keys, not client TLS
+  certificates. Relying on TLS alone would leave server identity —
   `/_matrix/key/v2/server` responses, notary attestations, request origin —
   authenticated only by Ed25519. Application-layer FN-DSA is required
   regardless; PQC TLS is complementary and encouraged.
@@ -435,8 +433,8 @@ final standard expected late 2026–2027):
 
 All implementations MUST use constant-time Gaussian sampling and signing
 operations. Server-side deployments SHOULD prefer native (C/Rust)
-implementations. ML-KEM-768 (for the optional session extension) is available
-in liboqs and, increasingly, in mainstream TLS libraries following FIPS 203
+implementations. ML-KEM-768 (for the optional session extension) is available in
+liboqs and, increasingly, in mainstream TLS libraries following FIPS 203
 finalization.
 
 ## Security Considerations
@@ -447,7 +445,7 @@ finalization.
   vector: once FN-DSA keys are distributed and pinned, `X-Matrix-PQC` provides
   quantum-resistant request authentication, and the key trust model prevents a
   quantum-equipped attacker from silently replacing a pinned FN-DSA key using
-  only a broken Ed25519 key. Forged *events* are addressed by MSC 45YY.
+  only a broken Ed25519 key. Forged _events_ are addressed by MSC 45YY.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
   Ed25519 and is therefore not post-quantum secure. This is an argument for
@@ -459,7 +457,7 @@ finalization.
   suppress `X-Matrix-PQC` without causing rejection. Pinning plus
   absence-logging (and the optional strict mode) narrows this; room-scoped
   mandatory enforcement arrives with MSC 45YY. Ed25519 `Authorization` remains
-  the floor, so this MSC never *weakens* existing authentication.
+  the floor, so this MSC never _weakens_ existing authentication.
 
 - **Timing side-channels.** FN-DSA's discrete Gaussian sampler leaks private
   keys via timing analysis if implemented incorrectly. All implementations MUST
@@ -467,9 +465,9 @@ finalization.
 
 - **Session key hygiene (optional extension).** Session keys are derived from
   ephemeral ML-KEM keys and MUST NOT outlive `expires_ts`. Compromise of a
-  session key permits transport-level impersonation toward one peer until
-  expiry — bounded by short session lifetimes and by the requirement that
-  negotiation itself is FN-DSA-authenticated.
+  session key permits transport-level impersonation toward one peer until expiry
+  — bounded by short session lifetimes and by the requirement that negotiation
+  itself is FN-DSA-authenticated.
 
 - **Algorithm agility.** The `algorithm:key_id` format provides syntactic
   extensibility for future PQC standards. Deploying a new algorithm still
@@ -488,12 +486,12 @@ finalization.
 
 While this MSC is in development, the following unstable prefixes are used:
 
-| Stable Identifier                                    | Unstable Identifier                                        |
-| ---------------------------------------------------- | ---------------------------------------------------------- |
-| `fn-dsa-512` (key algorithm)                         | `tk.nutra.msc45xx.fn-dsa-512`                              |
-| `X-Matrix-PQC` (HTTP header)                         | `X-Matrix-PQC` (no prefix needed, custom header)           |
-| `X-Matrix-PQC-Session` (HTTP header)                 | `X-Matrix-PQC-Session` (no prefix needed, custom header)   |
-| `/_matrix/federation/v1/key_exchange` (endpoint)     | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange` |
+| Stable Identifier                                | Unstable Identifier                                          |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| `fn-dsa-512` (key algorithm)                     | `tk.nutra.msc45xx.fn-dsa-512`                                |
+| `X-Matrix-PQC` (HTTP header)                     | `X-Matrix-PQC` (no prefix needed, custom header)             |
+| `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)     |
+| `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange` |
 
 The unstable algorithm prefix is used in `verify_keys` key IDs, `signatures`
 entries, and `X-Matrix-PQC` header `key` parameters. For example, the
@@ -563,9 +561,9 @@ This proposal is fully backwards-compatible:
 - **Key distribution** is additive — new entries in `verify_keys`,
   `old_verify_keys`, and `signatures`. Legacy servers ignore unknown key
   algorithms.
-- **Transport auth** is additive — `X-Matrix-PQC` and `X-Matrix-PQC-Session`
-  are ignored by legacy servers per RFC 9110, and the Ed25519 `Authorization`
-  header remains present and authoritative.
+- **Transport auth** is additive — `X-Matrix-PQC` and `X-Matrix-PQC-Session` are
+  ignored by legacy servers per RFC 9110, and the Ed25519 `Authorization` header
+  remains present and authoritative.
 - **One new endpoint**, which is OPTIONAL, discoverable by its `404`, and has a
   mandatory fallback path.
 - **Zero impact on events, PDUs, room versions, or clients.**
@@ -582,10 +580,10 @@ This proposal is fully backwards-compatible:
 - [x] For each endpoint that is introduced or modified:
     - [x] Have authentication requirements been specified? (Ed25519
           `Authorization` + `X-Matrix-PQC`, both required.)
-    - [x] Have rate-limiting requirements been specified? (`429
-          M_LIMIT_EXCEEDED`.)
-    - [x] Have guest access requirements been specified? (N/A —
-          server-to-server API.)
+    - [x] Have rate-limiting requirements been specified?
+          (`429     M_LIMIT_EXCEEDED`.)
+    - [x] Have guest access requirements been specified? (N/A — server-to-server
+          API.)
     - [x] Are error responses specified?
         - [x] Does each error case have a specified `errcode` (i.e.
               `M_FORBIDDEN`) and HTTP status code?

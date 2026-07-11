@@ -78,14 +78,14 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 ```json
 {
-  "digest": "<opaque_base64_string>",
-  "digest_type": "xxh3_bloom",
-  "digest_bits": 32768,
-  "digest_window": 5000,
-  "event_count": 81247,
-  "pduleaves_id": ["$abc123", "$def456"],
-  "depth_range": [1, 93841],
-  "origin_server_ts_range": [1609459200000, 1716000000000]
+    "digest": "<opaque_base64_string>",
+    "digest_type": "xxh3_bloom",
+    "digest_bits": 32768,
+    "digest_window": 5000,
+    "event_count": 81247,
+    "pduleaves_id": ["$abc123", "$def456"],
+    "depth_range": [1, 93841],
+    "origin_server_ts_range": [1609459200000, 1716000000000]
 }
 ```
 
@@ -222,11 +222,16 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 ```json
 {
-  "mode": "extremity",
-  "local_pduleaves_id": ["$abc123", "$def456"],
-  "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
-  "local_event_count": 81000,
-  "limit": 1000
+    "mode": "extremity",
+    "local_pduleaves_id": ["$abc123", "$def456"],
+    "have_event_ids": [
+        "$known_depth_90000",
+        "$known_depth_89500",
+        "$known_depth_88000",
+        "$known_depth_84000"
+    ],
+    "local_event_count": 81000,
+    "limit": 1000
 }
 ```
 
@@ -234,11 +239,11 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 ```json
 {
-  "mode": "bloom",
-  "local_digest": "<base64_bloom_filter>",
-  "digest_type": "xxh3_bloom",
-  "local_event_count": 81000,
-  "limit": 1000
+    "mode": "bloom",
+    "local_digest": "<base64_bloom_filter>",
+    "digest_type": "xxh3_bloom",
+    "local_event_count": 81000,
+    "limit": 1000
 }
 ```
 
@@ -259,10 +264,10 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 ```json
 {
-  "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
-  "remote_event_count": 81247,
-  "remote_pduleaves_id": ["$abc123", "$pqr678"],
-  "truncated": false
+    "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
+    "remote_event_count": 81247,
+    "remote_pduleaves_id": ["$abc123", "$pqr678"],
+    "truncated": false
 }
 ```
 
@@ -295,13 +300,13 @@ modeled on Git's packfile negotiation protocol:
 
 1. **Topological Bounding Check ($O(1)$):** Before starting, the responder MUST
    perform a pre-flight depth check to prevent CPU-exhaustion DoS attacks.
-   - The requester provides `have_event_ids` (a sparse sample of known
-     ancestors).
-   - The responder finds the `local_depth` of these events.
-   - `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`
-   - If `delta > max_depth_walk`, the responder MUST immediately return an empty
-     result with `truncated: true`. This guarantees the server only ever walks
-     bounded, recent history.
+    - The requester provides `have_event_ids` (a sparse sample of known
+      ancestors).
+    - The responder finds the `local_depth` of these events.
+    - `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`
+    - If `delta > max_depth_walk`, the responder MUST immediately return an
+      empty result with `truncated: true`. This guarantees the server only ever
+      walks bounded, recent history.
 2. Build the `have` set: the union of `local_pduleaves_id` and `have_event_ids`.
    These represent events the requester already possesses. The combined `have`
    set MUST NOT exceed 256 entries; requests exceeding this MUST be rejected
@@ -375,9 +380,9 @@ POST /_matrix/federation/v1/room_events/{roomId}
 
 ```json
 {
-  "event_ids": ["$ghi789", "$jkl012", "$mno345"],
-  "include_auth_chain": true,
-  "known_event_ids": ["$abc123", "$def456"]
+    "event_ids": ["$ghi789", "$jkl012", "$mno345"],
+    "include_auth_chain": true,
+    "known_event_ids": ["$abc123", "$def456"]
 }
 ```
 
@@ -484,19 +489,19 @@ The recommended strategy is:
 2. **Periodic anti-entropy:** Servers SHOULD periodically select a random subset
    of active rooms and a random peer for each, and perform the digest comparison
    phase. The recommended interval is:
-   - Every 60 seconds for rooms with recent activity (events in the last 5
-     minutes)
-   - Every 300 seconds for rooms with moderate activity (events in the last
-     hour)
-   - Every 3600 seconds for idle rooms
+    - Every 60 seconds for rooms with recent activity (events in the last 5
+      minutes)
+    - Every 300 seconds for rooms with moderate activity (events in the last
+      hour)
+    - Every 3600 seconds for idle rooms
 
 3. **Peer selection:** For each reconciliation round, the server SHOULD select
    peers using a weighted random strategy, preferring:
-   - Servers that originated the most recent events (most likely to be ahead)
-   - Servers that previously returned divergent digests (known to have different
-     data)
-   - Backbone/hub servers with high availability (most likely to have complete
-     DAGs)
+    - Servers that originated the most recent events (most likely to be ahead)
+    - Servers that previously returned divergent digests (known to have
+      different data)
+    - Backbone/hub servers with high availability (most likely to have complete
+      DAGs)
 
 4. **Back-off:** If a peer consistently returns identical digests (no
    divergence), the server SHOULD exponentially back off the reconciliation
