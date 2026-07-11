@@ -64,6 +64,12 @@ public key body for a given server.
 
 Key IDs MUST be unique within each algorithm namespace on a given server.
 
+For FN-DSA specifically, notaries and caches SHOULD retain the full SHA-256
+digest of the canonical public key bytes as the canonical fingerprint of the key
+body. The derived `key_id` is used for lookup and wire-format references; the
+full digest is used for collision forensics, deduplication, and canonical body
+comparison.
+
 ### FN-DSA Encoding and Signing Operation
 
 This MSC targets FN-DSA-512 (n=512, q=12289) as specified by the FIPS 206

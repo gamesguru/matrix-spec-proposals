@@ -131,9 +131,12 @@ collisions, notaries MUST also enforce the First Seen Wins rule internally.
 However, to preserve a forensic trail of misconfigurations and anomalous event
 rejections without violating strict database constraints (which usually enforce
 a unique `(server_name, key_id)` tuple), notary implementations SHOULD
-internally index observed key bodies by their full SHA-256 digest. This allows
-the notary to safely store historical collisions, even if it only serves the
-"first seen" key via the active API.
+internally index observed key bodies by their full SHA-256 digest. For PQC
+algorithms that use hash-derived key IDs, notaries SHOULD also index by the
+derived `key_id` for lookup, but the full SHA-256 digest remains the canonical
+fingerprint for the key body itself. This allows the notary to safely store
+historical collisions, even if it only serves the "first seen" key via the
+active API.
 
 **Notary fallback (two-tier binding).** When a required signing key is not
 present in the local cache, servers typically query a configured notary server
