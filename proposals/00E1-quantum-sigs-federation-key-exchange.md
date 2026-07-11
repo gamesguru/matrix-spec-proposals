@@ -209,6 +209,19 @@ The `GET /_matrix/key/v2/server` response includes both key types:
             "key": "<unpadded-base64-fn-dsa-512-pubkey>"
         }
     },
+    "pqc_key_metadata": {
+        "fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
+            "fips_206_revision": "ipd-2025-08",
+            "claims": ["constant-time-keygen", "constant-time-signing"],
+            "profile": "opaque-operator-defined-profile",
+            "attestations": [
+                {
+                    "type": "audit-report-sha256",
+                    "sha256": "<unpadded-base64url-sha256>"
+                }
+            ]
+        }
+    },
     "old_verify_keys": {
         "fn-dsa-512:Rd3x2U9cQK8mV4sA": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
@@ -238,6 +251,17 @@ signs the `/_matrix/key/v2/server` object containing both `server_name` and its
 own public key in the `signatures` field, and receivers verify that
 self-signature before trusting the key. A self-signature made for one
 `server_name` MUST NOT be accepted for any other `server_name`.
+
+The optional `pqc_key_metadata` object contains implementation metadata for PQC
+keys, indexed by key ID. Because Matrix signatures cover the server-key response
+after removing only `signatures` and `unsigned`, this metadata is covered by the
+FN-DSA self-signature when present. The `fips_206_revision` field SHOULD be
+present before FIPS 206 finalization. The `claims`, `profile`, and
+`attestations` fields are policy metadata: verifiers and notaries MUST NOT treat
+them as cryptographic proof that key generation or signing was constant-time
+unless local policy explicitly trusts the named attestation mechanism.
+Implementations SHOULD NOT publish exact library names, versions, host details,
+CPU features, or build fingerprints unless the operator explicitly opts in.
 
 #### Server key trust model
 
@@ -289,7 +313,13 @@ that a replacement key be signed by a prior FN-DSA key.
         "action": "fn-dsa-key-publication",
         "server_name": "example.com",
         "key_id": "fn-dsa-512:5FQ2xg4sWqj3Kp9N",
-        "key_identity_sha256": "<unpadded-base64url-sha256>"
+        "key_identity_sha256": "<unpadded-base64url-sha256>",
+        "implementation_sha256": "<unpadded-base64url-sha256>",
+        "implementation_claims": [
+            "constant-time-keygen",
+            "constant-time-signing"
+        ],
+        "fips_206_revision": "ipd-2025-08"
     }
 }
 ```
@@ -300,6 +330,15 @@ cryptographically secure source. The `resource.key_id` and
 FN-DSA public key body and `resource.server_name`. If either value does not
 match the domain-bound key identity, the proof MUST be rejected without
 evaluating the puzzle.
+
+The optional `resource.implementation_sha256` field is the SHA-256 digest of the
+Canonical JSON representation of the corresponding `pqc_key_metadata` entry. The
+optional `resource.implementation_claims` and `resource.fips_206_revision`
+fields mirror selected metadata into the proof-of-work resource for notary
+policy and operator diagnostics. These fields can be bound into the
+proof-of-work challenge, but they do not cryptographically prove that the FN-DSA
+key was generated or used with constant-time code. Verifiers and notaries MUST
+treat them as policy metadata only.
 
 **Graph derivation.** A given challenge graph contains a 42-cycle only with some
 probability, so the prover iterates a nonce:
@@ -739,10 +778,10 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   introduced via a follow-up MSC.
 
 - **Key compromise recovery.** Identical to Ed25519: rotate the key, publish the
-  old key in `old_verify_keys` with `expired_ts`. Note the trust-model
-  constraint: a replacement FN-DSA key must be authenticated by a previously
-  trusted FN-DSA key, so servers SHOULD keep an offline backup of at least one
-  FN-DSA key capable of signing a rotation.
+  old key in `old_verify_keys` with `expired_ts`. This MSC follows the normal
+  Matrix server-key model and does not require replacement keys to be signed by
+  a previously trusted FN-DSA key. Operators SHOULD still keep offline backups
+  of signing keys to support ordinary rotation and incident response.
 
 ## Unstable prefix
 
@@ -804,6 +843,28 @@ before finalization MUST observe the following constraints:
   production security decisions. Ed25519 signatures and transport authentication
   remain the authoritative trust anchors until FIPS 206 is finalized and stable
   identifiers are adopted.
+
+### Compatibility and upgrade classes
+
+Future changes to this mechanism MUST use the narrowest compatible rollout class
+that preserves verifier safety:
+
+- **Patch changes** add optional metadata or clarify validation without changing
+  key ID derivation, signature inputs, encodings, or required verification
+  behavior. Examples include adding optional `pqc_key_metadata` fields, optional
+  attestation types, or additional policy claims. Patch fields MUST be safely
+  ignored by implementations that do not understand them.
+- **Minor changes** add a compatible extension that requires explicit support by
+  both peers, while preserving the baseline behavior in this MSC. Examples
+  include a new proof-of-work profile, a new attestation format, or an optional
+  session-authentication variant. Minor extensions MUST use distinct identifiers
+  and MUST fall back to the mandatory baseline when unsupported.
+- **Major changes** alter cryptographic interpretation or break existing
+  verification. Examples include changing FN-DSA encodings, signature sizes,
+  signing inputs, key ID derivation, or mandatory verification rules. Major
+  changes MUST use a new algorithm or profile identifier, publish separate keys
+  during migration, and rely on a follow-up MSC or room version before becoming
+  mandatory.
 
 ## Dependencies
 
