@@ -397,7 +397,7 @@ negotiation is unavailable or a session is rejected.
 
 #### Endpoint
 
-```
+```http
 POST /_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange
 ```
 
@@ -437,12 +437,25 @@ reused across sessions.
 The responder encapsulates against the initiator's ephemeral key, producing the
 ciphertext and a 32-byte shared secret `ss`. Both sides derive the session key:
 
+```text
+session_info =
+    len16("tk.nutra.msc45xx.session.v1") ||
+    len16(origin) ||
+    len16(destination) ||
+    len16(session_id)
+
+session_key = HKDF-SHA-256(
+    IKM = ss,
+    salt = "",
+    info = session_info,
+    L = 32
+)
 ```
-session_key = HKDF-SHA-256(ikm = ss,
-                           salt = "",
-                           info = "tk.nutra.msc45xx.session.v1|" + origin + "|" + destination + "|" + session_id,
-                           length = 32)
-```
+
+Here `||` denotes byte-string concatenation. `len16(x)` is the two-byte
+big-endian length of the UTF-8 byte string `x`, followed by `x` itself.
+Implementations MUST reject fields whose UTF-8 byte length exceeds 65535 bytes.
+The `salt` input to HKDF is the zero-length byte string.
 
 **Error responses:**
 
@@ -719,6 +732,12 @@ This proposal is fully backwards-compatible:
 
 ## References
 
-[^1]:
-    **FIPS 206 Status Update**
-    https://groups.google.com/a/list.nist.gov/g/pqc-forum/c/1HXzjlMUU6Y
+- [NIST FIPS 206 Initial Public Draft: FN-DSA](https://csrc.nist.gov/pubs/fips/206/ipd)
+- [NIST FIPS 206 Status Update, Ray Perlner, 6th PQC Standardization Conference](<https://csrc.nist.gov/csrc/media/presentations/2025/fips-206-fn-dsa-(falcon)/images-media/fips_206-perlner_2.1.pdf>)
+- [Falcon specification and reference implementation](https://falcon-sign.info/)
+- [Thomas Pornin, New Efficient, Constant-Time Implementations of Falcon](https://eprint.iacr.org/2019/893.pdf)
+- [James Howe, Thomas Prest, Thomas Ricosset, and Melissa Rossi, Isochronous Gaussian Sampling: From Inception to Implementation With Applications to the Falcon Signature Scheme](https://eprint.iacr.org/2019/1411.pdf)
+- [Pierre-Alain Fouque, Paul Kirchner, Mehdi Tibouchi, Alexandre Wallet, and Yang Yu, Do Not Disturb a Sleeping Falcon](https://eprint.iacr.org/2024/1709.pdf)
+- [Jinyi Qiu and Aydin Aysu, SHIFT SNARE: Uncovering Secret Keys in FALCON via Single-Trace Analysis](https://arxiv.org/abs/2504.00320)
+- [NIST FIPS 203: ML-KEM](https://csrc.nist.gov/pubs/fips/203/final)
+- [John Tromp, Cuckoo Cycle proof-of-work](https://github.com/tromp/cuckoo)
