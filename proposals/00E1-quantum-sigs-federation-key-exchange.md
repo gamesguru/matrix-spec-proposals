@@ -462,29 +462,19 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
-**Multi-notary corroboration for first observation.** Because a server's very
-first FN-DSA key observation is TOFU and authenticates only via the existing
-Ed25519 trust model (see [Server key trust model](#server-key-trust-model)),
-it is vulnerable to an attacker positioned on that specific fetch path — a
-targeted, localized man-in-the-middle rather than a global compromise.
-Receiving servers SHOULD, for a server's first-ever observed FN-DSA key, query
-at least two independently-operated notaries in addition to (or instead of) a
-direct fetch, and SHOULD treat agreement across all queried sources as a
-precondition for caching the key. Sources include any independent notary the
-receiving server is configured to consult, plus a direct origin fetch if
-performed. If independent sources disagree on the observed FN-DSA key body for
-the same `server_name`, the receiving server MUST NOT cache any of the
-disagreeing keys and SHOULD alert the operator; this is the same posture as an
-unresolved hash-prefix collision (see
-[Key ID format](#key-id-format)) — a disagreement is itself diagnostic
-regardless of which value is "correct." This corroboration step raises the
-cost of a targeted path-level attacker from controlling one fetch route to
-controlling or colluding with multiple independent vantage points
-simultaneously; it does not protect against compromise of the origin's actual
-signing key, nor is it a substitute for the transport half of the threat model
-in [Security considerations](#security-considerations). Once a key has been
-cached from an initial observation, subsequent fetches of the same
-already-trusted key do not require repeating this corroboration.
+Because a server's very first FN-DSA key observation is TOFU and authenticates
+only via the existing Ed25519 trust model (see
+[Server key trust model](#server-key-trust-model)), it is vulnerable to an
+attacker positioned on that specific fetch path — a targeted, localized
+man-in-the-middle rather than a global compromise. Implementations MAY perform
+additional notary queries as advisory corroboration for a server's first-ever
+observed FN-DSA key, but MUST NOT require unanimous agreement across independent
+sources as a precondition for accepting an otherwise valid key: doing so would
+let any configured false, compromised, or merely stale notary interfere with
+legitimate bootstrap. Additional corroboration can raise the cost of a targeted
+path-level attacker, but it does not protect against compromise of the origin's
+actual signing key, nor is it a substitute for the transport half of the threat
+model in [Security considerations](#security-considerations).
 
 ### Federation HTTP authentication
 
@@ -812,12 +802,12 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
   Ed25519 and the existing server-key trust model, and is therefore only as
-  post-quantum secure as that model's real-time guarantees (see
-  **Real-time impersonation** above). This is still an argument for deploying
-  this MSC as early and widely as possible: pre-distributing FN-DSA keys means
+  post-quantum secure as that model's real-time guarantees (see **Real-time
+  impersonation** above). This is still an argument for deploying this MSC as
+  early and widely as possible: pre-distributing FN-DSA keys means
   `X-Matrix-PQC` traffic is quantum-resistant against passive interception and
-  against an attacker who lacks an active fetch-path position, from the moment
-  a key is cached. Ordinary TLS termination, including common nginx deployments
+  against an attacker who lacks an active fetch-path position, from the moment a
+  key is cached. Ordinary TLS termination, including common nginx deployments
   using classical TLS certificates and classical key agreement, does not remove
   this TOFU bootstrap window.
 
