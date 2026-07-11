@@ -114,19 +114,23 @@ For `fn-dsa-512`, the `key_id` component is a hash-derived short ID:
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<short_id>`       |
 
 For `fn-dsa-512`, the `short_id` component MUST be the first 16 base64url
-characters of the SHA-256 digest of the tagged public key bytes, without
-padding. The tagged public key bytes are:
+characters of the canonical full key ID digest `key_id_sha256`, without padding.
+The canonical full key ID digest is:
 
 ```text
-"tk.nutra.msc45xx.keyid.v1" || raw_fn_dsa_512_public_key_bytes
+key_id_sha256 = SHA-256(
+    len16("matrix:fn-dsa-512:key-id:v1") ||
+    "matrix:fn-dsa-512:key-id:v1" ||
+    raw_fn_dsa_512_public_key_bytes
+)
 ```
 
-where `"tk.nutra.msc45xx.keyid.v1"` is the literal ASCII context string (no
-length prefix or separator is needed, since the public key is fixed-length), and
-the public key bytes are the raw FN-DSA-512 public key byte string as defined by
-FIPS 206. The context tag exists for hash-domain separation only — so this
-digest cannot collide semantically with an unrelated protocol's SHA-256 over the
-same raw key bytes — and MUST be included exactly as given.
+where `len16(x)` is the two-byte big-endian length of the UTF-8 byte string `x`,
+followed immediately by `x`, and the public key bytes are the raw FN-DSA-512
+public key byte string as defined by FIPS 206. The context string is the exact
+ASCII byte sequence shown above. It exists for hash-domain separation only, so
+this digest cannot collide semantically with an unrelated protocol's SHA-256
+over the same raw key bytes.
 
 The `short_id` is therefore a pure function of the public key body: it does not
 depend on `server_name`. Name-binding for FN-DSA keys comes from the
@@ -140,12 +144,13 @@ endpoint.
 
 The `short_id` component MUST contain exactly 16 characters from the base64url
 alphabet of RFC 4648 §5 (`A-Z`, `a-z`, `0-9`, `-`, and `_`), encoding the first
-96 bits of the digest. When processing an FN-DSA public key from `verify_keys`
-or `old_verify_keys`, implementations MUST recompute the expected hash-derived
-`short_id` from the advertised public key bytes. If the advertised `short_id`
-does not exactly match the recomputed value, the key response MUST be rejected
-as malformed. Signature entries, `X-Matrix-PQC` headers, and PDU signatures that
-reference a malformed FN-DSA `short_id` MUST fail verification.
+96 bits of `key_id_sha256`. When processing an FN-DSA public key from
+`verify_keys` or `old_verify_keys`, implementations MUST recompute
+`key_id_sha256` and the expected hash-derived `short_id` from the advertised
+public key bytes. If the advertised `short_id` does not exactly match the
+recomputed value, the key response MUST be rejected as malformed. Signature
+entries, `X-Matrix-PQC` headers, and PDU signatures that reference a malformed
+FN-DSA `short_id` MUST fail verification.
 
 In the exceedingly unlikely event that a server advertises multiple distinct
 FN-DSA public key bodies whose tagged digests share the same first 16 base64url
@@ -171,24 +176,24 @@ analysis.
 Except for verified FN-DSA hash-prefix collisions as described above, `short_id`
 values MUST be unique within each algorithm namespace on a given server.
 
-For FN-DSA specifically, notaries and caches SHOULD retain the full SHA-256
-digest of the tagged public key bytes as the canonical fingerprint of the key
-body. The derived `short_id` is used in on-wire key references and lookup; the
-full digest is used for collision forensics, deduplication, and canonical body
-comparison.
+For FN-DSA specifically, notaries and caches SHOULD retain `key_id_sha256` (the
+full SHA-256 digest above) as the canonical full ID and fingerprint of the key
+body. The derived `short_id` is used in on-wire key references and lookup;
+`key_id_sha256` is used for collision forensics, deduplication, and canonical
+body comparison.
 
 Notaries and caches SHOULD also retain the SHA-256 digest of the raw FN-DSA-512
 public key bytes (untagged) as a transfer-detection fingerprint, distinct from
-the tagged short-ID fingerprint above. A notary or receiving server that
-observes a previously-associated raw FN-DSA public key fingerprint under a
-second, different `server_name` MUST NOT attest to that second observation and
-SHOULD alert the operator, but MUST NOT evict or invalidate the original
-association solely because of the second observation — otherwise an attacker who
-has stolen a server's FN-DSA private key could race a forged publication to
-notaries and turn key theft into a denial of service against the legitimate
-owner's key. Intentional domain migration MUST publish a distinct FN-DSA key for
-the new `server_name`; any relationship to the old server name belongs in an
-explicit cross-signing or delegation mechanism, not in key reuse.
+the tagged key-ID fingerprint above. A notary or receiving server that observes
+a previously-associated raw FN-DSA public key fingerprint under a second,
+different `server_name` MUST NOT attest to that second observation and SHOULD
+alert the operator, but MUST NOT evict or invalidate the original association
+solely because of the second observation — otherwise an attacker who has stolen
+a server's FN-DSA private key could race a forged publication to notaries and
+turn key theft into a denial of service against the legitimate owner's key.
+Intentional domain migration MUST publish a distinct FN-DSA key for the new
+`server_name`; any relationship to the old server name belongs in an explicit
+cross-signing or delegation mechanism, not in key reuse.
 
 This `short_id` derivation intentionally uses unpadded base64url because FN-DSA
 key references appear in protocol identifiers and may be embedded in URLs or
@@ -363,8 +368,7 @@ Ed25519/notary authentication is otherwise valid.
     "resource": {
         "action": "fn-dsa-key-publication",
         "server_name": "example.com",
-        "short_id": "5FQ2xg4sWqj3Kp9N",
-        "key_identity_sha256": "<unpadded-base64url-sha256>",
+        "key_id_sha256": "<unpadded-base64url-sha256>",
         "key_metadata_sha256": "<unpadded-base64url-sha256>",
         "claims": ["constant-time-keygen", "constant-time-signing"],
         "fips_206_revision": "ipd-2025-08"
@@ -373,9 +377,10 @@ Ed25519/notary authentication is otherwise valid.
 ```
 
 The `challenge` value MUST contain at least 128 bits of entropy from a
-cryptographically secure source. The `resource.short_id` and
-`resource.key_identity_sha256` fields MUST correspond to the same advertised
-FN-DSA public key body, and `resource.server_name` MUST correspond to the
+cryptographically secure source. The `resource.key_id_sha256` field MUST
+correspond to the advertised FN-DSA public key body, and the enclosing key's
+advertised `short_id` MUST equal the first 16 base64url characters of
+`resource.key_id_sha256`. `resource.server_name` MUST correspond to the
 `server_name` of the enclosing key response. If any value does not match, the
 proof MUST be rejected without evaluating the puzzle.
 
@@ -965,6 +970,103 @@ that preserves verifier safety:
   changes MUST use a new algorithm or profile identifier, publish separate keys
   during migration, and rely on a follow-up MSC or room version before becoming
   mandatory.
+
+## Test vectors
+
+The following vectors are normative for interoperability. They are intended to
+eliminate ambiguity in `key_id_sha256` derivation, FN-DSA encoding/signing, and
+the Cuckoo Cycle helper functions used by this MSC.
+
+### `key_id_sha256` / `short_id` vector
+
+This vector uses the exact ASCII context string `matrix:fn-dsa-512:key-id:v1`,
+prefixed with `len16(context) = 0x001b`, and the public key from the FN-DSA
+vector below.
+
+```text
+context_ascii = "matrix:fn-dsa-512:key-id:v1"
+context_len16_be = 001b
+key_id_sha256_hex = 20fd21bc319285ffbbd0fc54ba6c8581d952ac62e671e90f4184a8b425d2db38
+key_id_sha256_base64url = IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg
+short_id = IP0hvDGShf-70PxU
+```
+
+### Deterministic FN-DSA-512 sign/verify vector
+
+This vector uses a deterministic entropy stream for reproducibility only. It is
+generated by feeding the ASCII seeds below into `SHAKE256` and using the output
+as the byte stream for key generation and signing:
+
+```text
+keygen_rng_seed_ascii = "msc45xx-fndsa-keygen-seed-v1"
+sign_rng_seed_ascii = "msc45xx-fndsa-sign-seed-v1"
+message_ascii = "matrix federation post-quantum test vector"
+```
+
+Verification of the signature below against the public key and message above
+MUST succeed. Verification against the message `tampered` MUST fail.
+
+```json
+{
+    "private_key_base64": "Wf+vvfAe//AQfuwggPuw/AQQjQdPwBOwe/QQRuwA/vAQPww+/xBQBPQ+x/wfiQBRQg//uQgw+xPR/hgggfQRPfQve+/Qx/hPPAv+gfhAgffRgvBQufAhSPv/x/ABPPhPPugQgRvhfvvRxP/OffQPvAPevQggwPePAAPgvAQwQAPBQA+/vAgBghA/vBfvgBfu/wBPRf/Qxv/RvgRPxvfOgQfgyffyfARgAuwQxQBw/wRvxQhvxPQQPxQgOwfxPNQQAhdwgf//+/xOSBwAgBQPewuhf/fBBgQQg/AxA/hBNgRQgQP/vgPhPwAAPfeAwwgCPvPxA/hw/Phgu/vwBexQOBfBAdwQfAfggfOfv/QvthA/wfw/whgBPBfAiRg/ufRPhiugvffuvuuwvPevfxSPggQQSBCt/QgARwvxRQ//QPAQg/ifAgRBPfPvuwwfvCARAuvdfAewSNgvxg/QvBQvwuuPegvfgQf++BuxvQuQBQi+vyufQ//vf/QAwegQAQgwxPxOgQNvAAAQgBRuQx+ggf/hPPv///AuvvPuwP/vuvfQP/gQP+wyPfQfPwfPg/vvuQwPxvBfffQOhvgvAgfwAQA+vex+wehfyid+xg+xPBvPQOgQQhvAfROhQvfQBPggARfvBfANgxQQOxAPvwQvihPwwAvwPvQQ/QgePxAPvQAO/SAfR/hO/w/QOwgQPROgQvfehevQ/+xxPgP/hBiOgfPNxvfhgOfdgAQOv/PvvgRwPAQf/RN+/fvAQQvQgAxhw+wPhdQ//www/wcuA+QvPQ//+wPwxxBOQvAggSNvAufvxPffO/gAQ/Peu+v//AQ/Pv/h/QPv+gQP/fPPBgAtwQQCvwvQQeu/exARAAQ/eSPwABBfgwQBQwPPP/ee//wv+whwevvvhffhxBPBwP+whf+/BgQfAfQgBgAgP/QP/wfAPgwuvgQQgufQfQw/vQwOvwB/ANvCBQAA+//9/uAfg/fhhQ+QAxghAiAwPgO/xPRAuAv/vwBBQPfO//xwvgOwhf8QGxClDCsZ8BsF7BH8BtwD9PcBLOQXG/rkHSIF2RP8HuhD+hgFD98bxO/w7/r3AtMOBQMn7db68h0K8/70FCvd8eYH+vT9KwDo+wEhCAT68gfl+98D4eYM9e/9FwetDfT0Bu3px/0l7AsMB/oiJfLnFyQEOlEj+vbtBhQu8QI3FwjzCfLqEgva/tglGxQ9Be3v7eHSO9jRG9oYDg4p8Cza/fDxIxTuHAIWzuf++QMI59DY5vz/Ch/p2Q/Pvurs5SMw994AAA/WDA3V8wcP/QAQ/S0DHdf4/OQSQdAB+9wOD/sa7A4C/PD7+/cG87n6+OMH7C7d+QQKz/MRJ+katRL08/gALQT8DgH8EfsBBucf+RMCJDvXKBQB5PAIEfwvFwkR5AkC+x3ezvDa9xUX+/YB2eHlIyEQIh0jCgkgGhX7PgQY9PQNEvn+Ixgd89f1Frr29+X548UOtiPq8AfcAwLK1/ohHP8GDCH8JC0PCfoPAAM9QP8GByQON/sDFP799ggn/QH/Byz98tsFCBgEJMEV8h/n/gES7ikO+CXlGQgCBfnwGQgcDQsM88z86xr14wss9MjjItki0uXw2NADGwvs3eMEyPf99OIX1Sjn6jv1ABQuOR8DHwcC2yMF5PT7Oe3b+uLu8zj3+fEy/inuIf8kGg3uEAsh+xkw/AMIDi0N",
+    "public_key_base64": "CUMlDwB0VzdvaT1nEeaTr21DtluYBSy6dktakGJh1K6o/yrYfthHeoRcG1gCURulT9CUkULCZYQvt2SM20hlAVUB7ehqZjN5fpAFoCtera1xaV8PdqnkbRJwXdtUQf770KVQWPjL9Z4ZwVVyVRpC1P41SehABNsDII0eBcJK65yGHKvnVL+RGBS15oG2oNjQazrWx1S6PZkAVMtq1RIoYJcsAeq6tMOvAW8ML3DXpw2mkYQZKYyxIHBOeDULD1dyO/FAQIRYpdsQumjBHCqiypHdSDu1GLOajB9hxNmAaepGnzWyK24RYgn4p+vd4WI6uhnHlJRJQqq6iOwoD38mIZtHqUIsbAn1xJrkAlRQEHUObZ4O5RNuhRIvuSBa5290pigmdeXhwY+VBjCrJ/mrBS5SOE+njyKqc7fVAYntsGoCrA2AVsOqMwCQpoi7tbLP3lBOzbhFLsWnWJTUkpT5MOqPAWvaSp5+5YEIJiRHteTjm8iVsIF4UWDJ7pNk5HaTCXaoslCgq0cZS4JLGXWS60I2RPL5nzaY/obiT543b5H+CdXXKjUgn0rrwRd+ndzpDpABfu4QMvda/jTV9/TJDZmy/ojyBdUPX1J9sruaTl2pkTkwL11asfrGoRSZt77Cl8FqcgOoXcJEGAeE8SUSmOkdICTVEWesNm9CVJUTJxVOttDjLM4Mvd6SyA/sO1KufVlLIwlH4Z7gH6KPPtJnwsEbSaB0OuWbTntY6K4xTghWvr62Md2TkqQ0CzsTS5y/LqHDcayOc85dcA6ENKMiLLb25cEXegc3uSSegmgKISdfzjeEt1ffK/JGLO16a1luUth6Al5Kv0pRuHXf7uKMWFF3jQQ+ojVyU0dhnD6kvlE8IL5zuYoIFqBAT8ruIw1scmmo+YjK4dJhtWXjOgd8JoHYiJ9GFYkJu3n266KjzQioHQTAPCZzNEFq62hkVSvDWnYJsD5QWRJIKzjLadUYmF0pOUUoq46rQMJi6EiyI6KoNuHj461IbUp726whYgOlZ61xmsgGsFpWDZby/iHN0CVhTQTQROz7fA415ozfIUEi8EU2GkwJcY40mG7ORfF7ixnUzIeC56RSmKtvAnK1n9fDB6CEAAkP7GDlMlRm7UVUnXpHr5jKqOlxMkbcvLytN8sdE/8+WGKwBYhkq13XdNhayVl9W1Ko3m9BxoF5pQZq",
+    "signature_base64": "OR1ILU+zEfglTjfS36YPtmYURnEMjBDlviLlO0yq214jygBVxOcAfTuezSWGIw8sjyKw0bij/Wsi86tqFERfCDQErvbK16xY+izE6Y2BI93lmrJ3s84z1adTn5uhN1L91AbGY4R1JN7szM/KV3jYNNua1xLmrrL3TGRAXlcHRPfkYY3Wk1TzS1kL7SLhCbEq01qqbcY/+RkyMbfXNYzAlylx5wp0z0bO9CxQ1cttgwMwa8jgjaNvaya96FTmuKskCuuLtHAqfAXrJIH4GRdNUmUrve3YiinS9ufe4sd6WkVDA6VITfYVONrk88nNWu+QSA/LYRwxCc8hL2aYZTK0fOkx/6rHdylSyiR9LnYZdT6YsMfVI5tommGdhPJcvKgnRwIyrISylC98SmMfq6OyeexBScItzMLt6to+2MO41dUaqOpXBS15NXpB/Fsx8oYzt4NdZ5VGs33PscfUARf9RDoKBWmIfnN47yX/HcbEcbrpCszaFagOc1PBRxujMxUWrlGW+EkQHc0yetPJqDsUR5lGWaXqRZPUjTCvCgk403LgjURzR0rFm8cRy5XbtyRSLnFTjGkQ2FTq5AR+ulI3pZvT74YNYqxREbNWWKTi4zr2U5BnlwUveCKK41fmiBPOT8WPQOmYs11IpKxHiaQ8D4N9Esmz+/6b1VJgXU0E/UxvY7HNZgrR1qjBr3VfXsnLN5mFotf5Rwp1thUGjT3e1jMnJUKuKzednTIxgpTjLOO6im3XnMRnErNjWXSiEGFYolDcylQmXfLVeBvB+DWjY5UwnIWeF2euSXMxy04rGVyH6+Rn443VwrEQRTWavqHdSdprJpRJEz2DNJOu1whd35Zz3JgyeeOaywnaXYMqpDsegAAAAAAAAAAA"
+}
+```
+
+### Cuckoo `graph_seed` vector
+
+This vector fixes the helper used by the PoW profile before any graph search is
+performed.
+
+```text
+challenge_bytes_ascii = "challenge"
+nonce = 3
+graph_seed_hex = 60ab7795bdc7d1e1952d08eb04ce99aeedf0969b4b6ae11faabf6e9c254679c7
+```
+
+### Reduced-work Cuckoo proof vector
+
+This vector is for interoperability testing of edge derivation and proof
+verification only. It is **not** the production `42-29` profile. Production
+deployments MUST still implement and enforce
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256`.
+
+```text
+config.edge_bits = 8
+config.proof_size = 4
+challenge_bytes_ascii = "tiny-cuckoo-test"
+nonce = 0
+graph_seed_hex = cc53bbfaea7f82519d68c626b808a991decdad0af34fff068d5b506fa45b6bc9
+proof = [0, 48, 289, 3503]
+edge(0) = (49, 116)
+edge(48) = (8, 116)
+edge(289) = (8, 3)
+edge(3503) = (49, 3)
+```
+
+### PoW challenge-object `graph_seed` vector
+
+This vector fixes the canonical JSON bytes and the resulting `graph_seed` for a
+sample production-profile challenge object.
+
+```json
+{
+    "challenge_object": {
+        "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+        "challenge": "AAAAAAAAAAAAAAAAAAAAAA",
+        "expires_ts": 1798848000000,
+        "resource": {
+            "action": "fn-dsa-key-publication",
+            "server_name": "example.com",
+            "key_id_sha256": "IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg"
+        }
+    },
+    "canonical_json_utf8": "{\"algorithm\":\"tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"expires_ts\":1798848000000,\"resource\":{\"action\":\"fn-dsa-key-publication\",\"server_name\":\"example.com\",\"key_id_sha256\":\"IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg\"}}",
+    "nonce": 8137226,
+    "graph_seed_hex": "284e0a6686aef81a82f8b44a4c8026966058f3973dc958fbecb28361082a7107"
+}
+```
 
 ## Dependencies
 
