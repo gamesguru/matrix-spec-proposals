@@ -129,12 +129,14 @@ digest cannot collide semantically with an unrelated protocol's SHA-256 over the
 same raw key bytes — and MUST be included exactly as given.
 
 The key ID is therefore a pure function of the public key body: it does not
-depend on `server_name`. Domain separation for FN-DSA keys comes from the
+depend on `server_name`. Name-binding for FN-DSA keys comes from the
 self-signature, not the key ID: the signed `/_matrix/key/v2/server` object
-includes `server_name`, so a server cannot produce a valid self-signature
-claiming another server's name without that server's private key, regardless of
-what the key ID hashes over (see [Server signing keys](#server-signing-keys) for
-the exact-match requirement on `server_name`).
+includes `server_name`, so a self-signature is bound to one claimed Matrix
+server name rather than being reusable across names (see
+[Server signing keys](#server-signing-keys) for the exact-match requirement on
+`server_name`). This binds the key to the claimed name within the signed object;
+it does not, by itself, prove control of that name's DNS, origin, or TLS
+endpoint.
 
 The `hash` component MUST contain exactly 16 characters from the base64url
 alphabet of RFC 4648 §5 (`A-Z`, `a-z`, `0-9`, `-`, and `_`), encoding the first
@@ -276,8 +278,9 @@ trusting the key. A self-signature made for one `server_name` MUST NOT be
 accepted for any other `server_name`; implementations MUST use the exact Matrix
 `server_name` for this comparison, and MUST NOT accept parent-domain,
 registrable-domain, wildcard, or suffix-equivalent matches. This exact-match
-self-signature check is what provides domain separation for FN-DSA keys (see
-[Key ID format](#key-id-format)).
+self-signature check binds the key to one claimed Matrix server name (see
+[Key ID format](#key-id-format)); it does not, by itself, prove current control
+of that name's DNS, origin, or TLS endpoint.
 
 FN-DSA key objects MAY include implementation metadata. The `fips_206_revision`
 field SHOULD be present before FIPS 206 finalization. The `claims` field is a
@@ -301,13 +304,17 @@ self-signature before trusting the FN-DSA key.
 
 Initial FN-DSA key discovery is trust-on-first-use (TOFU): it is authenticated
 by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
-attestation). First-use discovery is not post-quantum secure against an attacker
-who has already compromised or quantum-derived the server's Ed25519 signing key
-before the FN-DSA key was observed. Post-quantum protection for server identity
-applies to traffic authenticated under a cached FN-DSA key for as long as that
-key stays in use and uncompromised; it does not extend across a key
-_replacement_, since replacement publication in this MSC is authenticated solely
-by the existing Ed25519 trust model — see
+attestation). The FN-DSA self-signature proves possession of the FN-DSA private
+key for the published public key and binds that key to the claimed `server_name`
+inside the signed object; it does not independently prove domain, origin, or TLS
+control. Those properties remain exactly those supplied by the existing Matrix
+server-key trust model at fetch time. First-use discovery is not post-quantum
+secure against an attacker who has already compromised or quantum-derived the
+server's Ed25519 signing key before the FN-DSA key was observed. Post-quantum
+protection for server identity applies to traffic authenticated under a cached
+FN-DSA key for as long as that key stays in use and uncompromised; it does not
+extend across a key _replacement_, since replacement publication in this MSC is
+authenticated solely by the existing Ed25519 trust model — see
 [Security considerations](#security-considerations) for the resulting
 limitation.
 
@@ -378,8 +385,9 @@ optional `resource.claims` and `resource.fips_206_revision` fields mirror
 selected metadata into the proof-of-work resource for notary policy and operator
 diagnostics. These fields can be bound into the proof-of-work challenge, but
 they do not cryptographically prove that the FN-DSA key was generated or used
-with constant-time code. Verifiers and notaries MUST treat them as policy
-metadata only.
+with constant-time code, nor do they prove domain, origin, or TLS ownership at
+the time the work was performed. Verifiers and notaries MUST treat them as
+policy metadata only.
 
 **Graph derivation.** A given challenge graph contains a 42-cycle only with some
 probability, so the prover iterates a nonce:
@@ -466,15 +474,14 @@ Because a server's very first FN-DSA key observation is TOFU and authenticates
 only via the existing Ed25519 trust model (see
 [Server key trust model](#server-key-trust-model)), it is vulnerable to an
 attacker positioned on that specific fetch path — a targeted, localized
-man-in-the-middle rather than a global compromise. Implementations MAY perform
-additional notary queries as advisory corroboration for a server's first-ever
-observed FN-DSA key, but MUST NOT require unanimous agreement across independent
-sources as a precondition for accepting an otherwise valid key: doing so would
-let any configured false, compromised, or merely stale notary interfere with
-legitimate bootstrap. Additional corroboration can raise the cost of a targeted
-path-level attacker, but it does not protect against compromise of the origin's
-actual signing key, nor is it a substitute for the transport half of the threat
-model in [Security considerations](#security-considerations).
+man-in-the-middle rather than a global compromise. Implementations MUST NOT
+treat contradictory notary observations, by themselves, as sufficient to reject
+or invalidate an otherwise valid first observation: doing so would let any
+false, compromised, or stale notary create a denial-of-service condition against
+legitimate bootstrap. This MSC therefore leaves first-observation acceptance
+semantics aligned with the existing Matrix server-key trust model; it does not
+define any cross-source consensus or conflict-resolution mechanism for FN-DSA
+bootstrap.
 
 ### Federation HTTP authentication
 
@@ -810,6 +817,15 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   key is cached. Ordinary TLS termination, including common nginx deployments
   using classical TLS certificates and classical key agreement, does not remove
   this TOFU bootstrap window.
+
+- **Self-signatures and PoW do not prove origin ownership.** The FN-DSA
+  self-signature proves possession of the FN-DSA private key and binds the key
+  to the claimed `server_name` within the signed object. The mandatory
+  proof-of-work binds work to the advertised key material and selected metadata.
+  Neither mechanism, by itself, proves current control of the domain's DNS,
+  origin, or TLS endpoint at any particular time. Those properties remain those
+  of the underlying Matrix server-key trust model used to fetch or attest to the
+  key.
 
 - **Downgrade attacks.** During the advisory period, an attacker who can strip
   HTTP headers (i.e. who controls TLS termination or a private key) could
