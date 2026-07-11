@@ -47,12 +47,20 @@ key publication, self-signing, and federation transport authentication.
 ### Key Identifier Format
 
 Matrix currently identifies keys using the format `algorithm:key_id` (e.g.,
-`ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers:
+`ed25519:abc123`). This MSC extends the set of recognized algorithm identifiers
+and makes PQC key IDs content-addressed:
 
-| Key Algorithm | Description                  | Key ID Format         |
-| ------------- | ---------------------------- | --------------------- |
-| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`    |
-| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<key_id>` |
+| Key Algorithm | Description                  | Key ID Format       |
+| ------------- | ---------------------------- | ------------------- |
+| `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`  |
+| `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<hash>` |
+
+For `fn-dsa-512`, the `hash` component MUST be the first 16 base64url characters
+of the SHA-256 digest of the canonical public key bytes, without padding. The
+canonical public key bytes are the raw FN-DSA-512 public key byte string as
+defined by FIPS 206. A given public key body therefore has a single,
+deterministic key ID, and a given key ID MUST map to exactly one public key body
+for a given server.
 
 Key IDs MUST be unique within each algorithm namespace on a given server.
 
@@ -95,7 +103,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
         "ed25519:auto": {
             "key": "<unpadded-base64-ed25519-pubkey>"
         },
-        "fn-dsa-512:pqc0": {
+        "fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>"
         }
     },
@@ -108,7 +116,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
     "signatures": {
         "example.com": {
             "ed25519:auto": "<base64-ed25519-signature>",
-            "fn-dsa-512:pqc0": "<base64-fn-dsa-512-signature>"
+            "fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
         }
     },
     "valid_until_ts": 1798848000000
@@ -127,8 +135,10 @@ post-quantum identity continuity from that point forward (see
 
 Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server`
 response MUST include an FN-DSA self-signature in the `signatures` field
-alongside the existing Ed25519 signature. Receiving servers MUST verify this
-self-signature before trusting the FN-DSA key.
+alongside the existing Ed25519 signature. The `key_id` used for that signature
+MUST be derived from the FN-DSA public key body as specified in
+[Key Identifier Format](#key-identifier-format). Receiving servers MUST verify
+this self-signature before trusting the FN-DSA key.
 
 Initial FN-DSA key discovery is trust-on-first-use (TOFU): it is authenticated
 by the existing Matrix server-key trust model (Ed25519 signatures and/or notary
@@ -144,7 +154,8 @@ authenticated: the replacement key response MUST be signed by a previously
 trusted FN-DSA key (which MAY have been retired to `old_verify_keys` with a
 non-expired `expired_ts`). A new FN-DSA key MUST NOT be accepted solely on the
 basis of Ed25519 authentication if the receiving server has previously observed
-a valid FN-DSA key for that server.
+a valid FN-DSA key for that server. Because FN-DSA key IDs are content-
+addressed, a replacement FN-DSA key will necessarily appear under a new key ID.
 
 Servers SHOULD pin observed FN-DSA keys and treat unexpected key changes —
 particularly the disappearance of a previously-observed FN-DSA key or the
@@ -178,7 +189,7 @@ RFC 9110, so no capability discovery is needed for legacy servers.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:pqc0",sig="<base64-fn-dsa-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:5FQ2xg4sWqj3Kp9N",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for
@@ -491,7 +502,7 @@ key IDs:
 ```json
 {
     "verify_keys": {
-        "tk.nutra.msc45xx.fn-dsa-512:pqc0": {
+        "tk.nutra.msc45xx.fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
             "key": "<base64-fn-dsa-512-pubkey>"
         }
     }
@@ -514,13 +525,14 @@ before finalization MUST observe the following constraints:
 - **Pin a specific draft revision.** Implementations MUST document which FIPS
   206 draft revision they target. Interoperability between implementations
   targeting different draft revisions is not guaranteed.
-- **Use unstable identifiers everywhere.** During the draft period,
-  `/_matrix/key/v2/server` key entries and `X-Matrix-PQC` header `key`
-  parameters MUST use the unstable algorithm identifier
-  (`tk.nutra.msc45xx.fn-dsa-512`), not the stable identifier. This ensures that
-  draft-era signatures are distinguishable from signatures produced under the
-  finalized standard, and that receiving servers can unambiguously determine
-  which encoding rules apply.
+- **Use unstable algorithm prefixes, but stable content-addressed key IDs.**
+  During the draft period, `/_matrix/key/v2/server` key entries and
+  `X-Matrix-PQC` header `key` parameters MUST use the unstable algorithm
+  identifier (`tk.nutra.msc45xx.fn-dsa-512`) as the prefix, but the suffix MUST
+  still be the content-addressed key ID derived from the FN-DSA public key body.
+  This ensures that draft-era signatures are distinguishable from signatures
+  produced under the finalized standard, while preserving the
+  collision-resistant lookup property.
 - **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final
   standard changes the public key encoding, signature encoding, or algorithm
   semantics, all previously published unstable FN-DSA keys MUST be retired to

@@ -73,7 +73,7 @@ In room versions that require PQC signatures (see
 {
     "signatures": {
         "example.com": {
-            "fn-dsa-512:pqc0": "<base64-fn-dsa-512-signature>"
+            "fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
         }
     }
 }
@@ -444,7 +444,7 @@ unstable period, PDU `signatures` entries use the unstable algorithm identifier:
     },
     "signatures": {
         "example.com": {
-            "tk.nutra.msc45xx.fn-dsa-512:pqc0": "<base64-fn-dsa-512-signature>"
+            "tk.nutra.msc45xx.fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
         }
     }
 }
