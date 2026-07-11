@@ -7,23 +7,23 @@ elliptic-curve and RSA schemes.
 This MSC extends the post-quantum migration to E2EE device signing keys and
 cross-signing keys. The cryptographic primitives (`fn-dsa-512`), encoding rules,
 and server-side federation changes are defined in
-[MSC 00FF: Post-Quantum Digital Signatures for Federation](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF).
+[MSC 45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication](https://github.com/matrix-org/matrix-spec-proposals/pull/45XX).
 
 ## Proposal
 
-This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by MSC 00FF. All encoding
+This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by MSC 45XX. All encoding
 rules (public key encoding, signature encoding, signing operation) are identical
-to those specified in MSC 00FF. Refer to MSC 00FF for algorithm parameters, NIST
+to those specified in MSC 45XX. Refer to MSC 45XX for algorithm parameters, NIST
 security level rationale, and FIPS 206 dependency details.
 
 > **Note:** For readability, this proposal uses the intended stable identifier
 > `fn-dsa-512` throughout the main text and examples. Until both this MSC and
-> MSC 00FF are accepted and merged into the Matrix specification,
-> implementations MUST use the unstable identifier
-> `org.matrix.msc00FF.fn-dsa-512` — the canonical prefix defined by the
-> Federation MSC where the algorithm is specified — in all protocol fields,
-> including E2EE device key IDs, cross-signing key IDs, and signature entries.
-> See [Unstable Prefix](#unstable-prefix) for the full mapping.
+> MSC 45XX are accepted and merged into the Matrix specification,
+> implementations MUST use the unstable identifier `tk.nutra.msc45xx.fn-dsa-512`
+> — the canonical prefix defined by the Federation MSC where the algorithm is
+> specified — in all protocol fields, including E2EE device key IDs,
+> cross-signing key IDs, and signature entries. See
+> [Unstable Prefix](#unstable-prefix) for the full mapping.
 
 ### Device Signing Keys
 
@@ -115,10 +115,10 @@ locally for:
 - Cross-signing keys (`fn-dsa-512`) — uploaded via `/keys/device_signing/upload`
 
 Client implementations MUST use a side-channel-resistant FN-DSA library (see MSC
-00FF
-[Implementation Guidance](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF)
+45XX
+[Implementation Guidance](https://github.com/matrix-org/matrix-spec-proposals/pull/45XX)
 and
-[Falcon's implementation complexity](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF)).
+[Falcon's implementation complexity](https://github.com/matrix-org/matrix-spec-proposals/pull/45XX)).
 
 **Device ID Constraints.** Because FN-DSA-512 public keys are extremely large
 (897 bytes), client implementations MUST NOT use the raw base64-encoded FN-DSA
@@ -139,7 +139,7 @@ signatures** (i.e., after stripping the `signatures` and `unsigned` fields).
 - Cross-signing signatures (master -> self-signing -> device key chain)
 
 Clients do **not** verify PDU signatures or federation HTTP authentication —
-these are exclusively homeserver responsibilities and are specified in MSC 00FF.
+these are exclusively homeserver responsibilities and are specified in MSC 45XX.
 
 **Hash-to-Key Validation.** When verifying `fn-dsa-512` cross-signing keys,
 clients MUST NOT blindly trust the `<key_id>`. The client MUST decode the raw
@@ -157,8 +157,8 @@ fallback.
 **What clients do NOT need to do:**
 
 - Verify or inspect the `signatures` object on timeline events (homeserver-only,
-  see MSC 00FF)
-- Process `X-Matrix-PQC` headers (server-to-server transport, see MSC 00FF)
+  see MSC 45XX)
+- Process `X-Matrix-PQC` headers (server-to-server transport, see MSC 45XX)
 - Implement FN-DSA for Olm/Megolm key agreement (deferred to a separate MSC)
 
 ### Key Agreement (Informational)
@@ -184,16 +184,16 @@ bandwidth) overhead, making PQC key agreement scalable; see
   require side-channel-resistant discrete Gaussian sampling — non-constant-time
   implementations can leak private keys through timing, cache, or power side
   channels. Client implementations MUST use an audited FN-DSA library.
-  Browser-targeted WASM builds require particular scrutiny. See MSC 00FF
+  Browser-targeted WASM builds require particular scrutiny. See MSC 45XX
   Implementation Guidance for library recommendations.
 
-- **FIPS 206 not yet finalized.** See MSC 00FF for full pre-finalization
+- **FIPS 206 not yet finalized.** See MSC 45XX for full pre-finalization
   deployment guidance. E2EE keys published under unstable identifiers MUST be
   treated as provisional.
 
 ## Alternatives
 
-- **Waiting for MSC 00FF to be accepted first.** This MSC could be deferred
+- **Waiting for MSC 45XX to be accepted first.** This MSC could be deferred
   until the federation MSC is merged. However, E2EE key distribution is
   independent of federation PDU signing and can proceed in parallel. Early
   adoption provides defence-in-depth for device verification even before PQC
@@ -216,7 +216,7 @@ bandwidth) overhead, making PQC key agreement scalable; see
 
 - **Timing side-channels.** FN-DSA's discrete Gaussian sampler leaks private
   keys via timing analysis if implemented incorrectly. All client
-  implementations MUST use audited, constant-time libraries. See MSC 00FF
+  implementations MUST use audited, constant-time libraries. See MSC 45XX
   Implementation Guidance.
 
 - **Key compromise recovery.** If a client's FN-DSA device signing key is
@@ -226,14 +226,14 @@ bandwidth) overhead, making PQC key agreement scalable; see
 ## Unstable Prefix
 
 The `fn-dsa-512` algorithm is canonically defined in
-[MSC 00FF](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF). This
+[MSC 45XX](https://github.com/matrix-org/matrix-spec-proposals/pull/45XX). This
 MSC reuses the same unstable identifier to ensure that servers and clients use a
 single, consistent algorithm name across federation PDU signatures, device keys,
 and cross-signing keys.
 
-| Stable Identifier            | Unstable Identifier             | Defined In |
-| ---------------------------- | ------------------------------- | ---------- |
-| `fn-dsa-512` (key algorithm) | `org.matrix.msc00FF.fn-dsa-512` | MSC 00FF   |
+| Stable Identifier            | Unstable Identifier           | Defined In |
+| ---------------------------- | ----------------------------- | ---------- |
+| `fn-dsa-512` (key algorithm) | `tk.nutra.msc45xx.fn-dsa-512` | MSC 45XX   |
 
 The unstable prefix is used in device key IDs, cross-signing key IDs, and
 signature entries within `/keys/upload` and `/keys/device_signing/upload`
@@ -243,11 +243,11 @@ requests and `/keys/query` responses.
 {
     "device_keys": {
         "keys": {
-            "org.matrix.msc00FF.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
+            "tk.nutra.msc45xx.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
         },
         "signatures": {
             "@alice:example.com": {
-                "org.matrix.msc00FF.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
+                "tk.nutra.msc45xx.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
             }
         }
     }
@@ -260,10 +260,10 @@ identifier, accepting either.
 
 ## Dependencies
 
-- **[MSC 00FF: Post-Quantum Digital Signatures for Federation](https://github.com/matrix-org/matrix-spec-proposals/pull/00FF):**
-  This MSC depends on MSC 00FF for the definition of `fn-dsa-512` algorithm
+- **[MSC 45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication](https://github.com/matrix-org/matrix-spec-proposals/pull/45XX):**
+  This MSC depends on MSC 45XX for the definition of `fn-dsa-512` algorithm
   parameters, encoding rules, and signing operation semantics.
-- **NIST FIPS 206 (FN-DSA):** Transitively via MSC 00FF. See MSC 00FF for
+- **NIST FIPS 206 (FN-DSA):** Transitively via MSC 45XX. See MSC 45XX for
   pre-finalization deployment guidance.
 
 ## Backwards Compatibility
@@ -330,7 +330,7 @@ This proposal is fully backwards-compatible:
           [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
           the awkward accepted-but-not-merged state
     - [x] Chosen unstable prefixes do not pollute any global namespace (reuses
-          `org.matrix.msc00FF` from the defining MSC).
+          `tk.nutra.msc45xx` from the defining MSC).
 - [ ] Changes have applicable
       [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off)
       from all authors/editors/contributors
