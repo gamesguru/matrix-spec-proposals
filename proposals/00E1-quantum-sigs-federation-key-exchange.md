@@ -41,9 +41,9 @@ verifier would have to implement, audit, and accept the larger scheme anyway,
 and algorithm negotiation itself creates a downgrade surface. One mandatory
 scheme; alternatives are discussed in [Alternatives](#alternatives).
 
-| Algorithm    | NIST Level  | Public Key | Signature  | Key Generation | Signing | Verification | Cuckoo Verify | Use Case                                                                  |
-| ------------ | ----------- | ---------- | ---------- | -------------- | ------- | ------------ | ------------- | ------------------------------------------------------------------------- |
-| `fn-dsa-512` | I (128-bit) | 897 bytes  | ~666 bytes | ~10 ms         | ~5 ms   | ~0.1 ms      | ~1 ms         | Server signing keys and HTTP transport (this MSC); PDU signing (MSC 45YY) |
+| Algorithm    | NIST Level  | PubKey    | Signature  | Performance/Timing                                                    | Use Case                                            |
+| ------------ | ----------- | --------- | ---------- | --------------------------------------------------------------------- | --------------------------------------------------- |
+| `fn-dsa-512` | I (128-bit) | 897 bytes | ~666 bytes | Keygen: ~10 ms<br>Sign: ~5 ms<br>Verify: ~0.1 ms<br>PoW verify: ~1 ms | HTTP transport (this MSC); PDU signing (future MSC) |
 
 FN-DSA is a signature scheme, so Cuckoo Cycle proof-of-work is not applicable to
 the primitive itself. The proof-of-work gate is defined separately below, where
