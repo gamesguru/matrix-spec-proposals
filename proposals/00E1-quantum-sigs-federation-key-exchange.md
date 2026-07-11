@@ -1,4 +1,4 @@
-# MSC 45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication
+# MSC45XX: Post-Quantum Server Key Exchange and Federation Transport Authentication
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
@@ -31,9 +31,9 @@ high-throughput federation.
 
 This MSC proposes a single, unified signature scheme.
 
-| Parameter Set | NIST Level     | Public Key | Signature  | Verification | Use Case                                     |
-| ------------- | -------------- | ---------- | ---------- | ------------ | -------------------------------------------- |
-| `fn-dsa-512`  | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys and transport signatures |
+| Algorithm    | NIST Level  | Public Key | Signature  | Verification | Use Case                     |
+| ------------ | ----------- | ---------- | ---------- | ------------ | ---------------------------- |
+| `fn-dsa-512` | I (128-bit) | 897 bytes  | ~666 bytes | ~0.1 ms      | HTTP transport. PDU signing. |
 
 Matrix event IDs use SHA-256. Due to classical collision bounds (Birthday
 Paradox) and quantum preimage bounds (Grover's algorithm), SHA-256 provides a
@@ -567,68 +567,3 @@ This proposal is fully backwards-compatible:
 - **One new endpoint**, which is OPTIONAL, discoverable by its `404`, and has a
   mandatory fallback path.
 - **Zero impact on events, PDUs, room versions, or clients.**
-
----
-
-## MSC Checklist
-
-- [ ] Are
-      [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal)
-      specified in the MSC's PR description?
-- [x] Are all MSCs that this MSC depends on already accepted? (No MSC
-      dependencies.)
-- [x] For each endpoint that is introduced or modified:
-    - [x] Have authentication requirements been specified? (Ed25519
-          `Authorization` + `X-Matrix-PQC`, both required.)
-    - [x] Have rate-limiting requirements been specified?
-          (`429     M_LIMIT_EXCEEDED`.)
-    - [x] Have guest access requirements been specified? (N/A — server-to-server
-          API.)
-    - [x] Are error responses specified?
-        - [x] Does each error case have a specified `errcode` (i.e.
-              `M_FORBIDDEN`) and HTTP status code?
-            - [x] If a new `errcode` is introduced, is it clear that it is new?
-                  (No new errcodes.)
-    - [x] Are the
-          [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis)
-          honoured?
-        - [x] Do HTTP endpoints `use_underscores_like_this`?
-        - [x] Will the endpoint return unbounded data? If so, has pagination
-              been considered? (Fixed-size response; no pagination needed.)
-        - [x] If the endpoint utilises pagination, is it consistent with
-              [the appendices](https://spec.matrix.org/latest/appendices/#pagination)?
-              (N/A.)
-- [x] Will the MSC require a new room version, and if so, has that been made
-      clear? (No new room version — deliberately. Room version changes are
-      scoped to MSC 45YY.)
-- [x] Are backwards-compatibility concerns appropriately addressed?
-- [x] An introduction exists and clearly outlines the problem being solved.
-      Ideally, the first paragraph should be understandable by a non-technical
-      audience.
-- [ ] All outstanding threads are resolved
-    - [ ] All feedback is incorporated into the proposal text itself, either as
-          a fix or noted as an alternative
-- [x] There is a dedicated "Security Considerations" section which detail any
-      possible attacks/vulnerabilities this proposal may introduce, even if this
-      is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
-      for things to think about, but in particular pay attention to the
-      [OWASP Top Ten](https://owasp.org/www-project-top-ten/).
-- [x] The other section headings in the template are optional, but even if they
-      are omitted, the relevant details should still be considered somewhere in
-      the text of the proposal. Those section headings are:
-    - [x] Introduction
-    - [x] Proposal text
-    - [x] Potential issues
-    - [x] Alternatives
-    - [x] Unstable prefix
-    - [x] Dependencies
-- [x] Stable identifiers are used throughout the proposal, except for the
-      unstable prefix section
-    - [x] Unstable prefixes
-          [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
-          the awkward accepted-but-not-merged state
-    - [x] Chosen unstable prefixes do not pollute any global namespace (use
-          "tk.nutra.msc45xx", not "tk.nutra").
-- [ ] Changes have applicable
-      [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off)
-      from all authors/editors/contributors
