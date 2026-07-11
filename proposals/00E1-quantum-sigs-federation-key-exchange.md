@@ -137,6 +137,10 @@ key is observed, verified, and cached _before_ a quantum adversary exists gains
 post-quantum identity continuity from that point forward (see
 [Server Key Trust Model](#server-key-trust-model)).
 
+FN-DSA keys are distributed as self-signed key objects: the server signs its own
+public key in the `signatures` field, and receivers verify that self-signature
+before trusting the key.
+
 #### Server Key Trust Model
 
 Once a server publishes an FN-DSA signing key, the `/_matrix/key/v2/server`
