@@ -41,9 +41,13 @@ verifier would have to implement, audit, and accept the larger scheme anyway,
 and algorithm negotiation itself creates a downgrade surface. One mandatory
 scheme; alternatives are discussed in [Alternatives](#alternatives).
 
-| Algorithm    | NIST Level     | Public Key | Signature  | Verification | Use Case                                                                  |
-| ------------ | -------------- | ---------- | ---------- | ------------ | ------------------------------------------------------------------------- |
-| `fn-dsa-512` | I (128-bit PQ) | 897 bytes  | ~666 bytes | ~0.1 ms      | Server signing keys and HTTP transport (this MSC); PDU signing (MSC 45YY) |
+| Algorithm    | NIST Level  | Public Key | Signature  | Key Generation | Signing | Verification | Cuckoo Verify | Use Case                                                                  |
+| ------------ | ----------- | ---------- | ---------- | -------------- | ------- | ------------ | ------------- | ------------------------------------------------------------------------- |
+| `fn-dsa-512` | I (128-bit) | 897 bytes  | ~666 bytes | ~10 ms         | ~5 ms   | ~0.1 ms      | ~1 ms         | Server signing keys and HTTP transport (this MSC); PDU signing (MSC 45YY) |
+
+FN-DSA is a signature scheme, so Cuckoo Cycle proof-of-work is not applicable to
+the primitive itself. The proof-of-work gate is defined separately below, where
+verification is intentionally cheap relative to proof generation.
 
 **Why NIST Level I.** Matrix event IDs and content hashes use SHA-256. Due to
 classical collision bounds (Birthday Paradox) and quantum preimage bounds
