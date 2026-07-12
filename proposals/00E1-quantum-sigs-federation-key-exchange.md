@@ -491,7 +491,6 @@ change acceptance semantics.
                 "leaf_cert_sha256": "<unpadded-base64url-sha256>",
                 "tls_13_provenance": {
                     "transcript_hash_algorithm": "sha256",
-                    "handshake_transcript": "<unpadded-base64url-tls-handshake-bytes>",
                     "handshake_transcript_hash": "<unpadded-base64url-hash>",
                     "certificate_verify_signature_scheme": "ecdsa_secp256r1_sha256",
                     "server_certificate_verify_signature": "<unpadded-base64url-signature>"
@@ -559,8 +558,6 @@ len16("matrix:tls13-provenance:v1") ||
 "matrix:tls13-provenance:v1" ||
 len16(transcript_hash_algorithm) ||
 transcript_hash_algorithm ||
-len32(handshake_transcript) ||
-handshake_transcript ||
 len16(handshake_transcript_hash) ||
 handshake_transcript_hash ||
 len16(certificate_verify_signature_scheme) ||
@@ -570,21 +567,33 @@ server_certificate_verify_signature
 ```
 
 Here `len32(x)` is the four-byte big-endian length of the byte string `x`,
-followed immediately by `x`. `handshake_transcript` is the exact concatenation
-of TLS 1.3 Handshake messages from `ClientHello` through the server
-`Certificate` message, excluding `CertificateVerify` itself. A verifier or
-auditor validating `tls_13_provenance` MUST recompute
-`handshake_transcript_hash` over those bytes using `transcript_hash_algorithm`,
-MUST extract the leaf certificate from the transcript's server `Certificate`
-message, MUST verify that the extracted leaf certificate and its
-SubjectPublicKeyInfo match `leaf_cert_sha256` and `leaf_spki_sha256`, then MUST
-verify `server_certificate_verify_signature` according to the TLS 1.3
-`CertificateVerify` construction for the server context, using the extracted
-leaf certificate's public key and the indicated
-`certificate_verify_signature_scheme`. Verifiers SHOULD validate that the
-extracted leaf certificate chains to the WebPKI and was valid for
-`observed_server_name` at `observed_at`, including Certificate Transparency
-evidence where available.
+followed immediately by `x`. `handshake_transcript_hash` is the literal
+cryptographic hash of the TLS 1.3 Handshake Context up to but excluding the
+server `CertificateVerify` message, as defined by RFC 8446 Section 4.4.1, using
+the raw TLS Handshake messages and excluding TLS record-layer headers. This
+compact form intentionally does not carry the full handshake transcript.
+
+A verifier or auditor validating compact `tls_13_provenance` MUST obtain a TLS
+leaf certificate matching `leaf_cert_sha256` and `leaf_spki_sha256`, for example
+from Certificate Transparency logs, out-of-band certificate evidence, or a
+retained notary audit bundle. The verifier MUST then verify
+`server_certificate_verify_signature` according to the TLS 1.3
+`CertificateVerify` construction for the server context, using the obtained leaf
+certificate's public key, the stated `handshake_transcript_hash`,
+`transcript_hash_algorithm`, and `certificate_verify_signature_scheme`.
+Verifiers SHOULD validate that the obtained leaf certificate chains to the
+WebPKI and was valid for `observed_server_name` at `observed_at`, including
+Certificate Transparency evidence where available.
+
+Because the compact form carries only the transcript hash, it proves only that
+the holder of the obtained TLS certificate private key produced a valid
+`CertificateVerify` signature over that hash. It does not by itself let a later
+auditor inspect or recompute the handshake transcript, confirm the SNI value,
+confirm a notary challenge, or confirm other handshake contents. A notary that
+wants independently auditable transcript contents MAY retain or publish the full
+TLS Handshake messages, or equivalent transcript evidence, in an out-of-band
+audit bundle. Such transcript evidence MUST use the same RFC 8446 Section 4.4.1
+Handshake Context definition and MUST exclude TLS record-layer headers.
 
 This TLS 1.3 provenance proves only that the notary presents evidence of a live
 TLS 1.3 handshake with the holder of the observed certificate private key. It
