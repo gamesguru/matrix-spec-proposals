@@ -457,6 +457,74 @@ endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
 The challenge MUST be rejected if `expires_ts` has passed or if the `challenge`
 value was not issued by the verifier.
 
+##### Notary-scoped publication challenges
+
+Notaries MAY offer a challenge endpoint that lets an origin bind additional
+publication work to a named notary before the notary attests to the key:
+
+```http
+POST /_matrix/key/v2/fn_dsa_publication_challenge
+```
+
+Request body:
+
+```json
+{
+    "server_name": "example.com",
+    "key_id_sha256": "<unpadded-base64url-sha256>",
+    "key_metadata_sha256": "<unpadded-base64url-sha256>",
+    "server_key_package_sha256": "<unpadded-base64url-sha256>"
+}
+```
+
+Response body:
+
+```json
+{
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+    "challenge": "<unpadded-base64url-random>",
+    "expires_ts": 1798848000000,
+    "issuer": "notary.example",
+    "resource": {
+        "action": "fn-dsa-key-publication-notary-challenge",
+        "server_name": "example.com",
+        "key_id_sha256": "<unpadded-base64url-sha256>",
+        "key_metadata_sha256": "<unpadded-base64url-sha256>",
+        "server_key_package_sha256": "<unpadded-base64url-sha256>",
+        "issuer": "notary.example"
+    },
+    "signatures": {
+        "notary.example": {
+            "ed25519:auto": "<base64-ed25519-signature>",
+            "fn-dsa-512:<short_id>": "<base64-fn-dsa-signature>"
+        }
+    }
+}
+```
+
+`server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest of
+the Matrix Canonical JSON representation of the origin's
+`/_matrix/key/v2/server` response after removing only `signatures` and
+`unsigned`. A notary-scoped challenge MUST NOT be inserted into that server-key
+object. The origin solves the proof against the signed challenge object and
+submits the solution to the notary out-of-band from the server-key object, for
+example as part of the notary's key-query workflow or a notary-specific
+challenge-completion endpoint.
+
+This preserves a single canonical origin key package: the object fetched
+directly from the origin and the object redistributed by a notary remain
+byte-for-byte equivalent after normal JSON parsing and Canonical JSON
+serialization, and therefore hash to the same `server_key_package_sha256`.
+Notary-specific challenge IDs, issuance timestamps, proof receipt timestamps,
+TLS provenance, and audit notes MUST be carried outside the origin key object,
+either in notary-signed observation records or transport metadata. They MUST NOT
+affect the canonical hash or signature input of the origin key package.
+
+Notary-scoped challenges are advisory provenance. A notary MAY require them as a
+local policy before emitting its own attestation, but other receivers MUST NOT
+reject an otherwise-valid FN-DSA key publication solely because this
+notary-specific challenge metadata is absent, delayed, too fast, or too slow.
+
 #### Notary expectations and key validity
 
 Key notaries (`/_matrix/key/v2/query`) MUST include FN-DSA keys and their
@@ -501,6 +569,13 @@ server-key validation and MUST NOT change acceptance semantics.
                 }
             },
             "key_id_sha256": "<unpadded-base64url-sha256>",
+            "server_key_package_sha256": "<unpadded-base64url-sha256>",
+            "notary_challenge": {
+                "challenge_id": "<opaque-string>",
+                "challenge_issued_at": 1798847988000,
+                "pow_observed_at": 1798848000000,
+                "pow_verified_at": 1798848000100
+            },
             "valid_until_ts": 1798848000000,
             "signatures": {
                 "notary.example": {
@@ -537,6 +612,12 @@ if tls_13_provenance_present:
     tls_13_provenance_sha256 ||
 len16(key_id_sha256) ||
 key_id_sha256 ||
+len16(server_key_package_sha256) ||
+server_key_package_sha256 ||
+uint8(notary_challenge_present) ||
+if notary_challenge_present:
+    len16(notary_challenge_sha256) ||
+    notary_challenge_sha256 ||
 uint64_be(valid_until_ts)
 ```
 
@@ -549,6 +630,12 @@ Formatting definitions:
   leaf certificate's SubjectPublicKeyInfo DER.
 - `leaf_cert_sha256` is the unpadded base64url-encoded SHA-256 digest of the
   full TLS leaf certificate DER observed by the notary during its HTTPS fetch.
+- `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest
+  of the observed origin server-key package's Matrix Canonical JSON
+  representation after removing only `signatures` and `unsigned`.
+- When `notary_challenge` is present, `notary_challenge_sha256` is the unpadded
+  base64url-encoded SHA-256 digest of the Matrix Canonical JSON representation
+  of the `notary_challenge` object.
 
 Notary and verifier constraints:
 
@@ -562,6 +649,13 @@ Notary and verifier constraints:
   `observed_server_name` matches the queried `server_name`.
 - When validating an observation, a verifier MUST check that `key_id_sha256` and
   `valid_until_ts` match the observed key response described by the record.
+- When validating an observation, a verifier MUST check that
+  `server_key_package_sha256` matches the observed key response described by the
+  record.
+- When `notary_challenge` is present, a verifier MAY use its timestamps to audit
+  the sequence from notary challenge issuance to proof observation and
+  verification. These timestamps are advisory and MUST NOT change automated key
+  acceptance semantics.
 
 ##### TLS 1.3 compact provenance
 
