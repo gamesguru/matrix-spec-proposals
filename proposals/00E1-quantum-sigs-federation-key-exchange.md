@@ -360,47 +360,59 @@ MUST reject an FN-DSA key publication that lacks a valid proof for the
 `fn-dsa-key-publication` resource below, regardless of whether the accompanying
 Ed25519/notary authentication is otherwise valid.
 
+The base publication proof is a non-interactive, cacheable stamp produced by the
+origin. It is not issued separately by each receiver. The proof MUST be carried
+in the server-key response's `unsigned.fn_dsa_key_publication_pow` field so that
+it travels with the key response without changing the Matrix signing object or
+the `server_key_package_sha256` value used by notary observations. Notaries that
+redistribute an FN-DSA key MUST preserve this `unsigned` proof or include an
+equivalent notary-verified copy outside the origin signing object.
+
 ```json
 {
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
-    "challenge": "<unpadded-base64url-random>",
-    "expires_ts": 1798848000000,
-    "resource": {
-        "action": "fn-dsa-key-publication",
-        "server_name": "example.com",
-        "key_id_sha256": "<unpadded-base64url-sha256>",
-        "key_metadata_sha256": "<unpadded-base64url-sha256>",
-        "claims": ["constant-time-keygen", "constant-time-signing"],
-        "fips_206_revision": "ipd-2025-08"
+    "unsigned": {
+        "fn_dsa_key_publication_pow": {
+            "stamp": {
+                "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+                "resource": {
+                    "action": "fn-dsa-key-publication",
+                    "key_id_sha256": "<unpadded-base64url-sha256>",
+                    "key_metadata_sha256": "<unpadded-base64url-sha256>",
+                    "server_name": "example.com"
+                }
+            },
+            "proof": {
+                "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+                "nonce": 8137226,
+                "solution": [123, 456, 789, "..."]
+            }
+        }
     }
 }
 ```
 
-The `challenge` value MUST contain at least 128 bits of entropy from a
-cryptographically secure source. The `resource.key_id_sha256` field MUST
-correspond to the advertised FN-DSA public key body, and the enclosing key's
-advertised `short_id` MUST equal the first 16 base64url characters of
-`resource.key_id_sha256`. `resource.server_name` MUST correspond to the
-`server_name` of the enclosing key response. If any value does not match, the
-proof MUST be rejected without evaluating the puzzle.
+The `stamp.resource.key_id_sha256` field MUST correspond to the advertised
+FN-DSA public key body, and the enclosing key's advertised `short_id` MUST equal
+the first 16 base64url characters of `stamp.resource.key_id_sha256`.
+`stamp.resource.server_name` MUST correspond to the `server_name` of the
+enclosing key response. If any value does not match, the proof MUST be rejected
+without evaluating the puzzle.
 
-The optional `resource.key_metadata_sha256` field is the SHA-256 digest of the
-Canonical JSON representation of the corresponding FN-DSA key object from
-`verify_keys` or `old_verify_keys`, including its implementation metadata. The
-optional `resource.claims` and `resource.fips_206_revision` fields mirror
-selected metadata into the proof-of-work resource for notary policy and operator
-diagnostics. These fields can be bound into the proof-of-work challenge, but
-they do not cryptographically prove that the FN-DSA key was generated or used
-with constant-time code, nor do they prove domain, origin, or TLS ownership at
-the time the work was performed. Verifiers and notaries MUST treat them as
-policy metadata only.
+The optional `stamp.resource.key_metadata_sha256` field is the SHA-256 digest of
+the Canonical JSON representation of the corresponding FN-DSA key object from
+`verify_keys` or `old_verify_keys`, including its implementation metadata. This
+field can bind implementation metadata into the proof-of-work stamp, but it does
+not cryptographically prove that the FN-DSA key was generated or used with
+constant-time code, nor does it prove domain, origin, or TLS ownership at the
+time the work was performed. Verifiers and notaries MUST treat it as policy
+metadata only.
 
 **Graph derivation.** A given challenge graph contains a 42-cycle only with some
 probability, so the prover iterates a nonce:
 
 ```text
 graph_seed(nonce) = SHA-256(
-    canonical_json(challenge_object) || uint64_le(nonce)
+    canonical_json(stamp) || uint64_le(nonce)
 )
 ```
 
@@ -428,8 +440,8 @@ individual attempts: because a randomly seeded graph contains a 42-cycle only
 with some probability, realized solve time is stochastic — the prover retries
 with new nonces until a solvable graph is found, so any single attempt may
 finish well under or well over the target. Verifiers MUST NOT reject a proof for
-arriving unusually quickly or slowly; the only time bound enforced is
-`expires_ts`. Implementations calibrating a different deployment's expected
+arriving unusually quickly or slowly; the base publication stamp has no timing
+acceptance bound. Implementations calibrating a different deployment's expected
 solve time MUST NOT do so by changing `edge_bits` without minting a new,
 explicitly identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
@@ -441,7 +453,6 @@ The proof response is:
 ```json
 {
     "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
-    "challenge": "<unpadded-base64url-random>",
     "nonce": 8137226,
     "solution": [123, 456, 789, "..."]
 }
@@ -454,8 +465,10 @@ order (the canonical form of the edge set). Each edge index MUST be less than
 duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
 Cuckoo Cycle proof; it then recomputes `graph_seed(nonce)`, derives the 84
 endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
-The challenge MUST be rejected if `expires_ts` has passed or if the `challenge`
-value was not issued by the verifier.
+The base publication stamp has no receiver-issued challenge and no expiry time;
+it remains valid for the committed `(server_name, key_id_sha256,
+key_metadata_sha256)` tuple. If any committed value changes, the origin MUST
+produce a new proof.
 
 ##### Notary-scoped publication challenges
 
@@ -463,7 +476,7 @@ Notaries MAY offer a challenge endpoint that lets an origin bind additional
 publication work to a named notary before the notary attests to the key:
 
 ```http
-POST /_matrix/key/v2/fn_dsa_publication_challenge
+POST /_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge
 ```
 
 Request body:
@@ -507,14 +520,21 @@ the Matrix Canonical JSON representation of the origin's
 `/_matrix/key/v2/server` response after removing only `signatures` and
 `unsigned`. A notary-scoped challenge MUST NOT be inserted into that server-key
 object. The origin solves the proof against the signed challenge object and
-submits the solution to the notary out-of-band from the server-key object, for
-example as part of the notary's key-query workflow or a notary-specific
-challenge-completion endpoint.
+submits the solution to the notary out-of-band from the server-key object, using
+a notary-specific challenge-completion endpoint or an equivalent authenticated
+notary workflow. The completion submission MUST be signed by the published
+FN-DSA key, and the notary MUST verify that signature against the key body
+committed by `key_id_sha256` before treating the challenge as completed. This
+prevents third parties from completing notary-scoped work for a key they do not
+control.
 
-This preserves a single canonical origin key package: the object fetched
-directly from the origin and the object redistributed by a notary remain
-byte-for-byte equivalent after normal JSON parsing and Canonical JSON
-serialization, and therefore hash to the same `server_key_package_sha256`.
+This preserves a single canonical origin key package signing object: the object
+fetched directly from the origin and the object redistributed by a notary remain
+equivalent after removing `signatures` and `unsigned` and applying Matrix
+Canonical JSON serialization, and therefore hash to the same
+`server_key_package_sha256`. A notary response may add its own signatures or
+observation records, so raw wire JSON and full response objects are not expected
+to be byte-for-byte identical.
 Notary-specific challenge IDs, issuance timestamps, proof receipt timestamps,
 TLS provenance, and audit notes MUST be carried outside the origin key object,
 either in notary-signed observation records or transport metadata. They MUST NOT
@@ -523,7 +543,13 @@ affect the canonical hash or signature input of the origin key package.
 Notary-scoped challenges are advisory provenance. A notary MAY require them as a
 local policy before emitting its own attestation, but other receivers MUST NOT
 reject an otherwise-valid FN-DSA key publication solely because this
-notary-specific challenge metadata is absent, delayed, too fast, or too slow.
+notary-specific challenge metadata is absent, delayed, too fast, or too slow. A
+notary that verifies a completed challenge MUST check that `issuer` exactly
+matches its own Matrix server name, that the challenge has not expired, and that
+the committed `server_name`, `key_id_sha256`, `key_metadata_sha256`, and
+`server_key_package_sha256` values match the fetched key package. Notaries
+SHOULD record enough internal state to reject duplicate challenge completions
+within the challenge lifetime.
 
 #### Notary expectations and key validity
 
@@ -572,6 +598,8 @@ server-key validation and MUST NOT change acceptance semantics.
             "server_key_package_sha256": "<unpadded-base64url-sha256>",
             "notary_challenge": {
                 "challenge_id": "<opaque-string>",
+                "challenge_sha256": "<unpadded-base64url-sha256>",
+                "proof_sha256": "<unpadded-base64url-sha256>",
                 "challenge_issued_at": 1798847988000,
                 "pow_observed_at": 1798848000000,
                 "pow_verified_at": 1798848000100
@@ -635,7 +663,10 @@ Formatting definitions:
   representation after removing only `signatures` and `unsigned`.
 - When `notary_challenge` is present, `notary_challenge_sha256` is the unpadded
   base64url-encoded SHA-256 digest of the Matrix Canonical JSON representation
-  of the `notary_challenge` object.
+  of the `notary_challenge` object. The `challenge_sha256` and `proof_sha256`
+  fields inside that object are the unpadded base64url-encoded SHA-256 digests
+  of the notary-issued challenge object and the origin-submitted proof object,
+  respectively, after Matrix Canonical JSON serialization.
 
 Notary and verifier constraints:
 
@@ -652,10 +683,10 @@ Notary and verifier constraints:
 - When validating an observation, a verifier MUST check that
   `server_key_package_sha256` matches the observed key response described by the
   record.
-- When `notary_challenge` is present, a verifier MAY use its timestamps to audit
-  the sequence from notary challenge issuance to proof observation and
-  verification. These timestamps are advisory and MUST NOT change automated key
-  acceptance semantics.
+- When `notary_challenge` is present, a verifier MAY use its digests and
+  timestamps to audit the sequence from notary challenge issuance to proof
+  observation and verification. These fields are advisory and MUST NOT change
+  automated key acceptance semantics.
 
 ##### TLS 1.3 compact provenance
 
@@ -1171,6 +1202,7 @@ While this MSC is in development, the following unstable prefixes are used:
 | `X-Matrix-PQC` (HTTP header)                     | `X-Matrix-PQC` (no prefix needed, custom header)             |
 | `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)     |
 | `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange` |
+| `/_matrix/key/v2/publication_challenge`          | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge` |
 
 The unstable algorithm prefix is used in `verify_keys` key references,
 `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example,
@@ -1308,38 +1340,36 @@ deployments MUST still implement and enforce
 `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256`.
 
 ```text
-config.edge_bits = 8
+config.edge_bits = 12
 config.proof_size = 4
 challenge_bytes_ascii = "tiny-cuckoo-test"
 nonce = 0
 graph_seed_hex = cc53bbfaea7f82519d68c626b808a991decdad0af34fff068d5b506fa45b6bc9
-proof = [0, 48, 289, 3503]
-edge(0) = (49, 116)
-edge(48) = (8, 116)
-edge(289) = (8, 3)
-edge(3503) = (49, 3)
+proof = [208, 244, 949, 2989]
+edge(208) = (1300, 1869)
+edge(244) = (610, 1869)
+edge(949) = (1300, 1557)
+edge(2989) = (610, 1557)
 ```
 
-### PoW challenge-object `graph_seed` vector
+### PoW stamp `graph_seed` vector
 
 This vector fixes the canonical JSON bytes and the resulting `graph_seed` for a
-sample production-profile challenge object.
+sample production-profile publication stamp.
 
 ```json
 {
-    "challenge_object": {
+    "stamp": {
         "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
-        "challenge": "AAAAAAAAAAAAAAAAAAAAAA",
-        "expires_ts": 1798848000000,
         "resource": {
             "action": "fn-dsa-key-publication",
-            "server_name": "example.com",
-            "key_id_sha256": "IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg"
+            "key_id_sha256": "IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg",
+            "server_name": "example.com"
         }
     },
-    "canonical_json_utf8": "{\"algorithm\":\"tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256\",\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAA\",\"expires_ts\":1798848000000,\"resource\":{\"action\":\"fn-dsa-key-publication\",\"server_name\":\"example.com\",\"key_id_sha256\":\"IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg\"}}",
+    "canonical_json_utf8": "{\"algorithm\":\"tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256\",\"resource\":{\"action\":\"fn-dsa-key-publication\",\"key_id_sha256\":\"IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg\",\"server_name\":\"example.com\"}}",
     "nonce": 8137226,
-    "graph_seed_hex": "284e0a6686aef81a82f8b44a4c8026966058f3973dc958fbecb28361082a7107"
+    "graph_seed_hex": "a56e2a7c05499ff6af0f815bd7ab49f8950c4786447877a23d884213c542aa19"
 }
 ```
 

@@ -76,7 +76,7 @@ func main() {
 	must(err)
 
 	keyDigest := keyIDDigest(pub)
-	shortID := b64StdNoPad(keyDigest[:])[:16]
+	shortID := b64URLNoPad(keyDigest[:])[:16]
 
 	if len(priv) != fndsa512.PrivateKeySize {
 		log.Fatalf("unexpected private key size: %d", len(priv))
@@ -105,7 +105,7 @@ func main() {
 	fmt.Println("graph_seed_nonce =", 3)
 	fmt.Println("graph_seed_hex =", hex.EncodeToString(cuckooSeed[:]))
 
-	reducedCfg := cuckoo.Config{EdgeBits: 8, ProofSize: 4}
+	reducedCfg := cuckoo.Config{EdgeBits: 12, ProofSize: 4}
 	reducedSeed := cuckoo.GraphSeed([]byte("tiny-cuckoo-test"), 0)
 	proof, err := cuckoo.FindProof(reducedCfg, reducedSeed[:], 1<<12)
 	must(err)
@@ -121,16 +121,14 @@ func main() {
 	fmt.Println()
 
 	fmt.Println("[pow]")
-	challengeJSON := strings.Join([]string{
+	stampJSON := strings.Join([]string{
 		"{\"algorithm\":\"tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256\",",
-		"\"challenge\":\"AAAAAAAAAAAAAAAAAAAAAA\",",
-		"\"expires_ts\":1798848000000,",
 		"\"resource\":{\"action\":\"fn-dsa-key-publication\",",
-		"\"server_name\":\"example.com\",",
-		"\"key_id_sha256\":\"" + b64URLNoPad(keyDigest[:]) + "\"}}",
+		"\"key_id_sha256\":\"" + b64URLNoPad(keyDigest[:]) + "\",",
+		"\"server_name\":\"example.com\"}}",
 	}, "")
-	powSeed := cuckoo.GraphSeed([]byte(challengeJSON), 8137226)
-	fmt.Println("challenge_json =", challengeJSON)
+	powSeed := cuckoo.GraphSeed([]byte(stampJSON), 8137226)
+	fmt.Println("stamp_json =", stampJSON)
 	fmt.Println("pow_nonce =", 8137226)
 	fmt.Println("pow_graph_seed_hex =", hex.EncodeToString(powSeed[:]))
 
