@@ -1109,14 +1109,13 @@ before finalization MUST observe the following constraints:
 - **Pin a specific draft revision.** Implementations MUST document which FIPS
   206 draft revision they target. Interoperability between implementations
   targeting different draft revisions is not guaranteed.
-- **Use unstable algorithm prefixes, but stable hash-derived short IDs.** During
-  the draft period, `/_matrix/key/v2/server` key entries and `X-Matrix-PQC`
-  header `key` parameters MUST use the unstable algorithm identifier
+- **Use unstable algorithm prefixes with hash-derived short IDs.** During the
+  draft period, `/_matrix/key/v2/server` key entries and `X-Matrix-PQC` header
+  `key` parameters MUST use the unstable algorithm identifier
   (`tk.nutra.msc45xx.fn-dsa-512`) as the prefix, but the suffix MUST still be
   the hash-derived `short_id` derived from the FN-DSA public key body. This
-  ensures that draft-era signatures are distinguishable from signatures produced
-  under the finalized standard, while preserving the collision-resistant lookup
-  property.
+  keeps draft-era key references separate from finalized key references without
+  changing how the referenced key body is identified.
 - **Rotation on parameter change.** If a subsequent FIPS 206 draft or the final
   standard changes the public key encoding, signature encoding, or algorithm
   semantics, all previously published unstable FN-DSA keys MUST be retired to
