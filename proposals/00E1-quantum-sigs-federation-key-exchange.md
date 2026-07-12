@@ -1453,7 +1453,8 @@ sample production-profile publication stamp.
   for genuinely wedged bindings. This MSC adds hash-derived FN-DSA `short_id`
   values and origin-side collision prevention for those IDs.
 
-This MSC has no dependency on MSC 45YY or MSC 0F00; they depend on it.
+This MSC has no dependency on MSC 45YY or MSC 0F00; they depend on it. This MSC
+does depend on MSC4499 for server-key caching and key-ID uniqueness semantics.
 
 ## Backwards compatibility
 
@@ -1465,8 +1466,10 @@ This proposal is fully backwards-compatible:
 - **Transport auth** is additive — `X-Matrix-PQC` and `X-Matrix-PQC-Session` are
   ignored by legacy servers per RFC 9110, and the Ed25519 `Authorization` header
   remains present and authoritative.
-- **One new endpoint**, which is OPTIONAL, discoverable by its `404`, and has a
-  mandatory fallback path.
+- **New optional endpoints** are additive. `key_exchange` is discoverable by its
+  `404` and falls back to per-request `X-Matrix-PQC`; `publication_challenge`
+  and `publication_challenge/complete` are notary provenance helpers and do not
+  change key acceptance semantics for clients that do not use them.
 - **Zero impact on events, PDUs, room versions, or clients.**
 
 ## References
@@ -1530,11 +1533,15 @@ This proposal is fully backwards-compatible:
 - [ ] Are
       [appropriate implementation(s)](https://spec.matrix.org/proposals/#implementing-a-proposal)
       specified in the MSC's PR description?
-- [x] Are all MSCs that this MSC depends on already accepted? (No MSC
-      dependencies.)
+- [ ] Are all MSCs that this MSC depends on already accepted? (Depends on
+      MSC4499.)
 - [x] For each endpoint that is introduced or modified:
-    - [x] Have authentication requirements been specified? (Ed25519
-          `Authorization` + `X-Matrix-PQC`, both required.)
+    - [x] Have authentication requirements been specified? (`key_exchange`:
+          Ed25519 `Authorization` + `X-Matrix-PQC`, both required.
+          `publication_challenge`: Ed25519 `Authorization` required,
+          `X-Matrix-PQC` recommended when available.
+          `publication_challenge/complete`: Ed25519 `Authorization` +
+          keyholder-bound `X-Matrix-PQC`, both required.)
     - [x] Have rate-limiting requirements been specified?
           (`429 M_LIMIT_EXCEEDED`.)
     - [x] Have guest access requirements been specified? (N/A — server-to-server

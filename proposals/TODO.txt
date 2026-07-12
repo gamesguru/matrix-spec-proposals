@@ -1,0 +1,13 @@
+Remaining items I’d still handle before calling it PR-ready:
+
+1. 00E1 checklist/backcompat text is stale:
+    - says “No MSC dependencies” despite the new MSC4499 dependency.
+    - says “One new endpoint” but now there are key_exchange, publication_challenge, and publication_challenge/complete.
+
+2. Session section still says “future MSC” while defining normative endpoint behavior. Either split it out or remove the “future MSC / follow-up MSC” language.
+3. Vector rigor is not fully solved by editing the generator strings. We should still add a real canonical JSON cross-check/property test so this doesn’t regress.
+4. The readiness doc recommends splitting notary provenance and ML-KEM sessions into separate MSCs. Not strictly necessary for local consistency, but likely important for reviewability.
+5. The /tmp/msc00e1-advisor-oracle-update bundle is now stale if you plan to reuse it; it doesn’t include the latest 00E1 edits.
+
+The most immediate patch I’d do next is the stale checklist/backcompat cleanup, because reviewers will catch that fast.
+
