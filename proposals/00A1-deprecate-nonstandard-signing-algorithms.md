@@ -1,4 +1,4 @@
-# MSC 00FE: Deprecate Non-Standard Signing Algorithms for Federation
+# MSC00A1: Deprecate Non-Standard Signing Algorithms for Federation
 
 Matrix federation currently relies on `ed25519` for PDU signing, server key
 publication, and federation transport authentication. The protocol specification
@@ -32,6 +32,20 @@ For clarity, this MSC uses the following processing categories:
 - **Accepted event.** Valid format, valid required signatures, and passes the
   room-version auth rules. It can affect the room DAG, room state, and client
   history.
+- **Client-filtered event.** Independent of state resolution or auth checks — a
+  delivery-time filter that can apply to any already-persisted event (Accepted,
+  Soft-failed, or Outlier — see below), withholding it from a specific recipient
+  at read time via local, per-recipient policy — `history_visibility`,
+  redaction, ignored-user lists, relation/edit aggregation. Does not change the
+  event's stored status, DAG placement, or auth outcome.
+- **Server-configured omission.** Independent of state resolution or auth checks
+  — a unilateral, operator-controlled policy (server ACLs, peer blocklists,
+  room/server denylists, or manual overrides) governing whether a given
+  deployment chooses to fetch, accept, or retain events from a particular peer
+  or room. It is not part of the room-version auth algorithm and MUST NOT be
+  conflated with auth-rejection. Servers with different ACL/blocklist
+  configurations or manual overrides do not disagree about what happened in the
+  room — they disagree only about what they locally store or show.
 - **Outlier event.** Valid format and valid required signatures, but the
   receiving server does not yet have enough surrounding room data to fully auth
   or place it as a normal timeline event. It may be persisted as an outlier
