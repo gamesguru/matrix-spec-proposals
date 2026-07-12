@@ -1,4 +1,4 @@
-# MSC45XX: Quantum-secure server key exchange and revised federation semantics
+# MSC45XX: Post-quantum server keys, publication proof-of-work, and federation transport authentication
 
 Matrix federation authentication currently uses `ed25519`. Quantum computers can
 theoretically reverse engineer private keys using Shor's algorithm, breaking
@@ -48,9 +48,9 @@ verifier would have to implement, audit, and accept the larger scheme anyway,
 and algorithm negotiation itself may create a downgrade surface. One mandatory
 scheme; alternatives are discussed in [Alternatives](#alternatives).
 
-| Algorithm    | NIST Level  | PubKey    | Signature  | Performance/Timing                                                    | Use Case                                            |
-| ------------ | ----------- | --------- | ---------- | --------------------------------------------------------------------- | --------------------------------------------------- |
-| `fn-dsa-512` | I (128-bit) | 897 bytes | ~666 bytes | Keygen: ~10 ms<br>Sign: ~5 ms<br>Verify: ~0.1 ms<br>PoW verify: ~1 ms | HTTP transport (this MSC); PDU signing (future MSC) |
+| Algorithm    | NIST Level  | PubKey    | Signature  | Performance/Timing                               | Use Case                                            |
+| ------------ | ----------- | --------- | ---------- | ------------------------------------------------ | --------------------------------------------------- |
+| `fn-dsa-512` | I (128-bit) | 897 bytes | ~666 bytes | Keygen: ~10 ms<br>Sign: ~5 ms<br>Verify: ~0.1 ms | HTTP transport (this MSC); PDU signing (future MSC) |
 
 **Why NIST Level I.** Matrix event IDs and content hashes use SHA-256, whose
 classical collision resistance (Birthday Paradox) caps out around ~128 bits
@@ -76,8 +76,8 @@ intentionally cheap relative to proof generation.
 
 Homeservers that support this MSC MUST support `fn-dsa-512` for server signing
 key publication, self-signing, and federation transport authentication. They
-MUST further conform to the exact confirmation scheme or verification list
-defined in this proposal (the same checklist every other server will use).
+MUST further conform to the encoding, signing, key-ID, and proof-of-work
+verification rules defined in this proposal.
 
 #### Implementation conformance
 
@@ -92,7 +92,7 @@ secret data and carries no side-channel risk and no constant-time requirement.
 Different libraries may interoperate, but only if they implement the exact FIPS
 206 revision, encodings, and signing operation specified by this MSC (see
 [Pre-finalization deployment guidance](#pre-finalization-deployment-guidance)).
-Subtle differences in implementation detail an lead to network divergence, so
+Subtle differences in implementation detail can lead to network divergence, so
 implementations SHOULD coalesce around a common, agreed standard.
 
 > **Note:** For readability, this proposal uses the intended stable identifier
@@ -221,6 +221,12 @@ MUST reject non-canonical public key and signature encodings.
 These encoding and signing rules are the normative definition of `fn-dsa-512`
 for the entire Matrix protocol; MSC 45YY (PDU signing) and MSC 0F00 (E2EE) build
 on them by reference.
+
+Unless a field definition says otherwise, cryptographic key material and
+signatures in this MSC use unpadded standard base64, matching existing Matrix
+signature conventions. SHA-256 digests, key fingerprints, `short_id` values, PoW
+challenge identifiers, `session_id` values, and other URL- or identifier-like
+values use unpadded base64url.
 
 ### Server signing keys
 
@@ -355,14 +361,14 @@ add any requirement that a replacement key be signed by a prior FN-DSA key.
 #### Key publication Proof-of-Work
 
 Homeservers and notaries that support this MSC MUST require a valid
-proof-of-work proof for every FN-DSA key publication event — the initial
-publication of a server's first FN-DSA key and every subsequent rotation —
-before accepting or attesting to that key. This requirement is unconditional:
-there is no exemption for TOFU, notary-sourced, or otherwise-trusted
-publications, and no implementation-level opt-out. A receiving server or notary
-MUST reject an FN-DSA key publication that lacks a valid proof for the
-`fn-dsa-key-publication` resource below, regardless of whether the accompanying
-Ed25519/notary authentication is otherwise valid.
+proof-of-work proof for every newly generated FN-DSA key body — the initial
+publication of a server's first FN-DSA key and every subsequent key-body
+rotation — before accepting or attesting to that key. This requirement is
+unconditional: there is no exemption for TOFU, notary-sourced, or
+otherwise-trusted publications, and no implementation-level opt-out. A receiving
+server or notary MUST reject an FN-DSA key publication that lacks a valid proof
+for the `fn-dsa-key-publication` resource below, regardless of whether the
+accompanying Ed25519/notary authentication is otherwise valid.
 
 The base publication proof is a non-interactive, cacheable stamp produced by the
 origin. It is not issued separately by each receiver. The proof MUST be carried
@@ -480,6 +486,7 @@ Response body:
 {
     "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
     "challenge": "<unpadded-base64url-random>",
+    "challenge_id": "<opaque-string>",
     "expires_ts": 1798848000000,
     "issuer": "notary.example",
     "resource": {
@@ -499,18 +506,62 @@ Response body:
 }
 ```
 
+The challenge request MUST carry a valid `Authorization: X-Matrix` header. The
+notary MUST reject the request with `403 M_FORBIDDEN` if the authenticated
+origin does not exactly match `server_name` in the request body. If the origin
+already has a published FN-DSA key, the request SHOULD also carry a valid
+`X-Matrix-PQC` header, but this header cannot be required for first publication.
+Notaries MUST rate-limit challenge issuance and return `429 M_LIMIT_EXCEEDED`
+when rate limits are exceeded. Unsupported notaries return `404 M_UNRECOGNIZED`;
+malformed digest fields, unsupported algorithms, or malformed request bodies
+return `400 M_INVALID_PARAM`.
+
+The `challenge` and `challenge_id` values MUST each contain at least 128 bits of
+entropy from a cryptographically secure source and MUST use the base64url
+alphabet. `challenge_id` MUST be 1-128 characters. `expires_ts` SHOULD be no
+more than 15 minutes after challenge issuance. The origin MUST continue serving
+the exact `/_matrix/key/v2/server` response whose signing-object hash is
+committed by `server_key_package_sha256` until challenge completion or expiry.
+If a notary fetches a response whose signing-object hash differs, the challenge
+is void and the origin must request a new challenge.
+
 `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest of
 the Matrix Canonical JSON representation of the origin's
 `/_matrix/key/v2/server` response after removing only `signatures` and
 `unsigned`. A notary-scoped challenge MUST NOT be inserted into that server-key
 object. The origin solves the proof against the signed challenge object and
-submits the solution to the notary out-of-band from the server-key object, using
-a notary-specific challenge-completion endpoint or an equivalent authenticated
-notary workflow. The completion submission MUST be signed by the published
-FN-DSA key, and the notary MUST verify that signature against the key body
-committed by `key_id_sha256` before treating the challenge as completed. This
-prevents third parties from completing notary-scoped work for a key they do not
-control.
+submits the solution to the notary out-of-band from the server-key object using:
+
+```http
+POST /_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge/complete
+```
+
+Completion request body:
+
+```json
+{
+    "challenge_object": { "...": "the notary-signed challenge object" },
+    "proof": {
+        "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+        "nonce": 8137226,
+        "solution": [123, 456, 789, "..."]
+    }
+}
+```
+
+The completion request MUST carry a valid `Authorization: X-Matrix` header from
+the origin and a valid `X-Matrix-PQC` header signed by the FN-DSA key whose
+`key_id_sha256` is committed in the challenge. The notary MUST verify the
+challenge object's signatures, verify that `resource.issuer` exactly matches the
+notary's own server name, verify that the challenge has not expired, verify the
+proof against the exact challenge object, fetch the origin's server-key
+response, and check that the committed `server_name`, `key_id_sha256`,
+`key_metadata_sha256`, and `server_key_package_sha256` values match the fetched
+key package. Completion failures return `400 M_INVALID_PARAM` for malformed or
+invalid proofs, `403 M_FORBIDDEN` for authentication or keyholder mismatch,
+`410 M_INVALID_PARAM` for expired challenges, and `429 M_LIMIT_EXCEEDED` when
+rate limits are exceeded. A notary MUST NOT accept the same `challenge_id` twice
+within the challenge lifetime.
 
 This preserves a single canonical origin key package signing object: the object
 fetched directly from the origin and the object redistributed by a notary remain
@@ -527,13 +578,7 @@ signature input of the origin key package.
 Notary-scoped challenges are advisory provenance. A notary MAY require them as a
 local policy before emitting its own attestation, but other receivers MUST NOT
 reject an otherwise-valid FN-DSA key publication solely because this
-notary-specific challenge metadata is absent, delayed, too fast, or too slow. A
-notary that verifies a completed challenge MUST check that `issuer` exactly
-matches its own Matrix server name, that the challenge has not expired, and that
-the committed `server_name`, `key_id_sha256`, `key_metadata_sha256`, and
-`server_key_package_sha256` values match the fetched key package. Notaries
-SHOULD record enough internal state to reject duplicate challenge completions
-within the challenge lifetime.
+notary-specific challenge metadata is absent, delayed, too fast, or too slow.
 
 #### Notary expectations and key validity
 
@@ -547,6 +592,12 @@ before attesting to the key; if any check fails, the notary MUST NOT include
 that FN-DSA key in its response. Notary responses are themselves signed objects;
 notaries that support this MSC MUST include FN-DSA signatures on their
 responses.
+
+A notary MUST NOT add, remove, reorder, or rewrite any member of the origin key
+object other than adding entries under `signatures`. As a conformance check,
+`server_key_package_sha256` recomputed from a notary-redistributed key object
+after removing `signatures` and `unsigned` MUST equal the digest recomputed from
+a direct origin fetch of the same response snapshot.
 
 ##### Notary observations
 
@@ -674,8 +725,10 @@ Notary and verifier constraints:
 
 ##### TLS 1.3 compact provenance
 
-When `tls_13_provenance` is present, `tls_13_provenance_sha256` is the unpadded
-base64url-encoded SHA-256 digest of the following byte string:
+`tls_13_provenance` MUST be omitted for non-TLS-1.3 fetches. When
+`tls_13_provenance` is present, `transport` MUST be `https`, `leaf_spki_sha256`
+and `leaf_cert_sha256` MUST be present, and `tls_13_provenance_sha256` is the
+unpadded base64url-encoded SHA-256 digest of the following byte string:
 
 ```text
 len16("matrix:tls13-provenance:v1") ||
@@ -696,9 +749,15 @@ Formatting definitions:
   immediately by `x`.
 - `handshake_transcript_hash` is the literal cryptographic hash of the TLS 1.3
   Handshake Context up to but excluding the server `CertificateVerify` message,
-  as defined by RFC 8446 Section 4.4.1.
+  as defined by RFC 8446 Section 4.4.1, encoded as unpadded base64url.
 - The `handshake_transcript_hash` calculation uses raw TLS Handshake messages
   and excludes TLS record-layer headers.
+- `transcript_hash_algorithm` MUST be the hash algorithm of the negotiated TLS
+  1.3 cipher suite.
+- `certificate_verify_signature_scheme` MUST be a TLS `SignatureScheme` registry
+  name.
+- `server_certificate_verify_signature` is the literal TLS 1.3
+  `CertificateVerify` signature, encoded as unpadded base64url.
 - This compact construction intentionally does not carry the full handshake
   transcript.
 
@@ -709,10 +768,10 @@ Validation requirements:
   example from Certificate Transparency logs, out-of-band certificate evidence,
   or a retained notary audit bundle.
 - The verifier MUST verify `server_certificate_verify_signature` according to
-  the TLS 1.3 `CertificateVerify` construction for the server context, using the
-  obtained leaf certificate's public key, the stated
-  `handshake_transcript_hash`, `transcript_hash_algorithm`, and
-  `certificate_verify_signature_scheme`.
+  the TLS 1.3 `CertificateVerify` construction for the server context in RFC
+  8446 Section 4.4.3, using the signed content formed from 64 bytes of `0x20`,
+  the ASCII context string `TLS 1.3, server CertificateVerify`, a single `0x00`
+  byte, and the stated `handshake_transcript_hash`.
 - Verifiers SHOULD validate that the obtained leaf certificate chains to the
   WebPKI and was valid for `observed_server_name` at `observed_at`, including
   Certificate Transparency evidence where available.
@@ -722,6 +781,11 @@ Trust and enforcement boundaries:
 - Compact TLS 1.3 provenance proves only that the notary presents evidence that
   the holder of the obtained TLS certificate private key produced a valid
   `CertificateVerify` signature over the stated transcript hash.
+- Compact TLS 1.3 provenance does not prove that the TLS evidence was captured
+  at `observed_at`; it proves only that the certificate key holder signed the
+  stated transcript hash at some time. Freshness beyond the notary's signed
+  assertion requires retained transcript evidence or a stronger transcript
+  verification system.
 - Compact TLS 1.3 provenance does not prove that the HTTP response body was
   faithfully reported by the notary; proving payload fidelity without trusting
   the notary requires a separate TLS transcript-verification system such as
@@ -1009,14 +1073,13 @@ verification into a hard requirement for traffic scoped to PQC rooms.
   This is deliberate — see [Security considerations](#security-considerations)
   on downgrade.
 
-- **Mandatory proof-of-work latency.** Every FN-DSA key publication — initial
-  publication and every rotation — now requires solving a
-  [proof-of-work puzzle](#key-publication-proof-of-work) that targets ~10-15
-  seconds of expected solve time before the key is accepted or attested to. This
-  is a deliberate, unconditional friction cost (see
-  [Security considerations](#security-considerations)), not an incidental one;
-  operators and automated key-management tooling SHOULD account for this latency
-  when scripting key rotation.
+- **Mandatory proof-of-work latency.** Every newly generated FN-DSA key body now
+  requires solving a [proof-of-work puzzle](#key-publication-proof-of-work) that
+  targets ~10-15 seconds of expected solve time before the key is accepted or
+  attested to. This is a deliberate, unconditional minting cost (see
+  [Security considerations](#security-considerations)), not an incidental one.
+  It is paid once per key body at generation time; ordinary `valid_until_ts`
+  refreshes of the same key do not require re-solving the puzzle.
 
 ## Alternatives
 
@@ -1095,22 +1158,22 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   `X-Matrix-PQC` requests are signed with FN-DSA, so an attacker who has only
   derived a server's Ed25519 private key cannot forge live federation traffic.
 
-  Key publication and replacement in this MSC authenticate the same way initial
-  publication does: a valid self-signature plus the existing Matrix server-key
-  trust model (fetched from the origin over TLS, or via a notary who did) — see
-  [Server key trust model](#server-key-trust-model). That combination proves
-  only "whoever currently controls this domain's origin, as observed over this
-  fetch, produced this key," identical in strength to what web PKI already
-  provides for TLS certificates; it does not, and is not intended to, prove
-  continuity with any previously-observed key. Consequently, merely deriving a
-  private key is not sufficient to get a forged key response accepted unless the
-  attacker also has an active position on a verifier's fetch path (a real-time
-  MITM) or control of a notary a verifier relies on — i.e., exactly the
-  additional capability already required to impersonate a server under Matrix's
-  existing Ed25519-only key-fetch model. This MSC does not add a new
-  identity-continuity guarantee the classical layer never had; it upgrades the
-  signature algorithm used within the same trust model. Forged _events_ are
-  addressed by MSC 45YY.
+    Key publication and replacement in this MSC authenticate the same way
+    initial publication does: a valid self-signature plus the existing Matrix
+    server-key trust model (fetched from the origin over TLS, or via a notary
+    who did) — see [Server key trust model](#server-key-trust-model). That
+    combination proves only "whoever currently controls this domain's origin, as
+    observed over this fetch, produced this key," identical in strength to what
+    web PKI already provides for TLS certificates; it does not, and is not
+    intended to, prove continuity with any previously-observed key.
+    Consequently, merely deriving a private key is not sufficient to get a
+    forged key response accepted unless the attacker also has an active position
+    on a verifier's fetch path (a real-time MITM) or control of a notary a
+    verifier relies on — i.e., exactly the additional capability already
+    required to impersonate a server under Matrix's existing Ed25519-only
+    key-fetch model. This MSC does not add a new identity-continuity guarantee
+    the classical layer never had; it upgrades the signature algorithm used
+    within the same trust model. Forged _events_ are addressed by MSC 45YY.
 
 - **TOFU bootstrap window.** Initial FN-DSA key discovery is authenticated by
   Ed25519 and the existing server-key trust model, and is therefore only as
@@ -1192,13 +1255,14 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
 
 While this MSC is in development, the following unstable prefixes are used:
 
-| Stable Identifier                                | Unstable Identifier                                            |
-| ------------------------------------------------ | -------------------------------------------------------------- |
-| `fn-dsa-512` (key algorithm)                     | `tk.nutra.msc45xx.fn-dsa-512`                                  |
-| `X-Matrix-PQC` (HTTP header)                     | `X-Matrix-PQC` (no prefix needed, custom header)               |
-| `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)       |
-| `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange`   |
-| `/_matrix/key/v2/publication_challenge`          | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge` |
+| Stable Identifier                                | Unstable Identifier                                                     |
+| ------------------------------------------------ | ----------------------------------------------------------------------- |
+| `fn-dsa-512` (key algorithm)                     | `tk.nutra.msc45xx.fn-dsa-512`                                           |
+| `X-Matrix-PQC` (HTTP header)                     | `X-Matrix-PQC` (no prefix needed, custom header)                        |
+| `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)                |
+| `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange`            |
+| `/_matrix/key/v2/publication_challenge`          | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge`          |
+| `/_matrix/key/v2/publication_challenge/complete` | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge/complete` |
 
 The unstable algorithm prefix is used in `verify_keys` key references,
 `signatures` entries, and `X-Matrix-PQC` header `key` parameters. For example,
@@ -1214,6 +1278,11 @@ identifier in FN-DSA key references:
     }
 }
 ```
+
+Context strings such as `matrix:fn-dsa-512:key-id:v1` are hash-domain separation
+tags, not wire identifiers. They are versioned in-band and remain stable from
+first publication; changing one would be a major compatibility change requiring
+a new algorithm or profile identifier.
 
 Once this MSC is accepted but not yet merged into a released spec version,
 implementations SHOULD support both the unstable prefix and the stable
@@ -1378,6 +1447,11 @@ sample production-profile publication stamp.
   replace unstable prefixes.
 - **NIST FIPS 203 (ML-KEM):** Required only by the optional session negotiation
   extension. FIPS 203 was finalized in August 2024.
+- **MSC4499:** This MSC relies on MSC4499's deterministic key-ID semantics,
+  including key-ID uniqueness, first-seen-wins caching, no trial verification
+  across multiple key bodies for one key ID, and operator-gated manual eviction
+  for genuinely wedged bindings. This MSC adds hash-derived FN-DSA `short_id`
+  values and origin-side collision prevention for those IDs.
 
 This MSC has no dependency on MSC 45YY or MSC 0F00; they depend on it.
 
