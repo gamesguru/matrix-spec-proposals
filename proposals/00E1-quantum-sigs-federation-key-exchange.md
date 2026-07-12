@@ -476,15 +476,16 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
-Historic third-party attestation metadata, including any
-`public_thirdparty_historic_attestations` collection, is advisory only. Servers
-MUST NOT reject events, keys, or state based solely on missing, false,
-suspicious, flimsy, or otherwise invalid attestation metadata. Such metadata
-MUST NOT affect automated verification, acceptance, or state resolution. If it
-is to influence behavior at all, that MUST occur only through explicit admin
-override or manual operator intervention. Automated state resolution MUST
-continue to operate normally, remain backwards compatible with legacy federation
-traffic, and converge according to the established network rules.
+Any third-party attestation metadata a server or notary chooses to additionally
+track (e.g. historic corroboration records, reputation signals) is advisory
+only. Servers MUST NOT reject events, keys, or state based solely on missing,
+false, suspicious, flimsy, or otherwise invalid attestation metadata. Such
+metadata MUST NOT affect automated verification, acceptance, or state
+resolution. If it is to influence behavior at all, that MUST occur only through
+explicit admin override or manual operator intervention. Automated state
+resolution MUST continue to operate normally, remain backwards compatible with
+legacy federation traffic, and converge according to the established network
+rules.
 
 Because a server's very first FN-DSA key observation is TOFU and authenticates
 only via the existing Ed25519 trust model (see
