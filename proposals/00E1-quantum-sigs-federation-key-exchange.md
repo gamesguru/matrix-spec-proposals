@@ -470,12 +470,16 @@ that FN-DSA key in its response. Notary responses are themselves signed objects;
 notaries that support this MSC MUST include FN-DSA signatures on their
 responses.
 
+##### Notary observations
+
 Notaries MAY include `notary_observations` records describing how they observed
 an FN-DSA key. These records are signed provenance metadata: they let operators
 and later auditors verify that a named notary claims to have fetched a specific
 server key over HTTPS at a specific time and under a specific TLS certificate
-context. They are not a substitute for Matrix server-key validation and do not
-change acceptance semantics.
+context.
+
+Notary observations are strictly advisory. They are not a substitute for Matrix
+server-key validation and MUST NOT change acceptance semantics.
 
 ```json
 {
@@ -536,19 +540,30 @@ key_id_sha256 ||
 uint64_be(valid_until_ts)
 ```
 
-Here `len16(x)` is the two-byte big-endian length of the UTF-8 byte string `x`,
-followed immediately by `x`; timestamp fields are unsigned 64-bit big-endian
-millisecond timestamps. `leaf_spki_sha256` and `leaf_cert_sha256` are the
-unpadded base64url-encoded SHA-256 digests of, respectively, the TLS leaf
-certificate's SubjectPublicKeyInfo DER and the full TLS leaf certificate DER
-observed by the notary during its HTTPS fetch. A notary MUST NOT emit an
-observation unless it performed the described fetch itself. Verifiers MAY
-validate and store these records for diagnostics, audits, and operator review.
-When validating an observation, a verifier MUST verify the notary's signature
-using the notary's Matrix server signing key, MUST check that
-`observed_server_name` matches the queried `server_name`, and MUST check that
-`key_id_sha256` and `valid_until_ts` match the observed key response described
-by the record.
+Formatting definitions:
+
+- `len16(x)` is the two-byte big-endian length of the UTF-8 byte string `x`,
+  followed immediately by `x`.
+- `uint64_be(ts)` is an unsigned 64-bit big-endian millisecond timestamp.
+- `leaf_spki_sha256` is the unpadded base64url-encoded SHA-256 digest of the TLS
+  leaf certificate's SubjectPublicKeyInfo DER.
+- `leaf_cert_sha256` is the unpadded base64url-encoded SHA-256 digest of the
+  full TLS leaf certificate DER observed by the notary during its HTTPS fetch.
+
+Notary and verifier constraints:
+
+- A notary MUST NOT emit an observation unless it performed the described fetch
+  itself.
+- Verifiers MAY validate and store these records for diagnostics, audits, and
+  operator review.
+- When validating an observation, a verifier MUST verify the notary's signature
+  using the notary's Matrix server signing key.
+- When validating an observation, a verifier MUST check that
+  `observed_server_name` matches the queried `server_name`.
+- When validating an observation, a verifier MUST check that `key_id_sha256` and
+  `valid_until_ts` match the observed key response described by the record.
+
+##### TLS 1.3 compact provenance
 
 When `tls_13_provenance` is present, `tls_13_provenance_sha256` is the unpadded
 base64url-encoded SHA-256 digest of the following byte string:
@@ -566,51 +581,62 @@ len32(server_certificate_verify_signature) ||
 server_certificate_verify_signature
 ```
 
-Here `len32(x)` is the four-byte big-endian length of the byte string `x`,
-followed immediately by `x`. `handshake_transcript_hash` is the literal
-cryptographic hash of the TLS 1.3 Handshake Context up to but excluding the
-server `CertificateVerify` message, as defined by RFC 8446 Section 4.4.1, using
-the raw TLS Handshake messages and excluding TLS record-layer headers. This
-compact form intentionally does not carry the full handshake transcript.
+Formatting definitions:
 
-A verifier or auditor validating compact `tls_13_provenance` MUST obtain a TLS
-leaf certificate matching `leaf_cert_sha256` and `leaf_spki_sha256`, for example
-from Certificate Transparency logs, out-of-band certificate evidence, or a
-retained notary audit bundle. The verifier MUST then verify
-`server_certificate_verify_signature` according to the TLS 1.3
-`CertificateVerify` construction for the server context, using the obtained leaf
-certificate's public key, the stated `handshake_transcript_hash`,
-`transcript_hash_algorithm`, and `certificate_verify_signature_scheme`.
-Verifiers SHOULD validate that the obtained leaf certificate chains to the
-WebPKI and was valid for `observed_server_name` at `observed_at`, including
-Certificate Transparency evidence where available.
+- `len32(x)` is the four-byte big-endian length of the byte string `x`, followed
+  immediately by `x`.
+- `handshake_transcript_hash` is the literal cryptographic hash of the TLS 1.3
+  Handshake Context up to but excluding the server `CertificateVerify` message,
+  as defined by RFC 8446 Section 4.4.1.
+- The `handshake_transcript_hash` calculation uses raw TLS Handshake messages
+  and excludes TLS record-layer headers.
+- This compact construction intentionally does not carry the full handshake
+  transcript.
 
-Because the compact form carries only the transcript hash, it proves only that
-the holder of the obtained TLS certificate private key produced a valid
-`CertificateVerify` signature over that hash. It does not by itself let a later
-auditor inspect or recompute the handshake transcript, confirm the SNI value,
-confirm a notary challenge, or confirm other handshake contents. A notary that
-wants independently auditable transcript contents MAY retain or publish the full
-TLS Handshake messages, or equivalent transcript evidence, in an out-of-band
-audit bundle. Such transcript evidence MUST use the same RFC 8446 Section 4.4.1
-Handshake Context definition and MUST exclude TLS record-layer headers.
+Validation requirements:
 
-This TLS 1.3 provenance proves only that the notary presents evidence of a live
-TLS 1.3 handshake with the holder of the observed certificate private key. It
-does not prove that the HTTP response body was faithfully reported by the
-notary; proving payload fidelity without trusting the notary requires a separate
-TLS transcript-verification system such as TLSNotary or DECO. Consequently,
-`tls_13_provenance` remains advisory provenance metadata and MUST NOT affect
-automated key acceptance, event acceptance, or state resolution.
+- A verifier or auditor validating compact `tls_13_provenance` MUST obtain a TLS
+  leaf certificate matching `leaf_cert_sha256` and `leaf_spki_sha256`, for
+  example from Certificate Transparency logs, out-of-band certificate evidence,
+  or a retained notary audit bundle.
+- The verifier MUST verify `server_certificate_verify_signature` according to
+  the TLS 1.3 `CertificateVerify` construction for the server context, using the
+  obtained leaf certificate's public key, the stated
+  `handshake_transcript_hash`, `transcript_hash_algorithm`, and
+  `certificate_verify_signature_scheme`.
+- Verifiers SHOULD validate that the obtained leaf certificate chains to the
+  WebPKI and was valid for `observed_server_name` at `observed_at`, including
+  Certificate Transparency evidence where available.
 
-Non-normatively, compact TLS 1.3 provenance is intended as low-cost forensic
-evidence attached to a signed notary observation. The notary's own signature
-binds the observation timestamp, observed server name, certificate fingerprints,
-key fingerprint, and TLS provenance digest to that notary's identity; the TLS
-evidence then helps distinguish an actual TLS-origin observation from a purely
-invented certificate claim. It is not intended to make homeservers parse TLS
-handshakes, enforce freshness automatically, or treat the notary observation as
-machine-verifiable proof of HTTP payload fidelity.
+Trust and enforcement boundaries:
+
+- Compact TLS 1.3 provenance proves only that the notary presents evidence that
+  the holder of the obtained TLS certificate private key produced a valid
+  `CertificateVerify` signature over the stated transcript hash.
+- Compact TLS 1.3 provenance does not prove that the HTTP response body was
+  faithfully reported by the notary; proving payload fidelity without trusting
+  the notary requires a separate TLS transcript-verification system such as
+  TLSNotary or DECO.
+- Because the compact form carries only the transcript hash, it does not by
+  itself let a later auditor inspect or recompute the handshake transcript,
+  confirm the SNI value, confirm a notary challenge, or confirm other handshake
+  contents.
+- A notary that wants independently auditable transcript contents MAY retain or
+  publish the full TLS Handshake messages, or equivalent transcript evidence, in
+  an out-of-band audit bundle. Such transcript evidence MUST use the same RFC
+  8446 Section 4.4.1 Handshake Context definition and MUST exclude TLS
+  record-layer headers.
+- `tls_13_provenance` remains advisory provenance metadata and MUST NOT affect
+  automated key acceptance, event acceptance, or state resolution.
+- Non-normatively, compact TLS 1.3 provenance is intended as low-cost forensic
+  evidence attached to a signed notary observation. The notary's own signature
+  binds the observation timestamp, observed server name, certificate
+  fingerprints, key fingerprint, and TLS provenance digest to that notary's
+  identity; the TLS evidence then helps distinguish an actual TLS-origin
+  observation from a purely invented certificate claim. It is not intended to
+  make homeservers parse TLS handshakes, enforce freshness automatically, or
+  treat the notary observation as machine-verifiable proof of HTTP payload
+  fidelity.
 
 FN-DSA keys follow identical validity semantics to Ed25519 keys: a signature
 made by `fn-dsa-512:<short_id>` is valid if the key was valid at the time of the
