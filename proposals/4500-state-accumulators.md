@@ -336,6 +336,53 @@ materialized state in CPU cache and persisting the accumulator, thereby
 obviating any need for traversals of that delta chain during future point
 lookups or state group transitions).
 
+### Fast local divergence lookup (optional)
+
+Because state groups form an append-only forest in the common case (one delta
+parent per group), implementations MAY maintain a binary-lifting ancestor index
+over that forest — a jump-pointer table doubling in stride, populated
+incrementally as each group is created — to compute the lowest common state
+group between two DAG tips locally in $O(\log n)$, with no network round trip.
+This is independent of the `LtHash16` accumulator: the accumulator detects
+_that_ divergence exists; the jump table finds _where_, locally, before falling
+back to the `/state_accumulator` bisection endpoint in
+[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks) for cases
+where the common ancestor predates local retention.
+
+An Euler tour over this same forest, combined with a sparse-table RMQ, would
+give $O(1)$ instead of $O(\log n)$ queries, but requires the full tour to be
+known in advance and is expensive to keep valid under continuous appends. Binary
+lifting is the better fit here: each new group's jump-pointer row is computed in
+$O(\log n)$ purely from its parent's row, with no rebuild of existing structure.
+
+**Caveat: the storage tree is not always immutable or fully connected.** This
+optimization assumes state-group parent pointers are stable once written. In
+practice this does not always hold, and a jump-pointer table naively built on
+top of it can go stale or silently report a wrong or non-existent answer:
+
+- **Compaction/compression.** Background jobs that shorten long delta chains
+  (used by implementations such as Synapse) can rewrite an existing group's
+  parent pointer after creation. Ancestor-table entries downstream of a
+  re-parented group become stale and MUST be invalidated or rebuilt, not trusted
+  as-is.
+- **Partial-state joins (MSC3706).** Provisional state groups built from partial
+  state are replaced once full state resync completes. Ancestor tables built
+  against provisional groups MUST be discarded, not merged into the post-resync
+  tree.
+- **Fork healing through state resolution.** A resolved state can be logically
+  derived from two or more branches, even though storage typically records only
+  one delta parent for compactness. An ancestor table built purely from
+  delta-parent pointers reflects only that recorded lineage; it MAY report a
+  lowest common state group that is a storage-layer simplification of the true
+  derivation history, and MUST NOT be treated as an authoritative substitute for
+  the accumulator/bisection outcome.
+- **Local disconnection.** A server's stored state groups are not guaranteed to
+  form one connected tree at all times — backfill gaps, rejoining after a long
+  absence, or independent partial-state resyncs can leave disconnected
+  components until intervening history arrives. A lookup between groups in
+  different components MUST return "unknown," not "no common ancestor," and fall
+  back to network-based bisection.
+
 ### State identifiers and local storage optimizations
 
 While this proposal primarily addresses federation, the adoption of a
