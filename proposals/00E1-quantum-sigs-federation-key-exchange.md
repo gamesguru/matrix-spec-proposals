@@ -603,6 +603,15 @@ TLS transcript-verification system such as TLSNotary or DECO. Consequently,
 `tls_13_provenance` remains advisory provenance metadata and MUST NOT affect
 automated key acceptance, event acceptance, or state resolution.
 
+Non-normatively, compact TLS 1.3 provenance is intended as low-cost forensic
+evidence attached to a signed notary observation. The notary's own signature
+binds the observation timestamp, observed server name, certificate fingerprints,
+key fingerprint, and TLS provenance digest to that notary's identity; the TLS
+evidence then helps distinguish an actual TLS-origin observation from a purely
+invented certificate claim. It is not intended to make homeservers parse TLS
+handshakes, enforce freshness automatically, or treat the notary observation as
+machine-verifiable proof of HTTP payload fidelity.
+
 FN-DSA keys follow identical validity semantics to Ed25519 keys: a signature
 made by `fn-dsa-512:<short_id>` is valid if the key was valid at the time of the
 signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
