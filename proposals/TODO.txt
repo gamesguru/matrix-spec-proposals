@@ -1,5 +1,238 @@
 2026-07-13
 
+› should there be some shared concept stored by the notary (and possibly other notaries, ugh) that indexes or "depths" the number of keys a given server has indexed wth that notary?
+
+  so we get conformant, convergent, agreed behavior over the wire with everyone subscribing (at least to a common intersection of notaries) getting identical behavior and identical state resolution, timing, keys, conflict resolution, etc?
+
+
+• A shared count is not enough, and I would not make notary-to-notary agreement on “depth” part of the core model.
+
+  Why not:
+
+  - Two notaries can both say “I have seen 3,000 keys for example.com” and still disagree on which 3,000.
+  - A shared counter does not solve ordering, eviction, or collision handling.
+  - Cross-notary coordination turns advisory notaries into a consensus subsystem, which is a much bigger and more fragile protocol.
+
+  If your goal is convergent wire behavior, the right primitive is not a count. It is a canonical pruning rule or a canonical manifest.
+
+  Best simple option:
+
+  - keep the hard 3,000 limit;
+  - define a deterministic retained set:
+      - always keep all current verify_keys;
+      - among retired keys, keep the newest old_verify_keys by expired_ts;
+      - break ties deterministically, e.g. by key_id;
+
+  - anything older falls below the retention floor.
+
+  Then every conforming implementation that sees the same origin material derives the same retained subset. No shared notary counter needed.
+
+  If you want stronger cross-notary convergence, the next step is an origin-signed key inventory manifest, not a shared count. For example:
+
+  - server_name
+  - manifest sequence / generation
+  - active keys
+  - retired keys in canonical order
+  - retention floor / truncation point
+  - manifest hash
+
+  That would let notaries and receivers compare the same ordered universe and prune identically.
+
+  So the answer is:
+
+  - No to a shared “depth” counter as the main mechanism.
+  - Yes to a shared deterministic rule.
+  - Maybe later to an origin-signed key manifest if you want stronger identical behavior across notaries.
+
+  A count can still be useful as advisory metadata, but it should not drive acceptance, state resolution, or conflict handling.
+
+
+› what if networks partition?
+
+  "      - among retired keys, keep the newest old_verify_keys by expired_ts;
+        - break ties deterministically, e.g. by key_id;"
+
+
+• If networks partition, deterministic pruning still helps, but only after peers have seen the same candidate set.
+
+  It does not solve divergent observation sets.
+
+  Example:
+
+  - Notary A sees retired keys {k1, k2, k3, k4}
+  - Notary B sees {k1, k2, k3, k5}
+  - both apply “keep newest by expired_ts, tie-break by key_id”
+  - they may still retain different sets, because the input universes differ
+
+  So there are two separate problems:
+
+  1. Selection
+      - “Given the same set of candidate keys, which 3,000 do we keep?”
+      - deterministic pruning solves this
+
+  2. Observation
+      - “Did everyone see the same candidate keys at all?”
+      - pruning does not solve this
+
+  Under partition, you only get full convergence if one of these is true:
+
+  - the origin publishes a canonical signed manifest of all relevant keys;
+  - notaries gossip and reconcile manifests/history until they converge;
+  - or receivers treat notaries as advisory and rely on direct origin fetch plus First Seen Wins locally
+
+  That is why I would not oversell notaries as producing identical global behavior under partition. They can improve consistency, but they cannot guarantee it unless you introduce a stronger shared artifact.
+
+  The clean answer is:
+
+  - deterministic pruning is still worth having;
+  - it guarantees same output from same input;
+  - partition means inputs can differ;
+  - if you want convergence across partition, add an origin-signed ordered key manifest.
+
+  That manifest is the real fix, because then notaries are no longer inventing retention sets from partial local history. They are caching and redistributing the origin’s declared ordered history.
+
+  So the stronger model is:
+
+  - origin publishes canonical manifest
+  - notaries cache it
+  - receivers verify it
+  - pruning happens against manifest order, not local discovery order
+
+  Without that, partitioned notaries will remain only approximately aligned.
+
+
+› at least they could merge and reset state or re-eval.although this creates a DoS surface for people to exploit maybe. (hence the, lets gate key publishing behind PoW guys).
+
+  "
+    - Notary B sees {k1, k2, k3, k5}
+    - both apply “keep newest by expired_ts, tie-break by key_id”
+  "
+
+
+• Yes. They can reconcile later, but that is a cache convergence mechanism, not a safety proof.
+
+  The right shape is:
+
+  - notaries keep a deterministic retained set;
+  - notaries MAY periodically merge/re-evaluate when they learn new retired keys;
+  - recomputation is over the full known candidate set, not incremental guesswork.
+
+  That gives eventual convergence after partition heals, assuming they eventually see the same inputs.
+
+  Your DoS concern is real though. If “learning more keys” constantly forces re-evaluation, an attacker can churn key history and make notaries do repeated work or storage growth. That is exactly why the PoW gate helps:
+
+  - it raises the cost of minting each new key body;
+  - it makes spammy retired-key floods more expensive;
+  - it protects notaries from being cheap garbage collectors for hostile origins.
+
+  So the balanced model is:
+
+  1. Origin-side PoW on each new FN-DSA key body.
+  2. Hard retained-key ceiling, e.g. 3,000.
+  3. Deterministic pruning of retired keys.
+  4. Optional notary re-evaluation when new historical material is learned.
+  5. No promise that partitioned notaries are identical in real time.
+  6. Eventual convergence once they ingest the same signed history.
+
+  If you want this to be stronger, the next step is still an origin-signed ordered key manifest. Then “merge and reset state” becomes much safer, because notaries are reconciling against a canonical origin-declared history, not just whatever random subset they happened to observe.
+
+  Without a manifest, post-partition convergence is still possible, but it is:
+
+  - local,
+  - heuristic,
+  - and more exposed to churn/DoS.
+
+  So I’d spec the modest claim:
+
+  > Notaries MAY re-evaluate retained retired-key sets when new valid historical key material is learned. Such re-evaluation MUST apply the same deterministic pruning rule over the full locally known candidate set. This improves eventual convergence after observation gaps or network partitions, but does not
+  > guarantee identical real-time results across notaries.
+
+  That is honest and useful.
+
+
+› "origin-signed ordered key manifest."
+
+  what's this?
+
+
+• An origin-signed ordered key manifest is just a canonical, signed inventory of a server’s own key history.
+
+  Instead of notaries inferring history from whatever keys they happened to observe, the origin publishes:
+
+  - which keys exist
+  - which are active
+  - which are retired
+  - the canonical order of retired keys
+  - optionally where truncation/retention should happen
+
+  So a manifest might look like:
+
+  {
+    "type": "m.server_key_manifest.v1",
+    "server_name": "example.com",
+    "algorithm": "fn-dsa-512",
+    "issued_at_ts": 1798848000000,
+    "manifest_seq": 42,
+    "active": [
+      {
+        "key": "fn-dsa-512:abcd...",
+        "key_id_sha256": "..."
+      }
+    ],
+    "retired": [
+      {
+        "key": "fn-dsa-512:old1...",
+        "key_id_sha256": "...",
+        "expired_ts": 1790000000000
+      },
+      {
+        "key": "fn-dsa-512:old2...",
+        "key_id_sha256": "...",
+        "expired_ts": 1780000000000
+      }
+    ],
+    "signatures": {
+      "example.com": {
+        "ed25519:auto": "...",
+        "fn-dsa-512:abcd...": "..."
+      }
+    }
+  }
+
+  What it buys you:
+
+  - Canonical ordering
+      - notaries don’t sort by local discovery time
+      - they sort by the origin’s signed declared history
+
+  - Cross-notary convergence
+      - if two notaries both fetch the same manifest, they retain/prune the same keys
+
+  - Partition recovery
+      - once a partition heals, a notary can fetch the latest manifest and recompute from the declared history
+
+  - Cleaner retention
+      - if the limit is 3,000, everyone keeps the same newest 3,000 retired keys by manifest order
+
+  What it does not solve:
+
+  - a malicious origin can still lie in its own manifest
+  - if the origin omits a historical key, the manifest cannot conjure it back
+  - you still need direct observations, notary evidence, or old cached data for forensics
+
+  So this is not a trust upgrade. It is a coordination upgrade.
+
+  The main question is whether you want that complexity in MSC4499 / MSC45XX now. My view:
+
+  - useful idea
+  - probably too much for the current scope unless cross-notary convergence becomes a central goal
+  - better as future work or a short note in open questions / future considerations
+
+  In one line: it is a signed “table of contents” for a server’s key history.
+
+
+~~~~~~~~~~~~~~~~~~~~~
+
 • A few things are still only partly included.
 
   1. The biggest gap is the equivocation artifact shape.
