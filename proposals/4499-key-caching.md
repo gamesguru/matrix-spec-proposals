@@ -76,7 +76,7 @@ Large historical key sets belong in `old_verify_keys`.
 **Retired key ceiling (per response).** A single server-key response MUST NOT
 contain more than 3,000 entries in `old_verify_keys`. Such a payload MUST be
 rejected as malformed. This mirrors the 3,000-entry storage ceiling defined
-under [Storage exhaustion DoS](#security-considerations) so that a conformant
+under [Storage considerations](#storage-considerations) so that a conformant
 origin can always publish its full retainable retired-key set in one response,
 and so that a receiving server can bound parsing and hashing cost before
 allocating any database records, independent of the storage-layer eviction rule.
@@ -94,7 +94,7 @@ inescapable future where key _bodies_ (values as opposed to IDs) become close to
 This forensic index is an implementation-private log of rejected material; it is
 not part of the notary's served binding set and is therefore outside the scope
 of, and not bounded by, the 3,000-key retention ceiling described under
-[Storage exhaustion DoS](#security-considerations), which governs only the
+[Storage considerations](#storage-considerations), which governs only the
 bindings a notary actively serves.
 
 **Notary fallback (two-tier binding).** When a required signing key is not
@@ -278,8 +278,14 @@ unrecoverable database failure without backup):
 1. **The administrator MUST generate a new key with a new key ID.**
 2. **If the public key material is still known** (e.g., from backups, logs, or
    cached by peers), the lost key SHOULD be published in `old_verify_keys` with
-   `expired_ts` set to the approximate time of loss. If it can be corroborated
-   from an established notary, it should also be self-published under old keys.
+   `expired_ts` set to the approximate time of loss. Peers that never
+   independently observed this key as active will treat the entry as
+   **uncorroborated** (see [Storage considerations](#storage-considerations)):
+   it is still retained for historical PDU verification, but sits at the bottom
+   of the retention order under the eviction ceiling. If the key's prior
+   activity can instead be corroborated by an established notary the peer
+   already queries, the binding is treated as corroborated and receives the same
+   retention priority as an ordinarily-rotated key.
 3. **If the public key material is completely lost**, the administrator must
    accept that historical events signed by the lost key may fail verification on
    servers that never cached it. By design there is no protocol-level recovery
@@ -304,12 +310,13 @@ server name and the fingerprints of the evicted keys. This is an intentionally
 manual, operator-gated ability to perform cache merges or manual overrides. It
 must not be automated or triggered via inbound/outbound federation traffic; room
 ACLs and other federation-visible mechanisms MUST NOT be able to force eviction
-or bypass First Seen Wins. This includes forensic equivocation evidence such as
-the `notary_equivocations` records defined by MSC45XX: even a cryptographically
-verified equivocation proof is advisory forensic material only and MUST NOT
-automatically trigger eviction, rebinding, or any other deviation from First
-Seen Wins on a receiving server. It may inform the human operator who decides
-whether to invoke this manual mechanism; it must never invoke it by itself.
+or bypass First Seen Wins. This includes any third-party forensic or attestation
+evidence about a key binding, however cryptographically strong — for example, a
+cross-server equivocation proof a future proposal might define. Such evidence
+remains advisory and MUST NOT automatically trigger eviction, rebinding, or any
+other deviation from First Seen Wins on a receiving server. It may inform the
+human operator who decides whether to invoke this manual mechanism; it must
+never invoke it by itself.
 
 ### Historical event verification
 
@@ -400,10 +407,10 @@ believe they were following the room version.
 
 ## Security considerations
 
-- **CPU-exhaustion DoS prevention.** The strict "1:1 key ID to key body mapping"
-  eliminates the trial verification attack vector. Signature verification is
-  performed against exactly one key per key ID, bounding the computational cost
-  of event verification.
+- **CPU-exhaustion.** The strict "1:1 key ID to key body mapping" eliminates the
+  trial verification attack vector. Signature verification is performed against
+  exactly one key per key ID, bounding the computational cost of event
+  verification.
 
 - **TOFU cache poisoning.** Under Matrix's Trust-On-First-Use model, a
   `/_matrix/key/v2/server` response is self-signed by the private key associated
@@ -416,14 +423,14 @@ believe they were following the room version.
   an inherent limitation of TOFU, not a flaw in the proposal. Currently
   mitigating this is an admin effort.
 
-- **Direct-override spoofing.** While allowing direct fetches to override
-  provisional notary-learned keys prevents notary-enforced lock-in, it
-  temporarily exposes the server to DNS/BGP spoofing on direct connections. This
-  is an acceptable TOFU trade-off because (1) direct connections use WebPKI TLS
-  certificate validation (bringing in standard internet-grade security), (2) the
-  window of vulnerability is bounded to the brief provisional period before the
-  server performs a confirming direct fetch, and (3) future MSCs such as a
-  Global Settings Lock would effectively mitigate this concern.
+- **Origin spoofing.** While allowing direct fetches to override provisional
+  notary-learned keys prevents notary-enforced lock-in, it temporarily exposes
+  the server to DNS/BGP spoofing on direct connections. This is an acceptable
+  TOFU trade-off because (1) direct connections use WebPKI TLS certificate
+  validation (bringing in standard internet-grade security), (2) the window of
+  vulnerability is bounded to the brief provisional period before the server
+  performs a confirming direct fetch, and (3) future MSCs such as a Global
+  Settings Lock would effectively mitigate this concern.
 
 - **DAG integrity.** The key ID uniqueness requirement protects abiding servers
   by guaranteeing that historical signature verification is locally
@@ -431,7 +438,7 @@ believe they were following the room version.
   unambiguously identified by the `(server_name, algorithm, key_id)` tuple in
   the `signatures` dictionary.
 
-- **Compromise detection.** Key ID collisions are a potential indicator of
+- **Compromise monitoring.** Key ID collisions are a potential indicator of
   server compromise (an attacker generating a new key and attempting to publish
   it under an existing ID). Hard rejection with operator alerting provides an
   early warning mechanism. They can also be a sign of outdated, legacy servers.
@@ -447,62 +454,100 @@ believe they were following the room version.
   window where collision detection is blind. This MSC explicitly requires
   permanent retention of key-body bindings to close this gap.
 
-- **Storage exhaustion DoS.** Mandating permanent storage of key-body bindings
-  introduces a theoretical storage exhaustion vector if an attacker forces a
-  server to fetch and permanently store millions of unique key IDs. Homeserver
-  implementations MUST enforce a maximum limit of 3,000 cached key IDs per
-  remote server name. If a remote server reaches this quota, receiving servers
-  MUST NOT ignore new Key IDs permanently. Instead, they MUST evict the oldest
-  or least-recently-used expired keys (keys in `old_verify_keys` with the oldest
-  `expired_ts`). Keys currently published in the `verify_keys` section of a
-  direct fetch MUST always be prioritized and exempt from eviction.
-  Implementations MUST apply this ceiling deterministically: always retain all
-  current `verify_keys`, then retain retired keys in descending order of an
-  _effective retirement timestamp_. For a key published in `old_verify_keys`,
-  the effective retirement timestamp is its `expired_ts`. For a key that was
-  previously observed active (in `verify_keys` or `old_verify_keys`) but has
-  since disappeared from the origin's responses without ever being given an
-  `expired_ts` (a lazy or misbehaving origin simply dropping it), the effective
-  retirement timestamp is the local timestamp of the last observation in which
-  the key was still present. This makes every retained-or-evictable binding
-  sortable, including vanished keys that never received a formal retirement.
-  Ties in the effective retirement timestamp are broken by bytewise
-  lexicographic comparison of the full `algorithm:key_id` string as UTF-8,
-  ascending; the lexicographically smaller identifier is retained first. Any
-  keys ordered below the retention floor by this rule may be evicted. Because
-  the effective retirement timestamp for vanished keys is a local observation
-  time rather than an origin-asserted value, this part of the ordering is local
-  to each implementation; this is consistent with, and does not strengthen, the
-  cross-server convergence limits described below. When new valid historical key
-  material is learned, notaries and receiving servers MAY re-evaluate the
-  retained retired-key set, but such re-evaluation MUST apply the same
-  deterministic pruning rule over the full locally known candidate set. This
-  improves eventual convergence after observation gaps or network partitions,
-  but does not guarantee identical real-time results across notaries.
-  Implementations MUST rely on existing federation rate-limiting to discard junk
-  traffic before allocating database records. In practice, legitimate servers
-  publish single-digit numbers of active keys at any given time; a server
-  claiming tens of thousands of key IDs is unambiguously hostile. A future
-  Proof-of-Work gated proposal may mitigate the spurious bulk generation of keys
-  behind Equihash or Cuckoo Cycle.
+### Storage considerations
 
-- **Eviction reopens a TOFU window on the permanent-binding guarantee.**
-  `expired_ts` is asserted by the origin server itself. A malicious or
-  compromised origin can publish waves of synthetic retired keys with fresh
-  `expired_ts` values, filling every peer's 3,000-entry quota until a legitimate
-  historical key binding is pushed below the retention floor and evicted. Once
-  evicted, that binding is no longer available for collision detection: if the
-  attacker (who, in this scenario, controls the origin or has fully hijacked it)
-  later serves a forged body under the evicted key ID, peers that evicted the
-  original binding will re-TOFU it as if seeing that key ID for the first time.
-  In other words, eviction converts a permanent binding back into a TOFU-pending
-  binding, and the ceiling therefore bounds collision-blindness protection to
-  the 3,000 most recently retired keys; an origin willing to burn its own
-  retired-key history can push a target binding out of that window. This is
-  scoped by the same limitation as stolen retired keys above: the attacker must
-  already control the origin's signing capability, either as the legitimate
-  operator or as a full hijacker, to mint the flood of synthetic retirements in
-  the first place.
+Mandating indefinite storage of key-body bindings introduces a theoretical
+storage exhaustion vector if an attacker forces a server to fetch and
+permanently store millions of unique key IDs. Homeserver implementations MUST
+enforce a maximum limit of 3,000 cached key IDs per remote server name. If a
+remote server reaches this quota, receiving servers MUST NOT ignore new Key IDs
+permanently. Instead, they MUST evict the oldest or least-recently-used expired
+keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys currently
+published in the `verify_keys` section of a direct fetch MUST always be
+prioritized and exempt from eviction.
+
+**Corroboration tier.** Among retired keys, implementations MUST first sort
+bindings into two tiers before applying the ordering below. A retired-key
+binding is **corroborated** if the receiving server independently observed that
+`(server_name, algorithm, key_id)` as a currently-published `verify_keys` entry
+in some prior response — whether via a direct fetch or a notary observation —
+before this retirement claim arrived, or if an already-configured notary
+corroborates having observed it as active. All other retired-key bindings are
+**uncorroborated**: entries that arrive already-retired, with no independent
+record anywhere that the key was ever genuinely active. Uncorroborated bindings
+MUST still be accepted and retained for historical PDU verification — rejecting
+them outright would break legitimate first-contact backfill (a server that joins
+federation late and has never talked to an origin before its most recent
+rotation) and the lost-key recovery case in
+[Recovery from key loss](#recovery-from-key-loss), where a peer may legitimately
+be the first to ever see a given historical key. Concretely, corroboration
+decides only one thing: which bindings get evicted first if the 3,000-entry
+cap is ever reached. It changes nothing else — an uncorroborated binding is
+accepted the same way, stored the same way, and blocks a later conflicting key
+body under First Seen Wins exactly as permanently as a corroborated one does.
+
+Implementations MUST apply this ceiling deterministically: always retain all
+current `verify_keys`; then retain corroborated retired keys in descending order
+of an _effective retirement timestamp_ (defined below); then, in whatever slots
+remain, retain uncorroborated retired keys under the same ordering.
+Uncorroborated bindings are therefore always evicted before any corroborated
+binding, regardless of their respective `expired_ts` values. For a key published
+in `old_verify_keys`, the effective retirement timestamp is its `expired_ts`.
+For a key that was previously observed active (in `verify_keys` or
+`old_verify_keys`) but has since disappeared from the origin's responses without
+ever being given an `expired_ts` (a lazy or misbehaving origin simply dropping
+it), the effective retirement timestamp is the local timestamp of the last
+observation in which the key was still present. This makes every
+retained-or-evictable binding sortable, including vanished keys that never
+received a formal retirement. Ties in the effective retirement timestamp are
+broken by bytewise lexicographic comparison of the full `algorithm:key_id`
+string as UTF-8, ascending; the lexicographically smaller identifier is retained
+first. Any keys ordered below the retention floor by this rule may be evicted.
+Because both the corroboration tier (which may rely on local observation
+history) and the effective retirement timestamp for vanished keys are local
+determinations rather than origin-asserted values, this part of the ordering is
+local to each implementation; this is consistent with, and does not strengthen,
+the cross-server convergence limits described below. When new valid historical
+key material is learned, notaries and receiving servers MAY re-evaluate the
+retained retired-key set — including re-evaluating corroboration as new
+observations arrive — but such re-evaluation MUST apply the same deterministic
+pruning rule over the full locally known candidate set. This improves eventual
+convergence after observation gaps or network partitions, but does not guarantee
+identical real-time results across notaries. Implementations MUST rely on
+existing federation rate-limiting to discard junk traffic before allocating
+database records. In practice, legitimate servers publish single-digit numbers
+of active keys at any given time; a server claiming tens of thousands of key IDs
+is unambiguously hostile. A future Proof-of-Work gated proposal may mitigate the
+spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
+
+### Other considerations
+
+- **Eviction reopens a TOFU window on the permanent-binding guarantee —
+  mitigated by the corroboration tier.** `expired_ts` is asserted by the origin
+  server itself, and `old_verify_keys` entries are plain historical claims
+  within that self-signed response — they are not separately signed by the
+  retired key they describe. A malicious or compromised origin could therefore
+  attempt to fabricate synthetic retired-key entries to flood a peer's
+  3,000-entry quota and push a legitimate historical key binding below the
+  retention floor. The corroboration tier above closes the one-shot version of
+  this: a freshly fabricated key_id that this receiver (or its notary) never
+  independently observed as active lands in the uncorroborated tier, where it
+  can only evict other uncorroborated entries — it cannot push out a
+  corroborated, legitimately-retired binding. To evict a corroborated target,
+  the attacker must first get up to 3,000 fabricated key_ids independently
+  observed as genuinely active, which is throttled by the existing 50-key
+  active-key ceiling and by however long receivers take to re-poll (up to the
+  7-day refresh cadence): the attack becomes a sustained, multi-month campaign
+  of conspicuously abnormal key churn rather than a single malicious response.
+  This does not make the attack impossible — a sufficiently patient full
+  compromise of the origin can still eventually mint that much corroborated
+  history — but it removes the one-shot version and creates a long window in
+  which the abnormal churn itself (a server rotating its "active" key on an
+  unusually fast cadence) is a strong operational tell. The prerequisite remains
+  control of the origin's current signing capability — as the legitimate
+  operator gone rogue, or via a full compromise — the same prerequisite as TOFU
+  cache poisoning above, not the narrower "possession of one historical private
+  key" scenario that stolen retired keys describes.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has expired or been retired MUST NOT be overridden by
