@@ -410,18 +410,18 @@ believe they were following the room version.
 - **Storage exhaustion DoS.** Mandating permanent storage of key-body bindings
   introduces a theoretical storage exhaustion vector if an attacker forces a
   server to fetch and permanently store millions of unique key IDs. Homeserver
-  implementations SHOULD mitigate this by enforcing a reasonable maximum limit
-  on the number of cached key IDs per remote server name (e.g., 3,000 keys). If
-  a remote server reaches this quota, receiving servers MUST NOT ignore new Key
-  IDs permanently. Instead, they MUST evict the oldest or least-recently-used
-  expired keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys
-  currently published in the `verify_keys` section of a direct fetch MUST always
-  be prioritized and exempt from eviction. Implementations MUST rely on existing
-  federation rate-limiting to discard junk traffic before allocating database
-  records. In practice, legitimate servers publish single-digit numbers of
-  active keys at any given time; a server claiming tens of thousands of key IDs
-  is unambiguously hostile. A future Proof-of-Work gated proposal may mitigate
-  the spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
+  implementations MUST enforce a maximum limit of 3,000 cached key IDs per
+  remote server name. If a remote server reaches this quota, receiving servers
+  MUST NOT ignore new Key IDs permanently. Instead, they MUST evict the oldest
+  or least-recently-used expired keys (keys in `old_verify_keys` with the oldest
+  `expired_ts`). Keys currently published in the `verify_keys` section of a
+  direct fetch MUST always be prioritized and exempt from eviction.
+  Implementations MUST rely on existing federation rate-limiting to discard junk
+  traffic before allocating database records. In practice, legitimate servers
+  publish single-digit numbers of active keys at any given time; a server
+  claiming tens of thousands of key IDs is unambiguously hostile. A future
+  Proof-of-Work gated proposal may mitigate the spurious bulk generation of keys
+  behind Equihash or Cuckoo Cycle.
 
 ## Unstable prefix
 

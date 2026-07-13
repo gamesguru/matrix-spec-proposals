@@ -42,9 +42,9 @@ This MSC introduces two primary mechanisms to the Matrix federation protocol:
    `PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
    their local, resolved state view alongside the events they are transmitting.
 2. **Federation reconciliation endpoint:** A new
-   `GET /_matrix/federation/unstable/org.matrix.msc4500/reconcile` endpoint that
-   allows an out-of-sync server to request a "state bisect" path from a healthy
-   peer, enabling it to fast-forward missing room state without a heavy
+   `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{roomId}?event_id={eventId}`
+   endpoint that allows an out-of-sync server to query historical accumulator
+   points from a healthy peer and perform a "state bisect" path without a heavy
    `make_join` or `make_knock`.
 
 These mechanisms are additive and do not alter existing room version consensus
@@ -107,6 +107,18 @@ digest. This degenerate state is materially unattainable when the input domain
 is a resolved state map (a set whose elements all have a multiplicity of 1). The
 inbound accumulator is strictly a one-way _comparative_ tool; homeserver
 databases MUST remain responsible for _managing_ actual set element membership.
+Homeservers MUST therefore treat their local resolved state map — keyed by
+`(type, state_key)` — as the authoritative source of state membership,
+replacement, and deduplication. The accumulator is a cryptographic commitment of
+that map's current `(type, state_key, event_id)` assignments, not a set manager
+or delta-decoder.
+
+Implementations MAY additionally maintain an auxiliary, order-independent "shape
+checksum" over the occupied `(type, state_key)` slots only. Such a checksum is
+advisory and non-authoritative, but can help classify whether a mismatch
+reflects disagreement about which slots exist or only disagreement about which
+`event_id` occupies an existing slot. A `state_key`-only checksum is not useful,
+because `state_key` is not unique without the event `type`.
 
 ### Transaction payload
 
@@ -296,7 +308,21 @@ It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
 enumeration and healing are delegated to MSCXXXX [Gossip-based federation room
-reconciliation] and its `/room_diff` and `/room_events` endpoints.
+reconciliation] and its `/room_diff` and `/room_events` endpoints. Attempting to
+recover the missing `+12 / -18` events directly from the accumulator difference
+is computationally intractable in the general case; the accumulator is for
+verification, not reconciliation. Cheap delta discovery requires separate
+set-reconciliation structures or timeline traversal, such as IBLT-style
+state-set reconciliation, Merkle search trees over `(type, state_key)` slots, or
+Matrix-native lowest-common-ancestor traversal across state-altering events.
+
+If implementations keep an auxiliary shape checksum, then:
+
+- Matching shape checksum + mismatching main accumulator indicates mutation
+  drift: both servers agree on the active `(type, state_key)` slots but disagree
+  on one or more occupying `event_id`s.
+- Mismatching shape checksum + mismatching main accumulator indicates structural
+  drift: the servers disagree on which `(type, state_key)` slots exist at all.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
 non-state-altering events. For this capability, it fully defers to MSCXXXX.
@@ -673,6 +699,10 @@ This proposal currently has no known dependencies.
 - **Self-verification:** Could servers perform self-verification (e.g. checking
   checksums of the result) before signing off on it? Is there value in auditing
   one's own state (either on-the-fly or on past events)?
+- **Future reconciliation structures:** If boolean drift detection is not
+  enough, should future work standardize an auxiliary set-reconciliation
+  structure (e.g. IBLT, Merkle search tree, or state-event LCA traversal) for
+  cheap event-level delta discovery after an accumulator mismatch?
 
 ## References
 
