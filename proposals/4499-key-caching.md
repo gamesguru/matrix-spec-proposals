@@ -282,10 +282,13 @@ unrecoverable database failure without backup):
    independently observed this key as active will treat the entry as
    **uncorroborated** (see [Storage considerations](#storage-considerations)):
    it is still retained for historical PDU verification, but sits at the bottom
-   of the retention order under the eviction ceiling. If the key's prior
-   activity can instead be corroborated by an established notary the peer
-   already queries, the binding is treated as corroborated and receives the same
-   retention priority as an ordinarily-rotated key.
+   of the retention order under the eviction ceiling. A peer's binding becomes
+   corroborated only through that peer's own prior observation of the key as
+   active (for example, if its own notary fallback happened to relay this key
+   while it was still genuinely active elsewhere, before the loss), or through
+   an explicit local operator action grounded in independently verified evidence
+   — never by asking a notary to vouch for the retirement after the fact, which
+   no implementation may treat as corroboration.
 3. **If the public key material is completely lost**, the administrator must
    accept that historical events signed by the lost key may fail verification on
    servers that never cached it. By design there is no protocol-level recovery
@@ -468,12 +471,27 @@ prioritized and exempt from eviction.
 
 **Corroboration tier.** Among retired keys, implementations MUST first sort
 bindings into two tiers before applying the ordering below. A retired-key
-binding is **corroborated** if the receiving server independently observed that
-`(server_name, algorithm, key_id)` as a currently-published `verify_keys` entry
-in some prior response — whether via a direct fetch or a notary observation —
-before this retirement claim arrived, or if an already-configured notary
-corroborates having observed it as active. All other retired-key bindings are
-**uncorroborated**: entries that arrive already-retired, with no independent
+binding is **corroborated** if the receiving server itself independently
+observed that `(server_name, algorithm, key_id)` as a currently-published
+`verify_keys` entry in some prior response — via a direct fetch, or via a notary
+relaying the origin's genuinely-active state at that earlier time — before this
+retirement claim arrived, or if a local operator has explicitly marked the
+binding corroborated based on independently verified historical evidence.
+Corroboration MUST be grounded only in the receiver's own accumulated
+observation history or explicit operator action, never in a live attestation
+solicited at retirement time: a notary MUST NOT be queried at retirement time to
+simply vouch that it once saw a key active, because nothing then stops a single
+compromised or colluding notary from making that claim, on demand, about any key
+for any domain — turning one bad notary into a universal corroboration-forging
+oracle and fully defeating this tier's purpose. This corroboration path requires
+nothing beyond the plain self-signed response data every implementation already
+relies on for First Seen Wins — the same baseline `/_matrix/key/v2/server` and
+`/_matrix/key/v2/query` self-signature this MSC assumes throughout. It MUST NOT
+be strengthened, weakened, or otherwise gated by any advisory provenance signal
+a future proposal might define (for example, TLS transcript evidence or a notary
+publication challenge) — such signals are advisory-only wherever they are
+defined, and this MSC has no dependency on them. All other retired-key bindings
+are **uncorroborated**: entries that arrive already-retired, with no independent
 record anywhere that the key was ever genuinely active. Uncorroborated bindings
 MUST still be accepted and retained for historical PDU verification — rejecting
 them outright would break legitimate first-contact backfill (a server that joins
@@ -481,10 +499,10 @@ federation late and has never talked to an origin before its most recent
 rotation) and the lost-key recovery case in
 [Recovery from key loss](#recovery-from-key-loss), where a peer may legitimately
 be the first to ever see a given historical key. Concretely, corroboration
-decides only one thing: which bindings get evicted first if the 3,000-entry
-cap is ever reached. It changes nothing else — an uncorroborated binding is
-accepted the same way, stored the same way, and blocks a later conflicting key
-body under First Seen Wins exactly as permanently as a corroborated one does.
+decides only one thing: which bindings get evicted first if the 3,000-entry cap
+is ever reached. It changes nothing else — an uncorroborated binding is accepted
+the same way, stored the same way, and blocks a later conflicting key body under
+First Seen Wins exactly as permanently as a corroborated one does.
 
 Implementations MUST apply this ceiling deterministically: always retain all
 current `verify_keys`; then retain corroborated retired keys in descending order
@@ -530,24 +548,28 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   attempt to fabricate synthetic retired-key entries to flood a peer's
   3,000-entry quota and push a legitimate historical key binding below the
   retention floor. The corroboration tier above closes the one-shot version of
-  this: a freshly fabricated key_id that this receiver (or its notary) never
-  independently observed as active lands in the uncorroborated tier, where it
-  can only evict other uncorroborated entries — it cannot push out a
-  corroborated, legitimately-retired binding. To evict a corroborated target,
-  the attacker must first get up to 3,000 fabricated key_ids independently
-  observed as genuinely active, which is throttled by the existing 50-key
-  active-key ceiling and by however long receivers take to re-poll (up to the
-  7-day refresh cadence): the attack becomes a sustained, multi-month campaign
-  of conspicuously abnormal key churn rather than a single malicious response.
-  This does not make the attack impossible — a sufficiently patient full
-  compromise of the origin can still eventually mint that much corroborated
-  history — but it removes the one-shot version and creates a long window in
-  which the abnormal churn itself (a server rotating its "active" key on an
-  unusually fast cadence) is a strong operational tell. The prerequisite remains
-  control of the origin's current signing capability — as the legitimate
-  operator gone rogue, or via a full compromise — the same prerequisite as TOFU
-  cache poisoning above, not the narrower "possession of one historical private
-  key" scenario that stolen retired keys describes.
+  this: a freshly fabricated key_id that this receiver never independently
+  observed as active — through its own direct fetches or its own past
+  notary-relayed fetches — lands in the uncorroborated tier, where it can only
+  evict other uncorroborated entries; it cannot push out a corroborated,
+  legitimately-retired binding. Because corroboration is deliberately never
+  grantable by asking a notary to vouch after the fact (see
+  [Storage considerations](#storage-considerations)), a compromised notary
+  cannot shortcut this either. To evict a corroborated target, the attacker must
+  first get up to 3,000 fabricated key_ids independently observed as genuinely
+  active, which is throttled by the existing 50-key active-key ceiling and by
+  however long receivers take to re-poll (up to the 7-day refresh cadence): the
+  attack becomes a sustained, multi-month campaign of conspicuously abnormal key
+  churn rather than a single malicious response. This does not make the attack
+  impossible — a sufficiently patient full compromise of the origin can still
+  eventually mint that much corroborated history — but it removes the one-shot
+  version and creates a long window in which the abnormal churn itself (a server
+  rotating its "active" key on an unusually fast cadence) is a strong
+  operational tell. The prerequisite remains control of the origin's current
+  signing capability — as the legitimate operator gone rogue, or via a full
+  compromise — the same prerequisite as TOFU cache poisoning above, not the
+  narrower "possession of one historical private key" scenario that stolen
+  retired keys describes.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has expired or been retired MUST NOT be overridden by
