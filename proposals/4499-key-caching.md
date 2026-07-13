@@ -39,10 +39,10 @@ any future signing algorithms, like `fn-dsa-512`).
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before their clamped `valid_until_ts` expiry
-(clamped to at most 7 days from fetch, matching the existing spec rule for
-event verification) to avoid verification failures during key rotation windows.
-When a server re-fetches a key and receives the exact same key body it already
-has, this is a normal refresh; the server MUST simply update its cached
+(clamped to at most 7 days from fetch, matching the existing spec rule for event
+verification) to avoid verification failures during key rotation windows. When a
+server re-fetches a key and receives the exact same key body it already has,
+this is a normal refresh; the server MUST simply update its cached
 `valid_until_ts` and `expired_ts` timestamps. Furthermore, servers MUST rely on
 their cache. They MUST NOT fetch keys from the network for every single inbound
 message or request if a valid key is already cached locally.
@@ -50,19 +50,13 @@ message or request if a valid key is already cached locally.
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can cause fetch storms if every inbound event or
 reference triggers a fresh network request. Servers MUST implement exponential
-backoff per remote server for failed key fetches, with a floor of 60 seconds in
-production configurations and a recommended cap of 1 hour. An inbound
-federation request whose authentication _requires_ a key fetch for the
-backoff-listed server SHOULD permit one immediate (rate-limited) fetch attempt
-per backoff interval. This escape hatch is for authenticating the calling
-server; PDU verification SHOULD instead park and retry rather than punch
-through the negative cache. Parked PDUs MUST be bounded in count and age,
-retried when the backoff interval expires, and failed normally when the bound is
-hit — an unbounded park queue is just a new exhaustion vector.
-Implementations SHOULD coalesce concurrent outgoing key fetch requests for the
-same remote domain into a single active HTTP request to prevent network
-saturation. If that fetch succeeds and the request authenticates, servers SHOULD
-clear the backoff state.
+backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
+failed key fetches. An inbound federation request whose authentication
+_requires_ a key fetch for the backoff-listed server SHOULD permit one immediate
+(rate-limited) fetch attempt. Implementations SHOULD coalesce concurrent
+outgoing key fetch requests for the same remote domain into a single active HTTP
+request to prevent network saturation. If that fetch succeeds and the request
+authenticates, servers SHOULD clear the backoff state.
 
 Implementations SHOULD allow the minimum backoff floor to be shortened in test
 configurations, so conformance tests do not need to sleep for a full minute.
@@ -72,10 +66,8 @@ database) rather than held only in memory. A server restart should not require
 re-fetching every remote server's keys from the network.
 
 **Active key ceiling.** A single server-key response MUST NOT contain more than
-50 active keys in `verify_keys` (per server entry, in batch responses). Such a
-payload is malformed/hostile and MUST be rejected as a whole. Large historical
-key sets belong in `old_verify_keys`, where storage can be bounded without
-making every key un-evictable.
+50 active keys in `verify_keys`. Such a payload MUST be rejected as malformed.
+Large historical key sets belong in `old_verify_keys`.
 
 **Notary internal indexing.** Notary servers act as massive aggregation points
 for federation keys. To prevent them from becoming distribution vectors for
@@ -101,18 +93,12 @@ the origin server yields a key body that conflicts with the provisional binding,
 the direct fetch MUST override the provisional one, unless the provisional key
 has already expired or been retired. The server updates its cache to the
 direct-observed key body and MUST log the collision loudly. The server SHOULD
-log which events (or at minimum which rooms/time window) were verified under
-the displaced binding, and MAY re-verify recent events. Bindings observed
-directly from the origin server are **permanent** (see below). Servers MUST NOT
-treat notary unavailability as a verification success.
-
-**Provisional override freeze.** A provisional binding MUST NOT be overridden if
-its cached `valid_until_ts` has passed, or if it was learned from
-`old_verify_keys` with an `expired_ts` in the past. At that point it is
-historical evidence, not an active recovery candidate. A later direct fetch
-presenting different key material for that key ID MUST be rejected as a
-collision. If the frozen binding itself turns out to be notary poison, recovery
-is the manual cache eviction below — not an automated override.
+log which events (or at minimum which rooms/time window) were verified under the
+displaced binding, and MAY re-verify recent events. Bindings observed directly
+from the origin server are **permanent** (see below). Servers MUST NOT treat
+notary unavailability as a verification success. A provisional binding MUST NOT
+be overridden if its cached `valid_until_ts` has passed, or if it was learned
+from `old_verify_keys` with a past `expired_ts`.
 
 **Binding promotion.** A provisional (notary-observed) binding becomes permanent
 the first time a direct fetch from the origin confirms the same key body.
@@ -123,13 +109,9 @@ fetch presenting a different key body for the same key ID is a collision and
 MUST be rejected and logged. Direct-versus-direct conflicts are always resolved
 by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
 case. Notary-versus-notary conflicts (or the same notary at two different times)
-are also resolved by First Seen Wins among provisional observations.
-
-**`minimum_valid_until_ts` is not a bypass.** If a notary query asks for a later
-validity window and the origin now serves different key material for the same
-key ID, the server MUST reject the new key as a collision. It MAY return the
-pinned key even if it does not satisfy the requested validity window, or omit
-the key/server entirely. It MUST NOT return the colliding key.
+are also resolved by First Seen Wins among provisional observations. If a notary
+query requests a `minimum_valid_until_ts` and the origin serves conflicting key
+material for the same key ID, the server MUST reject the new key as a collision.
 
 ### Key ID uniqueness requirement
 
@@ -140,15 +122,15 @@ specific cryptographic key; allowing multiple key bodies under the same ID
 defeats this purpose.
 
 **Permanent binding.** The cryptographic binding between a key ID and its public
-key body is a **permanent record**, not a cache entry.
-This permanence governs _key-body identity_ only; it does not alter the
-validity-window semantics (e.g., event signatures are still verified against the
-key's validity at the event's `origin_server_ts`, and federation requests still
-require a currently valid key). While `valid_until_ts` dictates when a server
-should refresh the `/_matrix/key/v2/server` endpoint, the observed association
-between a key ID and its key body MUST NOT be purged from the server's key
-database when `valid_until_ts` expires. Purging this binding would leave the
-server naive to future collisions and blindly accepting colliding key bodies.
+key body is a **permanent record**, not a cache entry. This permanence governs
+_key-body identity_ only; it does not alter the validity-window semantics (e.g.,
+event signatures are still verified against the key's validity at the event's
+`origin_server_ts`, and federation requests still require a currently valid
+key). While `valid_until_ts` dictates when a server should refresh the
+`/_matrix/key/v2/server` endpoint, the observed association between a key ID and
+its key body MUST NOT be purged from the server's key database when
+`valid_until_ts` expires. Purging this binding would leave the server naive to
+future collisions and blindly accepting colliding key bodies.
 
 **Collision detection.** If a server observes a key response (whether fetched
 directly via `/_matrix/key/v2/server` or via a `/_matrix/key/v2/query` notary)
@@ -180,19 +162,10 @@ The same key body appearing under one key ID in both `verify_keys` and
 within a single HTTP response, the entire response MUST be rejected as
 malformed.
 
-When a notary rejects an upstream key response as malformed under this rule, the
-malformed response MUST NOT be included in the `server_keys` array. The notary
-MAY continue serving previously-cached valid entries for that server in the same
-batch response. It MUST NOT turn one malformed upstream payload into a non-200
-answer for the whole batch.
-
-Implementations MUST detect duplicate keys within a single JSON object for key
-response payloads (`/_matrix/key/v2/server` and `/_matrix/key/v2/query`
-responses), since ordinary JSON parsers frequently deduplicate them. This is
-not a general Matrix JSON parsing mandate; it is a key-payload rule. Both
-orderings of the duplicate MUST be rejected; an implementation that accepts one
-ordering is likely passing only because its parser keeps the last (or first)
-value it sees.
+If a notary rejects an upstream key response as malformed, it MUST omit that
+response from the `server_keys` array but MAY continue serving other valid
+entries in the batch. Furthermore, implementations MUST reject key response
+payloads containing duplicate keys within a single JSON object.
 
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
@@ -425,12 +398,9 @@ believe they were following the room version.
   early warning mechanism. They can also be a sign of outdated, legacy servers.
 
 - **Stolen retired keys and backdated forgeries.** Enforcing `expired_ts` stops
-  an attacker holding a compromised retired key from signing current events. It
-  does not stop them from backdating `origin_server_ts` to before `expired_ts`
-  and forging plausible historical events. Limiting a stolen key to backdated
-  forgeries is still a large reduction in power — backdated events have limited
-  reach thanks to `prev_events` and depth — but `expired_ts` is not forward
-  secrecy for room history.
+  an attacker with a compromised retired key from signing current events. It
+  does not prevent them from backdating `origin_server_ts` to forge historical
+  events, though the reach of such events is limited by `prev_events` and depth.
 
 - **Cache expiration is not binding expiration.** The `valid_until_ts` field
   governs when to _refresh_ the key endpoint, not when to _forget_ the key body.
@@ -466,9 +436,9 @@ Because strict collision rejection can break federation with misconfigured
 servers already in the wild, implementations SHOULD ship an initial
 collision-observation phase: log detected collisions as warnings without
 rejecting the new key, gather real-world breakage data, then enable strict
-enforcement. A configuration flag (e.g., `org.matrix.msc4499_strict_caching`)
-is the obvious gate. This is rollout guidance only; the normative rules above
-are unchanged by it.
+enforcement. A configuration flag (e.g., `org.matrix.msc4499_strict_caching`) is
+the obvious gate. This is rollout guidance only; the normative rules above are
+unchanged by it.
 
 ## Dependencies
 
@@ -509,9 +479,9 @@ Under this paradigm, a key ID collision becomes exceedingly difficult. If an
 administrator regenerates their keys, the new key body structurally enforces a
 novel key ID. This entirely mitigates the TOFU poisoning vulnerability (an
 attacker cannot assert a new key under an old ID without conducting a
-computationally intractable search). It would eliminate the need for
-out-of-band collision detection heuristics, allowing us to enforce strict key
-uniqueness directly within room version auth rules.
+computationally intractable search). It would eliminate the need for out-of-band
+collision detection heuristics, allowing us to enforce strict key uniqueness
+directly within room version auth rules.
 
 Because this requires changing how PDU signatures are verified and supplants
 legacy key formats thoroughly entrenched in the wild, it requires a new room
