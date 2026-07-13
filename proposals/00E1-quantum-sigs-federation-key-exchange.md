@@ -113,7 +113,7 @@ For `fn-dsa-512`, the `key_id` component is a hash-derived short ID:
 | `ed25519`     | Existing Ed25519 (unchanged) | `ed25519:<key_id>`            |
 | `fn-dsa-512`  | FN-DSA at NIST Level I       | `fn-dsa-512:<short_id>`       |
 
-For `fn-dsa-512`, the `short_id` component MUST be the first 16 base64url
+For `fn-dsa-512`, the `short_id` component MUST be the first 20 base64url
 characters of the canonical full key ID digest `key_id_sha256`, without padding.
 The canonical full key ID digest is:
 
@@ -142,9 +142,9 @@ server name rather than being reusable across names (see
 it does not, by itself, prove control of that name's DNS, origin, or TLS
 endpoint.
 
-The `short_id` component MUST contain exactly 16 characters from the base64url
+The `short_id` component MUST contain exactly 20 characters from the base64url
 alphabet of RFC 4648 §5 (`A-Z`, `a-z`, `0-9`, `-`, and `_`), encoding the first
-96 bits of `key_id_sha256`. When processing an FN-DSA public key from
+120 bits of `key_id_sha256`. When processing an FN-DSA public key from
 `verify_keys` or `old_verify_keys`, implementations MUST recompute
 `key_id_sha256` and the expected hash-derived `short_id` from the advertised
 public key bytes. If the advertised `short_id` does not exactly match the
@@ -153,7 +153,7 @@ entries, `X-Matrix-PQC` headers, and PDU signatures that reference a malformed
 FN-DSA `short_id` MUST fail verification.
 
 In the exceedingly unlikely event that a server advertises multiple distinct
-FN-DSA public key bodies whose tagged digests share the same first 16 base64url
+FN-DSA public key bodies whose tagged digests share the same first 20 base64url
 characters, the server MUST discard one key and generate a replacement before
 publication. A server MUST also ensure the new `short_id` does not collide with
 any FN-DSA key it has ever published in `verify_keys`, `old_verify_keys`, or a
@@ -239,7 +239,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
         "ed25519:auto": {
             "key": "<unpadded-base64-ed25519-pubkey>"
         },
-        "fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
+        "fn-dsa-512:IP0hvDGShf-70PxUumyF": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
             "fips_206_revision": "ipd-2025-08",
             "claims": ["constant-time-keygen", "constant-time-signing"],
@@ -251,7 +251,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
         }
     },
     "old_verify_keys": {
-        "fn-dsa-512:Rd3x2U9cQK8mV4sA": {
+        "fn-dsa-512:Rd3x2U9cQK8mV4sA7bYp": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
             "expired_ts": 1798761600000,
             "fips_206_revision": "ipd-2025-08",
@@ -266,7 +266,7 @@ The `GET /_matrix/key/v2/server` response includes both key types:
     "signatures": {
         "example.com": {
             "ed25519:auto": "<base64-ed25519-signature>",
-            "fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
+            "fn-dsa-512:IP0hvDGShf-70PxUumyF": "<base64-fn-dsa-512-signature>"
         }
     },
     "valid_until_ts": 1798848000000
@@ -393,7 +393,7 @@ notary redistribution without special handling.
 The verifier reconstructs the stamp input from the enclosing key response rather
 than receiving it on the wire. `key_id_sha256` MUST be recomputed from the
 advertised FN-DSA public key body, and the enclosing key's advertised `short_id`
-MUST equal the first 16 base64url characters of that digest. `server_name` is
+MUST equal the first 20 base64url characters of that digest. `server_name` is
 the exact `server_name` of the enclosing key response. If any value does not
 match, the proof MUST be rejected without evaluating the puzzle.
 
@@ -874,6 +874,12 @@ being closed. If the key is unavailable or suspected compromised, the server MAY
 publish an expiry claim signed by the replacement server signing key and the
 existing Ed25519 server signing key; receivers then authenticate the claim using
 the same Matrix server-key trust model used for replacement key publication.
+Operators SHOULD generate and securely store a pre-signed emergency expiry
+claim when creating a new server signing key, so the key can be closed if the
+live server loses access to the private key or is compromised. This artifact
+MUST NOT be published unless the operator intends to close the key, and it does
+not prove when compromise occurred or retroactively invalidate already accepted
+historical events.
 
 For each `(server_name, algorithm, key_id_sha256)` tuple, receivers MUST cache
 the smallest `not_valid_after_ts` from all valid expiry claims they have
@@ -921,7 +927,7 @@ RFC 9110, so no capability discovery is needed for legacy servers.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:5FQ2xg4sWqj3Kp9N",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:IP0hvDGShf-70PxUumyF",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for
@@ -1302,11 +1308,11 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   implementations MUST use audited, constant-time libraries (see
   [Implementation guidance](#implementation-guidance)).
 
-- **Hash-derived short ID collisions.** The `short_id` commits to 96 bits of the
+- **Hash-derived short ID collisions.** The `short_id` commits to 120 bits of the
   key body's SHA-256 digest (see [Key ID format](#key-id-format)). A second
-  preimage against a _specific_ existing `short_id` costs ~2^96 hash evaluations
+  preimage against a _specific_ existing `short_id` costs ~2^120 hash evaluations
   (infeasible), but a birthday collision between two freshly generated keys
-  costs only ~2^48 — feasible for a motivated party with commodity GPUs.
+  costs ~2^60.
   Crucially, key responses are self-signed and served by the origin server, so
   only the key's owner (or an attacker already holding its signing keys) can
   attempt to place colliding key bodies into circulation: the attack is
@@ -1370,7 +1376,7 @@ identifier in FN-DSA key references:
 ```json
 {
     "verify_keys": {
-        "tk.nutra.msc45xx.fn-dsa-512:5FQ2xg4sWqj3Kp9N": {
+        "tk.nutra.msc45xx.fn-dsa-512:IP0hvDGShf-70PxUumyF": {
             "key": "<base64-fn-dsa-512-pubkey>"
         }
     }
@@ -1458,7 +1464,7 @@ context_ascii = "matrix:fn-dsa-512:key-id:v1"
 context_len16_be = 001b
 key_id_sha256_hex = 20fd21bc319285ffbbd0fc54ba6c8581d952ac62e671e90f4184a8b425d2db38
 key_id_sha256_base64url = IP0hvDGShf-70PxUumyFgdlSrGLmcekPQYSotCXS2zg
-short_id = IP0hvDGShf-70PxU
+short_id = IP0hvDGShf-70PxUumyF
 ```
 
 ### Deterministic FN-DSA-512 sign/verify vector
