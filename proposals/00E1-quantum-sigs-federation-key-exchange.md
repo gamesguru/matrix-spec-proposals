@@ -462,6 +462,10 @@ SHOULD cache successful stamp verification by `key_id_sha256`.
 
 ##### Notary-scoped publication challenges
 
+This notary provenance material is copied into
+[MSC 00E4](00E4-quantum-sigs-notary-provenance.md) as a candidate split-out
+draft. The text remains here while the split is evaluated.
+
 Notaries MAY offer a challenge endpoint that lets an origin bind additional
 publication work to a named notary before the notary attests to the key:
 
@@ -898,6 +902,10 @@ The Ed25519 `Authorization` header remains required on all federation requests
 as long as any legacy room version exists in the federation.
 
 ### Upgraded connections: PQ session negotiation (future MSC)
+
+This session-negotiation material is copied into
+[MSC 00E5](00E5-quantum-sigs-federation-session-negotiation.md) as a candidate
+split-out draft. The text remains here while the split is evaluated.
 
 The per-request `X-Matrix-PQC` header adds ~888 bytes (base64) of bandwidth
 overhead to every federation request. This section defines an OPTIONAL mechanism
