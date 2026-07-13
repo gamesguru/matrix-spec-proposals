@@ -109,17 +109,17 @@ While a session is live, the initiating server MAY replace the `X-Matrix-PQC`
 header on requests to the responder with:
 
 ```http
-X-Matrix-PQC-Session: origin="example.com",destination="matrix.org",session="<session_id>",mac="<unpadded-base64-hmac>"
+X-Matrix-PQC-Session: origin="example.com",destination="matrix.org",session="<session_id>",origin_ts_at="1798847900000",mac="<unpadded-base64-hmac>"
 ```
 
 where `mac` is `HMAC-SHA-256(session_key, canonical_json(signing_object))` over
-the same JSON signing object used for `X-Matrix-PQC`. The Ed25519
-`Authorization` header remains required as usual. Verifiers MUST compare MAC
-values in constant time. Sessions are unidirectional: only the initiator uses
-the session to authenticate requests _to_ the responder. A responder MUST NOT
-accept its own issued `session_id` on requests it originates, and the swapped
-`origin`/`destination` fields in the signing object make reflected MACs fail
-verification in any case.
+the same JSON signing object used for `X-Matrix-PQC`, including the
+signature-covered `origin_ts_at` value. The Ed25519 `Authorization` header
+remains required as usual. Verifiers MUST compare MAC values in constant time.
+Sessions are unidirectional: only the initiator uses the session to authenticate
+requests _to_ the responder. A responder MUST NOT accept its own issued
+`session_id` on requests it originates, and the swapped `origin`/`destination`
+fields in the signing object make reflected MACs fail verification in any case.
 
 Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize

@@ -362,6 +362,16 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
+##### Self-signed expiry claim carriage
+
+Notaries MAY include valid `m.server_key.expiry.v1` expiry claims observed from
+the origin or from federation gossip alongside their key-query responses. A
+notary MUST verify the claim's signatures, `server_name`, and `key_id_sha256`
+binding before redistributing it. Notary redistribution does not make the claim
+notary-specific: receivers continue to authenticate the claim by its own
+signatures and use the smallest observed `not_valid_after_ts` for the closed key
+as specified by MSC45XX.
+
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
 only. Servers MUST NOT reject events, keys, or state based solely on missing,

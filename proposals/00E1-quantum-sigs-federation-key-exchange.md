@@ -821,6 +821,49 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
+#### Self-signed key expiry claims
+
+An origin MAY publish a self-signed expiry claim for an FN-DSA key. The claim is
+a standalone signed object that can be served by the origin, included by
+notaries in key-query responses, or gossiped by any federation peer. Gossip does
+not require trusting the gossiper: receivers verify the claim's signatures and
+the key body binding before caching it.
+
+```json
+{
+    "type": "m.server_key.expiry.v1",
+    "server_name": "example.com",
+    "key": "fn-dsa-512:<short_id>",
+    "key_id_sha256": "<unpadded-base64url-sha256>",
+    "not_valid_after_ts": 1798848000000,
+    "issued_at_ts": 1798847900000,
+    "reason": "rotation",
+    "signatures": {
+        "example.com": {
+            "fn-dsa-512:<short_id>": "<base64-fn-dsa-signature>"
+        }
+    }
+}
+```
+
+The expiry claim signature input is the Matrix Canonical JSON representation of
+the claim after removing `signatures` and `unsigned`. `key_id_sha256` MUST match
+the advertised key body for `key`; `server_name` MUST exactly match the server
+name whose key is being closed. A clean retirement SHOULD be signed by the key
+being closed. If the key is unavailable or suspected compromised, the server MAY
+publish an expiry claim signed by the replacement server signing key and the
+existing Ed25519 server signing key; receivers then authenticate the claim using
+the same Matrix server-key trust model used for replacement key publication.
+
+For each `(server_name, algorithm, key_id_sha256)` tuple, receivers MUST cache
+the smallest `not_valid_after_ts` from all valid expiry claims they have
+observed. A later claim with a larger cutoff MUST NOT extend the key's accepted
+lifetime. Once a receiver has observed any valid expiry claim for a key, it MUST
+reject new live federation HTTP authentication using that key, regardless of
+remote timestamps or local clock skew. For historical signed objects, the
+receiver compares the cached `not_valid_after_ts` only against a timestamp that
+is itself covered by the object's signature.
+
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
 only. Servers MUST NOT reject events, keys, or state based solely on missing,
@@ -853,23 +896,25 @@ RFC 9110, so no capability discovery is needed for legacy servers.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:5FQ2xg4sWqj3Kp9N",sig="<base64-fn-dsa-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:5FQ2xg4sWqj3Kp9N",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for
 existing Matrix federation request authentication (containing `method`, `uri`,
-`origin`, `destination`, and `content` when present).
+`origin`, `destination`, and `content` when present), with the additional
+signature-covered `origin_ts_at` field from the `X-Matrix-PQC` header.
 
 #### Header syntax
 
 `X-Matrix-PQC` uses the same parameter syntax and parsing rules as the existing
 `Authorization: X-Matrix` header. Required parameters are `origin`,
-`destination`, `key`, and `sig`. Unknown parameters MUST be ignored. Duplicate
-parameters or multiple `X-Matrix-PQC` headers render the request authentication
-invalid. The `sig` parameter value is the unpadded base64-encoded FN-DSA
-signature. Malformed headers (invalid base64, missing required parameters,
-unparsable syntax) MUST be treated as absent for enforcement purposes and SHOULD
-be logged.
+`destination`, `key`, `origin_ts_at`, and `sig`. Unknown parameters MUST be
+ignored. Duplicate parameters or multiple `X-Matrix-PQC` headers render the
+request authentication invalid. `origin_ts_at` is an integer millisecond
+timestamp chosen by the origin and covered by the FN-DSA signature. The `sig`
+parameter value is the unpadded base64-encoded FN-DSA signature. Malformed
+headers (invalid base64, missing required parameters, unparsable syntax) MUST be
+treated as absent for enforcement purposes and SHOULD be logged.
 
 #### Verification and enforcement rules
 
@@ -1010,17 +1055,17 @@ While a session is live, the initiating server MAY replace the `X-Matrix-PQC`
 header on requests to the responder with:
 
 ```http
-X-Matrix-PQC-Session: origin="example.com",destination="matrix.org",session="<session_id>",mac="<unpadded-base64-hmac>"
+X-Matrix-PQC-Session: origin="example.com",destination="matrix.org",session="<session_id>",origin_ts_at="1798847900000",mac="<unpadded-base64-hmac>"
 ```
 
 where `mac` is `HMAC-SHA-256(session_key, canonical_json(signing_object))` over
-the same JSON signing object used for `X-Matrix-PQC`. The Ed25519
-`Authorization` header remains required as usual. Verifiers MUST compare MAC
-values in constant time. Sessions are unidirectional: only the initiator uses
-the session to authenticate requests _to_ the responder. A responder MUST NOT
-accept its own issued `session_id` on requests it originates, and the swapped
-`origin`/`destination` fields in the signing object make reflected MACs fail
-verification in any case.
+the same JSON signing object used for `X-Matrix-PQC`, including the
+signature-covered `origin_ts_at` value. The Ed25519 `Authorization` header
+remains required as usual. Verifiers MUST compare MAC values in constant time.
+Sessions are unidirectional: only the initiator uses the session to authenticate
+requests _to_ the responder. A responder MUST NOT accept its own issued
+`session_id` on requests it originates, and the swapped `origin`/`destination`
+fields in the signing object make reflected MACs fail verification in any case.
 
 Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize
@@ -1253,11 +1298,14 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   compromised, the unstable prefix can be deprecated and a replacement
   introduced via a follow-up MSC.
 
-- **Key compromise recovery.** Identical to Ed25519: rotate the key, publish the
-  old key in `old_verify_keys` with `expired_ts`. This MSC follows the normal
-  Matrix server-key model and does not require replacement keys to be signed by
-  a previously trusted FN-DSA key. Operators SHOULD still keep offline backups
-  of signing keys to support ordinary rotation and incident response.
+- **Key compromise recovery.** Planned rotation follows the normal Matrix
+  server-key model: rotate the key, publish the old key in `old_verify_keys`
+  with `expired_ts`, and where possible publish a self-signed key expiry claim
+  for the old FN-DSA key. Emergency compromise may require an expiry claim
+  authenticated by the replacement key and existing Ed25519 trust path rather
+  than by the compromised key itself. Operators SHOULD still keep offline
+  backups of signing keys to support clean retirement signatures during ordinary
+  rotation and incident response.
 
 ## Unstable prefix
 
@@ -1268,6 +1316,7 @@ While this MSC is in development, the following unstable prefixes are used:
 | `fn-dsa-512` (key algorithm)                     | `tk.nutra.msc45xx.fn-dsa-512`                                           |
 | `X-Matrix-PQC` (HTTP header)                     | `X-Matrix-PQC` (no prefix needed, custom header)                        |
 | `X-Matrix-PQC-Session` (HTTP header)             | `X-Matrix-PQC-Session` (no prefix needed, custom header)                |
+| `m.server_key.expiry.v1` (expiry claim type)     | `tk.nutra.msc45xx.server_key.expiry.v1`                                 |
 | `/_matrix/federation/v1/key_exchange` (endpoint) | `/_matrix/federation/unstable/tk.nutra.msc45xx/key_exchange`            |
 | `/_matrix/key/v2/publication_challenge`          | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge`          |
 | `/_matrix/key/v2/publication_challenge/complete` | `/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge/complete` |
@@ -1478,6 +1527,9 @@ This proposal is fully backwards-compatible:
   `404` and falls back to per-request `X-Matrix-PQC`; `publication_challenge`
   and `publication_challenge/complete` are notary provenance helpers and do not
   change key acceptance semantics for clients that do not use them.
+- **Self-signed expiry claims** are additive and independently verifiable.
+  Legacy servers ignore them; supporting servers cache only valid claims and use
+  the smallest observed cutoff for the closed key.
 - **Zero impact on events, PDUs, room versions, or clients.**
 
 ## References
