@@ -113,19 +113,65 @@ replacement, and deduplication. The accumulator is a cryptographic commitment of
 that map's current `(type, state_key, event_id)` assignments, not a set manager
 or delta-decoder.
 
-Implementations MAY additionally maintain an auxiliary, order-independent "shape
-checksum" over the occupied `(type, state_key)` slots only. Such a checksum is
-advisory and non-authoritative, but can help classify whether a mismatch
-reflects disagreement about which slots exist or only disagreement about which
-`event_id` occupies an existing slot. A `state_key`-only checksum is not useful,
-because `state_key` is not unique without the event `type`.
+Implementations MAY additionally maintain an auxiliary, order-independent
+**shape checksum** over the occupied `(type, state_key)` slots only, computed
+as a second `LtHash16` lattice under a distinct domain separation tag so it can
+be meaningfully compared across servers (see
+[Shape checksum wire format](#shape-checksum-wire-format) below). Such a
+checksum remains advisory and non-authoritative — it MUST NOT be used for
+anything other than classifying a mismatch already detected by the main
+accumulator — but because it is comparable across servers, it can help
+classify whether a mismatch reflects disagreement about which slots exist or
+only disagreement about which `event_id` occupies an existing slot. A
+`state_key`-only checksum is not useful, because `state_key` is not unique
+without the event `type`.
+
+#### Shape checksum wire format
+
+The shape checksum reuses the same `LtHash16` machinery as the main
+accumulator, with two differences:
+
+1. **Input encoding.** Each occupied slot is serialized as
+   `len(type) || type || len(state_key) || state_key` — the same two
+   length-prefixed fields as the main encoding, with the `event_id` field
+   omitted entirely. Two occupying events for the same `(type, state_key)`
+   therefore expand to the identical element for shape purposes, which is the
+   intended behavior: replacing the event in an existing slot changes the main
+   accumulator but leaves the shape lattice unchanged.
+2. **Domain separation.** The encoded element is expanded with `SHAKE256` using
+   the distinct tag `msc4500_lthash16_shape\x00` instead of
+   `msc4500_lthash16\x00`, so shape and main lattice values can never be
+   confused or cross-contaminated even though the underlying accumulation and
+   collapse steps (accumulation, removal/replacement, initial state, and
+   `BLAKE2b-256` collapse) are otherwise identical to
+   [Algorithm specification](#algorithm-specification).
+
+The `/state_accumulator` response (see [Endpoint definition](#endpoint-definition))
+MAY include an additional `shape` field: the 32-byte `BLAKE2b-256` collapse
+digest of the shape lattice at that same DAG point, hex-encoded identically to
+`digest`. Adding `shape` costs roughly 70 bytes of JSON overhead per response.
+The shape checksum is intentionally not part of `state_hashes`: it is only
+useful once a main-accumulator mismatch has already been detected and a
+receiver is bisecting via `/state_accumulator`, so paying its cost on every
+transaction would be waste. The multiplicity assumption in
+[Parameter security](#security-considerations) also holds structurally for the
+shape lattice: a resolved state map has exactly one occupied slot per
+`(type, state_key)` key, so every shape element likewise has multiplicity 1
+regardless of room size.
 
 ### Transaction payload
 
 Servers implementing this MSC MUST embed a `state_hashes` dictionary at the root
-of the `PUT /_matrix/federation/v1/send/{txnId}` request body. It maps the IDs
+of the `PUT /_matrix/federation/v1/send/{txnId}` request body. `state_hashes` is
+this field's eventual stable name; until stabilization, implementations MUST
+use the unstable key given in [Unstable prefix](#unstable-prefix) instead, with
+an identical shape. The examples in this section use the stable name for
+readability. It maps the IDs
 of the PDUs included in the transaction to their respective `before` and `after`
-digests. The `state_hashes` values always represent the transaction sender's
+digests, plus one sibling meta-key, `algorithm` (see below). Because PDU IDs
+are `$`-prefixed Matrix event IDs and `algorithm` is not, receivers can
+distinguish the meta-key from per-PDU entries by key shape and MUST skip it
+when iterating PDU results. The `state_hashes` values always represent the transaction sender's
 local resolved state, not necessarily the origin server's (meaning relays
 forward their own view).
 
@@ -139,6 +185,17 @@ i.e. the same resolved state the server would use to authorize the PDU. The
 event; otherwise `after` equals `before`. If a server does not know about a PDU
 in the given `prev_events`, they shall omit it entirely from the dictionary.
 
+- `algorithm`: A single top-level string identifying the digest algorithm used
+  for every entry in this transaction's `state_hashes` (e.g. `lthash16`, see
+  [Algorithm specification](#algorithm-specification)). One value governs the
+  whole transaction; mixing algorithms within a single transaction serves no
+  purpose and is not supported. A receiver that does not recognize the
+  algorithm MUST silently skip hash validation for the entire transaction,
+  the same as any other deferral case in the
+  [Receiver contract](#receiver-contract) — this preserves forward
+  compatibility if a future revision introduces a new digest family (e.g. a
+  wider lattice or a different XOF) without causing receivers on the old
+  algorithm to raise false mismatch alarms against upgraded senders.
 - `before`: The 32-byte digest of the room state evaluated exactly at the given
   PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
@@ -148,6 +205,20 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
 - `n_after`: An unsigned integer representing the exact number of elements in
   the room's resolved state map at the `after` DAG point (identical to
   `n_before` for non-state events).
+
+**Sender-side partial state.** A server MUST NOT emit a guessed or
+approximated digest. If a sending or relaying server cannot compute the
+resolved state at a given PDU's position — because it is itself operating
+under Partial State (MSC3706), is missing ancestry, or holds an unpersisted
+accumulator it declines to backfill on demand — it MUST omit that PDU's entry
+from `state_hashes` entirely rather than emit a best-effort guess. An absent
+entry and an entry omitted for this reason are indistinguishable to the
+receiver, which is intentional: both mean "no assertion is made about this
+PDU's state," and the receiver's deferral rules in the
+[Receiver contract](#receiver-contract) already handle a PDU with no
+`state_hashes` entry. Transactions containing only non-state-altering PDUs, or
+only PDUs a server declines to assert on, MAY therefore carry an empty (or
+entirely absent) `state_hashes` dictionary; the two are equivalent.
 
 ```json
 {
@@ -164,6 +235,7 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
         }
     ],
     "state_hashes": {
+        "algorithm": "lthash16",
         "$sample_pduid_abc123def456": {
             "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
             "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
@@ -200,13 +272,17 @@ authoritative servers, while replying to the sender with the mismatched digest
 embedded in a `state_hash_mismatch` dictionary as part of the PDU's processing
 result and the `200 OK` response. Unknown keys in per-PDU result objects are
 silently ignored by existing implementations, so adding `state_hash_mismatch` is
-backwards-compatible.
+backwards-compatible. `state_hash_mismatch.algorithm` echoes back the algorithm
+identifier from the triggering transaction's `state_hashes.algorithm`, so a
+sender receiving the mismatch can tell which digest family the receiver
+evaluated against.
 
 ```json
 {
     "pdus": {
         "$sample_pduid_abc123def456": {
             "state_hash_mismatch": {
+                "algorithm": "lthash16",
                 "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
                 "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
             }
@@ -240,6 +316,11 @@ implementation detail.
 
 `GET /_matrix/federation/v1/state_accumulator/{roomId}?event_id={eventId}`
 
+This is the endpoint's eventual stable name. Until this MSC is stabilized,
+implementations MUST serve it at the unstable path given in
+[Unstable prefix](#unstable-prefix) instead; the request/response shapes below
+apply identically to both paths.
+
 Returns the raw lattice for the room state immediately **after** `eventId` is
 applied (the `after` accumulator of that PDU).
 
@@ -261,8 +342,17 @@ with, and MUST be discarded.
 
 **Errors:** `404 M_NOT_FOUND` if the server does not hold resolved PDU state at
 that event (unknown event, outlier, purged history, bug). `403 M_FORBIDDEN` if
-the requesting server is not a participant in the room or is denied by
-`m.room.server_acl` — identical semantics to other federation endpoints.
+the requesting server is denied by `m.room.server_acl`, or if the requesting
+server was not a participant in the room at the queried event — this endpoint
+MUST apply the same historical-visibility rule as
+`GET /_matrix/federation/v1/state_ids/{roomId}`: current room membership alone
+is not sufficient to authorize a query about an arbitrary historical point,
+since a server that joined recently can otherwise use this endpoint to learn a
+digest and cardinality count for epochs before it joined. Mirroring
+`/state_ids` costs nothing here: divergence-healing only needs historical
+accumulator points within the requester's own membership epochs, since a server
+cannot have locally computed an accumulator for an epoch it was never present
+for in the first place.
 
 **Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
 requires `O(log ΔD)` sequential network calls, so a short burst allowance (e.g.
@@ -298,7 +388,17 @@ The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the
 receiver can query accumulators at $O(\log \Delta D)$ depth (topological
 bisection—similar to `git bisect`—over the known `prev_events` graph or auth
-chain) to find the earliest event where the digests diverged. For historical
+chain) to find the earliest event where the digests diverged. This endpoint
+defines the queryable primitive — the accumulator at a given event — and
+deliberately leaves the traversal strategy to the implementation, since the DAG
+is a partial order rather than a line: unlike `git bisect`'s single linear
+history, a divergence between two forked branches that each contributed
+independent drift may not reduce to one earliest event at all, but to a
+frontier of events. The `O(log ΔD)` figure describes the linear-history case;
+implementations bisecting across genuinely forked histories should expect the
+earliest-divergence result to be a small set of candidate events rather than a
+single one, and should treat this proposal as defining the lookup primitive,
+not the search algorithm over it. For historical
 PDUs where a server has no stored accumulator (and deems retroactive computation
 prohibitive), it responds `404 M_NOT_FOUND`; the bisecting requester then treats
 the oldest event for which both sides _can_ produce accumulators as a lower
@@ -612,6 +712,16 @@ The starting lattice $S_0$ is 2048 bytes of all zeros.
 - Collapse digest:
   `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
 
+**This collapse digest is a reserved sentinel, not room-specific evidence.**
+Every room shares this exact value before its `m.room.create` event is applied
+— it is a global constant of the algorithm, not a per-room commitment. By
+definition, the `before` digest of a room's create event is always this
+constant. Receivers MUST NOT treat digest equality at the empty state as a
+meaningful confirmation of anything about a specific room; it confirms only
+that both sides implement the same empty-state convention. This value doubles
+as a free extra test vector for the `before` digest of any room's create
+event.
+
 ### Scenario 1: one element (addition)
 
 Add event `m.room.member` with state key `@alice:example.com` and event ID
@@ -667,11 +777,19 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 ## Unstable prefix
 
 For experimental implementations, the features should be referred to using the
-following unstable identifiers:
+following unstable identifiers. Everywhere else in this document, `state_hashes`,
+`state_hash_mismatch`, and the `/state_accumulator` endpoint are written under
+their eventual stable names for readability; unstable implementations MUST
+substitute the identifiers below in the wire format instead, with identical
+shapes and semantics.
 
-- The transaction payload key: `tk.nutra.msc4500.state_hashes`
+- The transaction payload key: `tk.nutra.msc4500.state_hashes` (replacing
+  `state_hashes` at the root of the `/send` request body)
+- The per-PDU mismatch result key: `tk.nutra.msc4500.state_hash_mismatch`
+  (replacing `state_hash_mismatch` in the `/send` response body)
 - The reconciliation endpoint:
   `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`
+  (replacing `GET /_matrix/federation/v1/state_accumulator/{roomId}`)
 
 ## Backwards compatibility
 

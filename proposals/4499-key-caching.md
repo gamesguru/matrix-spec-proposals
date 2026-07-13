@@ -50,9 +50,14 @@ single inbound message or request if a valid key is already cached locally.
 unreachable remote server can cause fetch storms if every inbound event or
 reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
-failed key fetches. An inbound federation request whose authentication
-_requires_ a key fetch for the backoff-listed server SHOULD permit one immediate
-(rate-limited) fetch attempt. Implementations SHOULD coalesce concurrent
+failed key fetches. Inbound federation demand whose authentication _requires_ a
+key fetch for a backoff-listed server SHOULD permit at most one immediate
+(rate-limited) fetch attempt per remote server per backoff interval; all
+further demand arriving within that interval MUST fail fast against the
+negative cache rather than triggering its own probe. Without this per-interval
+limit, an attacker can relay junk purportedly signed by a dead server's name to
+induce one outbound probe per inbound request, defeating the backoff entirely.
+Implementations SHOULD coalesce concurrent
 outgoing key fetch requests for the same remote domain into a single active HTTP
 request to prevent network saturation. If that fetch succeeds and the request
 authenticates, servers SHOULD clear the backoff state.
@@ -68,6 +73,15 @@ re-fetching every remote server's keys from the network.
 50 active keys in `verify_keys`. Such a payload MUST be rejected as malformed.
 Large historical key sets belong in `old_verify_keys`.
 
+**Retired key ceiling (per response).** A single server-key response MUST NOT
+contain more than 3,000 entries in `old_verify_keys`. Such a payload MUST be
+rejected as malformed. This mirrors the 3,000-entry storage ceiling defined
+under [Storage exhaustion DoS](#security-considerations) so that a conformant
+origin can always publish its full retainable retired-key set in one response,
+and so that a receiving server can bound parsing and hashing cost before
+allocating any database records, independent of the storage-layer eviction
+rule.
+
 **Notary internal indexing.** Notary servers act as massive aggregation points
 for federation keys. To prevent them from becoming distribution vectors for
 collisions, notaries MUST also enforce the First Seen Wins rule internally.
@@ -78,6 +92,11 @@ collisions without database constraint violations, even if it only serves the
 "first seen" key via the active API. This also familiarizes developers with the
 inescapable future where key _bodies_ (values as opposed to IDs) become close to
 ~1 KB (prohibitively large for a "unique identifier" in a relational database).
+This forensic index is an implementation-private log of rejected material; it
+is not part of the notary's served binding set and is therefore outside the
+scope of, and not bounded by, the 3,000-key retention ceiling described under
+[Storage exhaustion DoS](#security-considerations), which governs only the
+bindings a notary actively serves.
 
 **Notary fallback (two-tier binding).** When a required signing key is not
 present in the local cache, servers typically query a configured notary server
@@ -108,9 +127,16 @@ fetch presenting a different key body for the same key ID is a collision and
 MUST be rejected and logged. Direct-versus-direct conflicts are always resolved
 by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
 case. Notary-versus-notary conflicts (or the same notary at two different times)
-are also resolved by First Seen Wins among provisional observations. If a notary
-query requests a `minimum_valid_until_ts` and the origin serves conflicting key
-material for the same key ID, the server MUST reject the new key as a collision.
+are also resolved by First Seen Wins among provisional observations. A
+freshness-driven re-fetch MUST NOT become a side channel for overriding First
+Seen Wins: if a server queries a notary with `minimum_valid_until_ts` to force
+an upstream refresh and the notary's re-fetch of the origin yields key
+material for the same key ID that conflicts with a binding the notary already
+holds, the notary MUST reject the new key as a collision rather than serving
+it as an update. Symmetrically, from the querying client's perspective, a
+notary response returned to satisfy `minimum_valid_until_ts` is still an
+ordinary provisional observation subject to the rules above; requesting
+fresher validity confers no override authority over an existing binding.
 
 ### Key ID uniqueness requirement
 
@@ -164,7 +190,17 @@ malformed.
 If a notary rejects an upstream key response as malformed, it MUST omit that
 response from the `server_keys` array but MAY continue serving other valid
 entries in the batch. Furthermore, implementations MUST reject key response
-payloads containing duplicate keys within a single JSON object.
+payloads containing duplicate keys within a single JSON object, at any depth,
+anywhere in the response document (not only within `verify_keys` or
+`old_verify_keys`). This rejection applies to the raw received bytes before any
+canonicalization: the Matrix specification's Canonical JSON appendix defines
+canonical form for JSON a server itself produces, but per RFC 8259, JSON
+documents received over the wire may legally contain duplicate object members
+with implementation-defined (and commonly silently-deduplicating) parser
+behavior. A duplicate key ID across `verify_keys` and `old_verify_keys` — or
+duplicated within the same dictionary — is exactly this ambiguity, which is why
+it must be checked against the raw response rather than assumed already
+illegal by the wire format.
 
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
@@ -417,9 +453,23 @@ believe they were following the room version.
   `expired_ts`). Keys currently published in the `verify_keys` section of a
   direct fetch MUST always be prioritized and exempt from eviction.
   Implementations MUST apply this ceiling deterministically: always retain all
-  current `verify_keys`, then retain retired keys from `old_verify_keys` in
-  descending `expired_ts` order, breaking ties by `key_id`. Any older retired
-  keys fall below the retention floor and may be evicted. When new valid
+  current `verify_keys`, then retain retired keys in descending order of an
+  _effective retirement timestamp_. For a key published in `old_verify_keys`,
+  the effective retirement timestamp is its `expired_ts`. For a key that was
+  previously observed active (in `verify_keys` or `old_verify_keys`) but has
+  since disappeared from the origin's responses without ever being given an
+  `expired_ts` (a lazy or misbehaving origin simply dropping it), the effective
+  retirement timestamp is the local timestamp of the last observation in which
+  the key was still present. This makes every retained-or-evictable binding
+  sortable, including vanished keys that never received a formal retirement.
+  Ties in the effective retirement timestamp are broken by bytewise
+  lexicographic comparison of the full `algorithm:key_id` string as UTF-8,
+  ascending; the lexicographically smaller identifier is retained first. Any
+  keys ordered below the retention floor by this rule may be evicted. Because
+  the effective retirement timestamp for vanished keys is a local observation
+  time rather than an origin-asserted value, this part of the ordering is
+  local to each implementation; this is consistent with, and does not
+  strengthen, the cross-server convergence limits described below. When new valid
   historical key material is learned, notaries and receiving servers MAY
   re-evaluate the retained retired-key set, but such re-evaluation MUST apply
   the same deterministic pruning rule over the full locally known candidate set.
@@ -432,12 +482,38 @@ believe they were following the room version.
   A future Proof-of-Work gated proposal may mitigate the spurious bulk
   generation of keys behind Equihash or Cuckoo Cycle.
 
-## Unstable prefix
+- **Eviction reopens a TOFU window on the permanent-binding guarantee.**
+  `expired_ts` is asserted by the origin server itself. A malicious or
+  compromised origin can publish waves of synthetic retired keys with fresh
+  `expired_ts` values, filling every peer's 3,000-entry quota until a
+  legitimate historical key binding is pushed below the retention floor and
+  evicted. Once evicted, that binding is no longer available for collision
+  detection: if the attacker (who, in this scenario, controls the origin or
+  has fully hijacked it) later serves a forged body under the evicted key ID,
+  peers that evicted the original binding will re-TOFU it as if seeing that
+  key ID for the first time. In other words, eviction converts a permanent
+  binding back into a TOFU-pending binding, and the ceiling therefore bounds
+  collision-blindness protection to the 3,000 most recently retired keys; an
+  origin willing to burn its own retired-key history can push a target
+  binding out of that window. This is scoped by the same limitation as
+  stolen retired keys above: the attacker must already control the origin's
+  signing capability, either as the legitimate operator or as a full
+  hijacker, to mint the flood of synthetic retirements in the first place.
 
-This MSC does not introduce new protocol identifiers and does not require an
-unstable prefix. The behavior changes (mandatory caching, permanent key-body
-binding, collision detection, trial verification prohibition) are implementation
-requirements that can be readily adopted. No API endpoints substantially change.
+- **The provisional-binding freeze is a deliberate trade, not an oversight.**
+  A provisional binding that has expired or been retired MUST NOT be
+  overridden by a later direct fetch (see Notary fallback). This is
+  intentional: a direct fetch cannot attest anything about a key the origin
+  no longer serves, and allowing post-expiry rewrites would let an attacker
+  rewrite historical verification after the fact. The consequence is that a
+  notary-poisoned binding that expires or is retired before any direct
+  confirmation is frozen in that poisoned state permanently, recoverable only
+  through the manual eviction mechanism described under
+  [Recovery from key loss](#recovery-from-key-loss). This MSC accepts that
+  trade — auditability of historical verification over automated self-healing
+  — as the safer default.
+
+## Implementation and rollout notes
 
 Because strict collision rejection can break federation with misconfigured
 servers already in the wild, implementations SHOULD ship an initial
@@ -446,6 +522,13 @@ rejecting the new key, gather real-world breakage data, then enable strict
 enforcement. A configuration flag (e.g., `org.matrix.msc4499_strict_caching`) is
 the obvious gate. This is rollout guidance only; the normative rules above are
 unchanged by it.
+
+## Unstable prefix
+
+This MSC does not introduce new protocol identifiers and does not require an
+unstable prefix. The behavior changes (mandatory caching, permanent key-body
+binding, collision detection, trial verification prohibition) are implementation
+requirements that can be readily adopted. No API endpoints substantially change.
 
 ## Dependencies
 
