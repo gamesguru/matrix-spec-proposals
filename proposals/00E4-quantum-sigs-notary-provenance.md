@@ -379,6 +379,192 @@ signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 
+##### Notary equivocation evidence
+
+When a notary observes conflicting FN-DSA key material for the same
+`(server_name, algorithm, short_id)` with a different `key_id_sha256` (see
+[Notary expectations and key validity](#notary-expectations-and-key-validity)),
+it SHOULD retain or emit a `notary_equivocations` record documenting the
+conflict, alongside `server_keys` and `notary_observations` in
+`/_matrix/key/v2/query` responses, and in the body of a `409 M_CONFLICT`
+response to a notary-scoped publication challenge or completion request.
+
+A bare record is only a notary's claim that it observed both key bodies — any
+consumer must trust the notary to believe it. But because each conflicting
+`/_matrix/key/v2/server` response is itself self-signed by the origin, two such
+responses for the same key ID constitute a self-contained, non-repudiable proof
+of equivocation, verifiable by any third party without trusting the notary at
+all — the same role a certificate-transparency misissuance proof or a
+proof-of-stake slashing proof plays in other systems. `notary_equivocations` is
+therefore an attestation by default, with an optional embedded-proof upgrade:
+
+```json
+{
+    "notary_equivocations": [
+        {
+            "record_version": 1,
+            "observed_server_name": "example.com",
+            "algorithm": "fn-dsa-512",
+            "short_id": "<short_id>",
+            "first": {
+                "key_id_sha256": "<unpadded-base64url-sha256>",
+                "server_key_package_sha256": "<unpadded-base64url-sha256>",
+                "first_observed_ts": 1798848000000,
+                "observed_via": "direct"
+            },
+            "conflicting": {
+                "key_id_sha256": "<unpadded-base64url-sha256>",
+                "server_key_package_sha256": "<unpadded-base64url-sha256>",
+                "first_observed_ts": 1798848600000,
+                "observed_via": "notary"
+            },
+            "first_response": { "...": "optional, full origin key response" },
+            "conflicting_response": {
+                "...": "optional, full origin key response"
+            },
+            "notary_server_name": "notary.example",
+            "signatures": {
+                "notary.example": {
+                    "ed25519:auto": "<base64-ed25519-signature>",
+                    "fn-dsa-512:<short_id>": "<base64-fn-dsa-signature>"
+                }
+            }
+        }
+    ]
+}
+```
+
+Field semantics:
+
+- `record_version` is `1` for this shape.
+- `observed_server_name`, `algorithm`, and `short_id` identify the equivocating
+  origin and the colliding key family.
+- `first` and `conflicting` are each an observation of one of the two
+  conflicting key bodies. Despite the naming, the pair is unordered for dedup
+  purposes (see below); `first` denotes whichever observation this notary
+  learned of earlier, per its own `first_observed_ts`.
+- `key_id_sha256` in each observation is the unpadded base64url-encoded SHA-256
+  digest of that observation's raw key ID bytes.
+- `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest
+  of that observation's origin `/_matrix/key/v2/server` response, after Matrix
+  Canonical JSON serialization with `signatures` and `unsigned` removed,
+  identical in construction to the field of the same name in
+  [Notary observations](#notary-observations).
+- `first_observed_ts` is this notary's own local timestamp of first observing
+  that key body under this identity tuple. It establishes ordering only; it is
+  not carried forward from any other server's notion of time.
+- `observed_via` is `direct` if the notary itself fetched that key body directly
+  from the origin over `/_matrix/key/v2/server`, or `notary` if it learned that
+  key body via another notary or via federation gossip. This matters for
+  provenance: two conflicting `direct` observations are the strongest possible
+  signal (the origin genuinely equivocated, or was compromised twice), whereas a
+  `notary`-sourced observation may instead reflect a poisoned upstream notary
+  rather than origin misbehavior. Consumers of a record MUST take `observed_via`
+  into account when judging its strength and MUST NOT treat a `notary`-sourced
+  observation as equivalent evidence to a `direct` one.
+- `first_response` and `conflicting_response` are OPTIONAL full origin
+  `/_matrix/key/v2/server` response bodies for the corresponding observation,
+  present only when the notary chooses to embed the proof upgrade (see below).
+  When present, each MUST be the exact response the digest in the sibling
+  `server_key_package_sha256` was computed from.
+- One entry appearing only in `old_verify_keys` (rather than `verify_keys`) is
+  attested by the origin's _current_ signing key at the time of that response,
+  not by the retired key itself. The embedded response is still origin-signed
+  and still constitutes proof of equivocation, but verifiers should note this
+  proves "the origin's current key vouched for this historical binding," a
+  marginally weaker statement than a live self-signature by the historical key.
+
+The embedded-proof upgrade: a notary MAY include `first_response` and
+`conflicting_response` to let any third party verify the equivocation without
+trusting the notary, by checking each embedded response's own self-signature
+against the key body it contains — no external material is needed. Because each
+embedded response is a few KB, a single `/_matrix/key/v2/query` response or
+`409 M_CONFLICT` body MUST NOT include more than 10 records carrying embedded
+responses; any additional qualifying records in that same response MUST omit
+`first_response` and `conflicting_response` and carry only the hash-referenced
+attestation fields.
+
+Signing and identity:
+
+- Each record is signed individually by the notary, not the enclosing array, so
+  that a record survives being relayed, cached, or re-served individually by
+  downstream tooling without losing its own attestation.
+- The signature input is the following byte string, computed over the record
+  with `signatures` (and, when present, `first_response`/`conflicting_response`)
+  excluded:
+
+```text
+len16("matrix:notary-equivocation:v1") ||
+"matrix:notary-equivocation:v1" ||
+uint8(record_version) ||
+len16(notary_server_name) ||
+notary_server_name ||
+len16(observed_server_name) ||
+observed_server_name ||
+len16(algorithm) ||
+algorithm ||
+len16(short_id) ||
+short_id ||
+len16(first.key_id_sha256) ||
+first.key_id_sha256 ||
+len16(first.server_key_package_sha256) ||
+first.server_key_package_sha256 ||
+uint64_be(first.first_observed_ts) ||
+len16(first.observed_via) ||
+first.observed_via ||
+len16(conflicting.key_id_sha256) ||
+conflicting.key_id_sha256 ||
+len16(conflicting.server_key_package_sha256) ||
+conflicting.server_key_package_sha256 ||
+uint64_be(conflicting.first_observed_ts) ||
+len16(conflicting.observed_via) ||
+conflicting.observed_via
+```
+
+`len16`, `uint8`, and `uint64_be` are as defined in
+[Notary observations](#notary-observations). Embedded full responses, when
+present, are not covered by this signature input; their integrity is instead
+verified independently via each embedded response's own self-signature, matched
+against `server_key_package_sha256`.
+
+- Dedup identity: a record is identified by the tuple
+  `(observed_server_name, algorithm, short_id, first.key_id_sha256, conflicting.key_id_sha256)`,
+  with the `key_id_sha256` pair treated as unordered. A notary MUST NOT emit
+  more than one record for the same identity within a single response; consumers
+  aggregating records from multiple sources or over time MUST deduplicate on
+  this identity.
+- Retention: notaries SHOULD retain equivocation records at least as long as
+  either of the involved key bindings remains retained locally. This MSC does
+  not define any further retention mandate, reputation semantics, or gossip
+  protocol for these records.
+
+Verifier constraints:
+
+- A verifier MUST validate the notary's signature over the record using the
+  notary's Matrix server signing key before trusting the attestation.
+- A verifier validating an embedded-proof record MUST independently verify each
+  of `first_response` and `conflicting_response` against its own self-signature
+  and MUST check that each hashes (after Canonical JSON serialization with
+  `signatures` and `unsigned` removed) to the corresponding
+  `server_key_package_sha256`. A record whose embedded responses fail this check
+  MUST be treated as an unverified attestation, not as a proof, regardless of
+  the notary's own signature over the record.
+
+**The advisory-only invariant.** Equivocation evidence — whether a bare
+attestation or a fully embedded, independently verified proof — is advisory
+forensic material only. MSC4499 already establishes that room ACLs and other
+federation-visible mechanisms MUST NOT force eviction of a cached key binding or
+bypass its First Seen Wins rule; `notary_equivocations` records are exactly such
+a federation-visible mechanism, so the same constraint applies to them by
+construction. A receiving server MUST NOT allow a `notary_equivocations` record,
+of any strength, to automatically trigger key-binding eviction, rebinding,
+re-verification rollback, or any other deviation from First Seen Wins. Without
+this constraint, an equivocation record — forged or genuine — mailed to every
+peer would become precisely the federated eviction-forcing vector that MSC4499's
+permanent-binding rule was designed to close. Equivocation evidence may inform a
+human operator deciding whether to use the manual cache-eviction mechanism; it
+MUST NOT, by itself, inform the cache.
+
 ##### Self-signed expiry claim carriage
 
 Notaries MAY include valid `m.server_key.expiry.v1` expiry claims observed from

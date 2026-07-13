@@ -52,15 +52,15 @@ reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
 failed key fetches. Inbound federation demand whose authentication _requires_ a
 key fetch for a backoff-listed server SHOULD permit at most one immediate
-(rate-limited) fetch attempt per remote server per backoff interval; all
-further demand arriving within that interval MUST fail fast against the
-negative cache rather than triggering its own probe. Without this per-interval
-limit, an attacker can relay junk purportedly signed by a dead server's name to
-induce one outbound probe per inbound request, defeating the backoff entirely.
-Implementations SHOULD coalesce concurrent
-outgoing key fetch requests for the same remote domain into a single active HTTP
-request to prevent network saturation. If that fetch succeeds and the request
-authenticates, servers SHOULD clear the backoff state.
+(rate-limited) fetch attempt per remote server per backoff interval; all further
+demand arriving within that interval MUST fail fast against the negative cache
+rather than triggering its own probe. Without this per-interval limit, an
+attacker can relay junk purportedly signed by a dead server's name to induce one
+outbound probe per inbound request, defeating the backoff entirely.
+Implementations SHOULD coalesce concurrent outgoing key fetch requests for the
+same remote domain into a single active HTTP request to prevent network
+saturation. If that fetch succeeds and the request authenticates, servers SHOULD
+clear the backoff state.
 
 Implementations SHOULD allow the minimum backoff floor to be shortened in test
 configurations, so conformance tests do not need to sleep for a full minute.
@@ -79,8 +79,7 @@ rejected as malformed. This mirrors the 3,000-entry storage ceiling defined
 under [Storage exhaustion DoS](#security-considerations) so that a conformant
 origin can always publish its full retainable retired-key set in one response,
 and so that a receiving server can bound parsing and hashing cost before
-allocating any database records, independent of the storage-layer eviction
-rule.
+allocating any database records, independent of the storage-layer eviction rule.
 
 **Notary internal indexing.** Notary servers act as massive aggregation points
 for federation keys. To prevent them from becoming distribution vectors for
@@ -92,9 +91,9 @@ collisions without database constraint violations, even if it only serves the
 "first seen" key via the active API. This also familiarizes developers with the
 inescapable future where key _bodies_ (values as opposed to IDs) become close to
 ~1 KB (prohibitively large for a "unique identifier" in a relational database).
-This forensic index is an implementation-private log of rejected material; it
-is not part of the notary's served binding set and is therefore outside the
-scope of, and not bounded by, the 3,000-key retention ceiling described under
+This forensic index is an implementation-private log of rejected material; it is
+not part of the notary's served binding set and is therefore outside the scope
+of, and not bounded by, the 3,000-key retention ceiling described under
 [Storage exhaustion DoS](#security-considerations), which governs only the
 bindings a notary actively serves.
 
@@ -130,13 +129,13 @@ case. Notary-versus-notary conflicts (or the same notary at two different times)
 are also resolved by First Seen Wins among provisional observations. A
 freshness-driven re-fetch MUST NOT become a side channel for overriding First
 Seen Wins: if a server queries a notary with `minimum_valid_until_ts` to force
-an upstream refresh and the notary's re-fetch of the origin yields key
-material for the same key ID that conflicts with a binding the notary already
-holds, the notary MUST reject the new key as a collision rather than serving
-it as an update. Symmetrically, from the querying client's perspective, a
-notary response returned to satisfy `minimum_valid_until_ts` is still an
-ordinary provisional observation subject to the rules above; requesting
-fresher validity confers no override authority over an existing binding.
+an upstream refresh and the notary's re-fetch of the origin yields key material
+for the same key ID that conflicts with a binding the notary already holds, the
+notary MUST reject the new key as a collision rather than serving it as an
+update. Symmetrically, from the querying client's perspective, a notary response
+returned to satisfy `minimum_valid_until_ts` is still an ordinary provisional
+observation subject to the rules above; requesting fresher validity confers no
+override authority over an existing binding.
 
 ### Key ID uniqueness requirement
 
@@ -199,8 +198,8 @@ documents received over the wire may legally contain duplicate object members
 with implementation-defined (and commonly silently-deduplicating) parser
 behavior. A duplicate key ID across `verify_keys` and `old_verify_keys` — or
 duplicated within the same dictionary — is exactly this ambiguity, which is why
-it must be checked against the raw response rather than assumed already
-illegal by the wire format.
+it must be checked against the raw response rather than assumed already illegal
+by the wire format.
 
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
@@ -305,7 +304,12 @@ server name and the fingerprints of the evicted keys. This is an intentionally
 manual, operator-gated ability to perform cache merges or manual overrides. It
 must not be automated or triggered via inbound/outbound federation traffic; room
 ACLs and other federation-visible mechanisms MUST NOT be able to force eviction
-or bypass First Seen Wins.
+or bypass First Seen Wins. This includes forensic equivocation evidence such as
+the `notary_equivocations` records defined by MSC45XX: even a cryptographically
+verified equivocation proof is advisory forensic material only and MUST NOT
+automatically trigger eviction, rebinding, or any other deviation from First
+Seen Wins on a receiving server. It may inform the human operator who decides
+whether to invoke this manual mechanism; it must never invoke it by itself.
 
 ### Historical event verification
 
@@ -467,51 +471,50 @@ believe they were following the room version.
   ascending; the lexicographically smaller identifier is retained first. Any
   keys ordered below the retention floor by this rule may be evicted. Because
   the effective retirement timestamp for vanished keys is a local observation
-  time rather than an origin-asserted value, this part of the ordering is
-  local to each implementation; this is consistent with, and does not
-  strengthen, the cross-server convergence limits described below. When new valid
-  historical key material is learned, notaries and receiving servers MAY
-  re-evaluate the retained retired-key set, but such re-evaluation MUST apply
-  the same deterministic pruning rule over the full locally known candidate set.
-  This improves eventual convergence after observation gaps or network
-  partitions, but does not guarantee identical real-time results across
-  notaries. Implementations MUST rely on existing federation rate-limiting to
-  discard junk traffic before allocating database records. In practice,
-  legitimate servers publish single-digit numbers of active keys at any given
-  time; a server claiming tens of thousands of key IDs is unambiguously hostile.
-  A future Proof-of-Work gated proposal may mitigate the spurious bulk
-  generation of keys behind Equihash or Cuckoo Cycle.
+  time rather than an origin-asserted value, this part of the ordering is local
+  to each implementation; this is consistent with, and does not strengthen, the
+  cross-server convergence limits described below. When new valid historical key
+  material is learned, notaries and receiving servers MAY re-evaluate the
+  retained retired-key set, but such re-evaluation MUST apply the same
+  deterministic pruning rule over the full locally known candidate set. This
+  improves eventual convergence after observation gaps or network partitions,
+  but does not guarantee identical real-time results across notaries.
+  Implementations MUST rely on existing federation rate-limiting to discard junk
+  traffic before allocating database records. In practice, legitimate servers
+  publish single-digit numbers of active keys at any given time; a server
+  claiming tens of thousands of key IDs is unambiguously hostile. A future
+  Proof-of-Work gated proposal may mitigate the spurious bulk generation of keys
+  behind Equihash or Cuckoo Cycle.
 
 - **Eviction reopens a TOFU window on the permanent-binding guarantee.**
   `expired_ts` is asserted by the origin server itself. A malicious or
   compromised origin can publish waves of synthetic retired keys with fresh
-  `expired_ts` values, filling every peer's 3,000-entry quota until a
-  legitimate historical key binding is pushed below the retention floor and
-  evicted. Once evicted, that binding is no longer available for collision
-  detection: if the attacker (who, in this scenario, controls the origin or
-  has fully hijacked it) later serves a forged body under the evicted key ID,
-  peers that evicted the original binding will re-TOFU it as if seeing that
-  key ID for the first time. In other words, eviction converts a permanent
-  binding back into a TOFU-pending binding, and the ceiling therefore bounds
-  collision-blindness protection to the 3,000 most recently retired keys; an
-  origin willing to burn its own retired-key history can push a target
-  binding out of that window. This is scoped by the same limitation as
-  stolen retired keys above: the attacker must already control the origin's
-  signing capability, either as the legitimate operator or as a full
-  hijacker, to mint the flood of synthetic retirements in the first place.
+  `expired_ts` values, filling every peer's 3,000-entry quota until a legitimate
+  historical key binding is pushed below the retention floor and evicted. Once
+  evicted, that binding is no longer available for collision detection: if the
+  attacker (who, in this scenario, controls the origin or has fully hijacked it)
+  later serves a forged body under the evicted key ID, peers that evicted the
+  original binding will re-TOFU it as if seeing that key ID for the first time.
+  In other words, eviction converts a permanent binding back into a TOFU-pending
+  binding, and the ceiling therefore bounds collision-blindness protection to
+  the 3,000 most recently retired keys; an origin willing to burn its own
+  retired-key history can push a target binding out of that window. This is
+  scoped by the same limitation as stolen retired keys above: the attacker must
+  already control the origin's signing capability, either as the legitimate
+  operator or as a full hijacker, to mint the flood of synthetic retirements in
+  the first place.
 
-- **The provisional-binding freeze is a deliberate trade, not an oversight.**
-  A provisional binding that has expired or been retired MUST NOT be
-  overridden by a later direct fetch (see Notary fallback). This is
-  intentional: a direct fetch cannot attest anything about a key the origin
-  no longer serves, and allowing post-expiry rewrites would let an attacker
-  rewrite historical verification after the fact. The consequence is that a
-  notary-poisoned binding that expires or is retired before any direct
-  confirmation is frozen in that poisoned state permanently, recoverable only
-  through the manual eviction mechanism described under
-  [Recovery from key loss](#recovery-from-key-loss). This MSC accepts that
-  trade — auditability of historical verification over automated self-healing
-  — as the safer default.
+- **The provisional-binding freeze is a deliberate trade, not an oversight.** A
+  provisional binding that has expired or been retired MUST NOT be overridden by
+  a later direct fetch (see Notary fallback). This is intentional: a direct
+  fetch cannot attest anything about a key the origin no longer serves, and
+  allowing post-expiry rewrites would let an attacker rewrite historical
+  verification after the fact. The consequence is that a notary-poisoned binding
+  that expires or is retired before any direct confirmation is frozen in that
+  poisoned state permanently, recoverable only through the manual eviction
+  mechanism described under [Recovery from key loss](#recovery-from-key-loss).
+  This MSC accepts that trade — auditability of historical verification over
+  automated self-healing — as the safer default.
 
 ## Implementation and rollout notes
 

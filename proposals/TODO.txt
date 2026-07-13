@@ -1,4 +1,32 @@
-2026-07-13
+2026-07-13 (finalization pass)
+
+Closed out the remaining gaps from the guided review and the equivocation-artifact
+gap flagged below:
+
+- 4499: vanished-key ordering (effective_expired_ts), key_id tie-break collation,
+  per-response old_verify_keys ceiling, minimum_valid_until_ts actor, backoff
+  amplification, notary ceiling scope, duplicate-JSON-key scope/Canonical JSON
+  cite, rollout guidance moved to its own section, eviction-repeals-permanence
+  and provisional-freeze-is-deliberate security prose.
+- 4500: endpoint path vs unstable prefix contradiction fixed, state_hashes/
+  state_hash_mismatch given an explicit stable-vs-unstable naming note, top-level
+  `algorithm` added to state_hashes and mirrored in state_hash_mismatch, shape
+  checksum promoted to a real wire field (second LtHash16 lattice, own domain
+  tag, optional `shape` field on /state_accumulator, self-computed test vectors
+  in Scenario 5), sender-side partial-state omission rule, DAG-frontier bisection
+  caveat, /state_ids-mirrored historical-visibility 403 rule, empty-state
+  sentinel note.
+- Equivocation record: defined `notary_equivocations` (attestation + optional
+  embedded-proof upgrade, capped at 10 full-proof records/response) in both
+  00E1 and 00E4, following the notary_observations signing convention. Added
+  the advisory-only/no-automated-eviction invariant in 00E1, 00E4, and 4499.
+
+Deliberately deferred (raised, not resolved, this pass): the general E1/E4
+notary-content dedup (E1 still fully duplicates E4's body per E4's own header
+note), the M_CONFLICT symbolic definition, and preflight algorithm/short_id
+fields — all pre-existing TODO items below, untouched by this pass.
+
+~~~~~~~~~~~~~~~~~~~~~
 
 › should there be some shared concept stored by the notary (and possibly other notaries, ugh) that indexes or "depths" the number of keys a given server has indexed wth that notary?
 
