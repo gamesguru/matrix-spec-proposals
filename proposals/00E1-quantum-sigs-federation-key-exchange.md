@@ -858,11 +858,12 @@ the same Matrix server-key trust model used for replacement key publication.
 For each `(server_name, algorithm, key_id_sha256)` tuple, receivers MUST cache
 the smallest `not_valid_after_ts` from all valid expiry claims they have
 observed. A later claim with a larger cutoff MUST NOT extend the key's accepted
-lifetime. Once a receiver has observed any valid expiry claim for a key, it MUST
-reject new live federation HTTP authentication using that key, regardless of
-remote timestamps or local clock skew. For historical signed objects, the
-receiver compares the cached `not_valid_after_ts` only against a timestamp that
-is itself covered by the object's signature.
+lifetime. Live federation HTTP authentication using a closed key MUST be
+rejected once the receiver's local clock passes the cached `not_valid_after_ts`,
+subject to a 5-minute clock-skew allowance. Remote-supplied timestamps,
+including `origin_ts_at`, MUST NOT extend acceptance. For historical signed
+objects, the receiver compares the cached `not_valid_after_ts` only against a
+timestamp that is itself covered by the object's signature.
 
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
@@ -915,6 +916,12 @@ timestamp chosen by the origin and covered by the FN-DSA signature. The `sig`
 parameter value is the unpadded base64-encoded FN-DSA signature. Malformed
 headers (invalid base64, missing required parameters, unparsable syntax) MUST be
 treated as absent for enforcement purposes and SHOULD be logged.
+
+For live requests, receiving servers MUST reject the `X-Matrix-PQC` header for
+enforcement purposes if `origin_ts_at` differs from the receiver's local clock
+by more than 5 minutes. This bounds replay and makes the signed timestamp
+meaningful for key-expiry evaluation; it does not let the origin extend an
+expired or closed key's accepted lifetime.
 
 #### Verification and enforcement rules
 
@@ -1066,6 +1073,9 @@ Sessions are unidirectional: only the initiator uses the session to authenticate
 requests _to_ the responder. A responder MUST NOT accept its own issued
 `session_id` on requests it originates, and the swapped `origin`/`destination`
 fields in the signing object make reflected MACs fail verification in any case.
+For live requests, responders MUST reject the `X-Matrix-PQC-Session` header for
+enforcement purposes if `origin_ts_at` differs from the responder's local clock
+by more than 5 minutes.
 
 Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize

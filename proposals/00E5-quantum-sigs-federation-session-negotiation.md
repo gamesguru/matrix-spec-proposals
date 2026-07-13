@@ -120,6 +120,9 @@ Sessions are unidirectional: only the initiator uses the session to authenticate
 requests _to_ the responder. A responder MUST NOT accept its own issued
 `session_id` on requests it originates, and the swapped `origin`/`destination`
 fields in the signing object make reflected MACs fail verification in any case.
+For live requests, responders MUST reject the `X-Matrix-PQC-Session` header for
+enforcement purposes if `origin_ts_at` differs from the responder's local clock
+by more than 5 minutes.
 
 Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize
