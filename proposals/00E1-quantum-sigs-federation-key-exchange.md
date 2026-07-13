@@ -377,6 +377,12 @@ part of the Matrix signing object, so the stamp is covered by the origin's
 server-key signatures, included in `server_key_package_sha256`, and preserved by
 notary redistribution without special handling.
 
+This MSC does not attempt to make FN-DSA key generation itself memory-hard or
+challenge-bound. Key IDs are derived from a full hash of the public key body,
+implementations reject mismatches, and publication proof-of-work is an anti-spam
+and audit-friction mechanism, not a defense against infeasible 120-bit
+`short_id` prefix grinding.
+
 ```json
 {
     "fn-dsa-512:<short_id>": {
@@ -874,12 +880,14 @@ being closed. If the key is unavailable or suspected compromised, the server MAY
 publish an expiry claim signed by the replacement server signing key and the
 existing Ed25519 server signing key; receivers then authenticate the claim using
 the same Matrix server-key trust model used for replacement key publication.
-Operators SHOULD generate and securely store a pre-signed emergency expiry
-claim when creating a new server signing key, so the key can be closed if the
-live server loses access to the private key or is compromised. This artifact
-MUST NOT be published unless the operator intends to close the key, and it does
-not prove when compromise occurred or retroactively invalidate already accepted
-historical events.
+Operators SHOULD generate and securely store a pre-signed emergency expiry claim
+when creating a new server signing key, so the key can be closed if the live
+server loses access to the private key or is compromised. This artifact MUST NOT
+be published unless the operator intends to close the key, and it does not prove
+when compromise occurred or retroactively invalidate already accepted historical
+events. The same expiry-claim mechanism covers planned retirement, emergency
+revocation, and offline break-glass publication; this MSC does not define a
+separate recovery key or revocation-certificate type.
 
 For each `(server_name, algorithm, key_id_sha256)` tuple, receivers MUST cache
 the smallest `not_valid_after_ts` from all valid expiry claims they have
@@ -1308,16 +1316,15 @@ increasingly, in mainstream TLS libraries following FIPS 203 finalization.
   implementations MUST use audited, constant-time libraries (see
   [Implementation guidance](#implementation-guidance)).
 
-- **Hash-derived short ID collisions.** The `short_id` commits to 120 bits of the
-  key body's SHA-256 digest (see [Key ID format](#key-id-format)). A second
-  preimage against a _specific_ existing `short_id` costs ~2^120 hash evaluations
-  (infeasible), but a birthday collision between two freshly generated keys
-  costs ~2^60.
-  Crucially, key responses are self-signed and served by the origin server, so
-  only the key's owner (or an attacker already holding its signing keys) can
-  attempt to place colliding key bodies into circulation: the attack is
-  self-targeting. Under the MSC4499-compatible rules in
-  [Key ID Format](#key-id-format), such a collision is unpublishable by the
+- **Hash-derived short ID collisions.** The `short_id` commits to 120 bits of
+  the key body's SHA-256 digest (see [Key ID format](#key-id-format)). A second
+  preimage against a _specific_ existing `short_id` costs ~2^120 hash
+  evaluations (infeasible), but a birthday collision between two freshly
+  generated keys costs ~2^60. Crucially, key responses are self-signed and
+  served by the origin server, so only the key's owner (or an attacker already
+  holding its signing keys) can attempt to place colliding key bodies into
+  circulation: the attack is self-targeting. Under the MSC4499-compatible rules
+  in [Key ID Format](#key-id-format), such a collision is unpublishable by the
   origin and malformed if observed by a receiver. Receivers fail closed and MUST
   NOT trial-verify across colliding key bodies.
 
