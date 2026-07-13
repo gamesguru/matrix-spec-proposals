@@ -70,6 +70,14 @@ committed by `server_key_package_sha256` until challenge completion or expiry.
 If a notary fetches a response whose signing-object hash differs, the challenge
 is void and the origin must request a new challenge.
 
+If the challenge request gives the notary enough information to identify the
+candidate `(server_name, algorithm, short_id, key_id_sha256)` tuple, the notary
+MAY perform an early internal collision lookup before issuing the challenge. If
+it already knows the same `(server_name, algorithm, short_id)` with a different
+`key_id_sha256`, it MUST reject the request with `409 M_CONFLICT`. This is only
+a notary-local preflight check: it MUST NOT be represented as a global guarantee
+that no collision exists.
+
 `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest of
 the Matrix Canonical JSON representation of the origin's
 `/_matrix/key/v2/server` response after removing only `signatures` and
@@ -104,9 +112,10 @@ response, and check that the committed `server_name`, `key_id_sha256`,
 `key_metadata_sha256`, and `server_key_package_sha256` values match the fetched
 key package. Completion failures return `400 M_INVALID_PARAM` for malformed or
 invalid proofs, `403 M_FORBIDDEN` for authentication or keyholder mismatch,
-`410 M_INVALID_PARAM` for expired challenges, and `429 M_LIMIT_EXCEEDED` when
-rate limits are exceeded. A notary MUST NOT accept the same `challenge_id` twice
-within the challenge lifetime.
+`409 M_CONFLICT` for a known `(server_name, algorithm, short_id)` collision with
+a different `key_id_sha256`, `410 M_INVALID_PARAM` for expired challenges, and
+`429 M_LIMIT_EXCEEDED` when rate limits are exceeded. A notary MUST NOT accept
+the same `challenge_id` twice within the challenge lifetime.
 
 This preserves a single canonical origin key package signing object: the object
 fetched directly from the origin and the object redistributed by a notary remain
@@ -137,6 +146,14 @@ before attesting to the key; if any check fails, the notary MUST NOT include
 that FN-DSA key in its response. Notary responses are themselves signed objects;
 notaries that support this MSC MUST include FN-DSA signatures on their
 responses.
+
+Before attesting to an FN-DSA key, a notary MUST also check its retained
+observations for the same `(server_name, algorithm, short_id)` with a different
+`key_id_sha256`. If such a conflict is known to that notary, it MUST NOT emit a
+normal attestation for the new key body and SHOULD retain or emit advisory
+equivocation evidence instead. This check certifies only "no collision known to
+this notary at the time of attestation"; it MUST NOT be described as a global
+non-collision guarantee.
 
 A notary MUST NOT add, remove, reorder, or rewrite any member of the origin key
 object other than adding entries under `signatures`. As a conformance check,

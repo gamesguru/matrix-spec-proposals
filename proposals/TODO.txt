@@ -1,3 +1,31 @@
+2026-07-13
+
+• A few things are still only partly included.
+
+  1. The biggest gap is the equivocation artifact shape.
+     Right now E1/E4 say the notary SHOULD retain or emit advisory equivocation evidence, but they do not define the record. If you want this to be real and interoperable, you still need a small signed object or top-level array shape for:
+     server_name, algorithm, short_id, old/new key_id_sha256, observation times, maybe package hashes.
+
+  2. The preflight input is still underspecified.
+     The challenge request currently carries server_name, key_id_sha256, key_metadata_sha256, and server_key_package_sha256, but not an explicit algorithm or short_id. The text works around that with “if the request gives enough information,” which is honest but soft. If you want deterministic preflight conflict
+     checks, add algorithm and short_id to the request body.
+
+  3. The error semantics are there, but not the symbolic error code.
+     You now have 409 M_CONFLICT in prose, which is fine. What is still missing is a short definition of what M_CONFLICT means here, unless you’re fine reusing the name informally.
+
+  4. The “same expiry claim mechanism covers break-glass” conclusion is only in E1.
+     That is probably enough, but E4 does not mirror it. If you want the split drafts to stand more independently, a one-line reminder in E4’s expiry-claim carriage section would make it clearer.
+
+  5. The two dirty files are still staged but not committed.
+     git status shows E1 and E4 modified/staged state from the notary conflict edits.
+
+  So the only substantive missing conclusion, in my view, is the first one: define the advisory equivocation evidence format. The rest are polish/precision.
+
+
+---
+
+2026-07-12
+
 Remaining items I’d still handle before calling it PR-ready:
 
 1. 00E1 checklist/backcompat text is stale:
