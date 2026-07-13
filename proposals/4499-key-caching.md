@@ -416,12 +416,21 @@ believe they were following the room version.
   or least-recently-used expired keys (keys in `old_verify_keys` with the oldest
   `expired_ts`). Keys currently published in the `verify_keys` section of a
   direct fetch MUST always be prioritized and exempt from eviction.
-  Implementations MUST rely on existing federation rate-limiting to discard junk
-  traffic before allocating database records. In practice, legitimate servers
-  publish single-digit numbers of active keys at any given time; a server
-  claiming tens of thousands of key IDs is unambiguously hostile. A future
-  Proof-of-Work gated proposal may mitigate the spurious bulk generation of keys
-  behind Equihash or Cuckoo Cycle.
+  Implementations MUST apply this ceiling deterministically: always retain all
+  current `verify_keys`, then retain retired keys from `old_verify_keys` in
+  descending `expired_ts` order, breaking ties by `key_id`. Any older retired
+  keys fall below the retention floor and may be evicted. When new valid
+  historical key material is learned, notaries and receiving servers MAY
+  re-evaluate the retained retired-key set, but such re-evaluation MUST apply
+  the same deterministic pruning rule over the full locally known candidate set.
+  This improves eventual convergence after observation gaps or network
+  partitions, but does not guarantee identical real-time results across
+  notaries. Implementations MUST rely on existing federation rate-limiting to
+  discard junk traffic before allocating database records. In practice,
+  legitimate servers publish single-digit numbers of active keys at any given
+  time; a server claiming tens of thousands of key IDs is unambiguously hostile.
+  A future Proof-of-Work gated proposal may mitigate the spurious bulk
+  generation of keys behind Equihash or Cuckoo Cycle.
 
 ## Unstable prefix
 
