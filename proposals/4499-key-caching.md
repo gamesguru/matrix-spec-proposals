@@ -39,13 +39,12 @@ any future signing algorithms, like `fn-dsa-512`).
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before their clamped `valid_until_ts` expiry
-(clamped to at most 7 days from fetch, matching the existing spec rule for event
-verification) to avoid verification failures during key rotation windows. When a
-server re-fetches a key and receives the exact same key body it already has,
-this is a normal refresh; the server MUST simply update its cached
-`valid_until_ts` and `expired_ts` timestamps. Furthermore, servers MUST rely on
-their cache. They MUST NOT fetch keys from the network for every single inbound
-message or request if a valid key is already cached locally.
+(restricted to at most 7 days from fetch) to avoid verification failures during
+key rotation windows. When a server re-fetches a key and receives the exact same
+key body it already has, this is a normal refresh; the server MUST simply update
+its cached `valid_until_ts` and `expired_ts` timestamps. Furthermore, servers
+MUST rely on their cache. They MUST NOT fetch keys from the network for every
+single inbound message or request if a valid key is already cached locally.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can cause fetch storms if every inbound event or
@@ -417,13 +416,12 @@ believe they were following the room version.
   IDs permanently. Instead, they MUST evict the oldest or least-recently-used
   expired keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys
   currently published in the `verify_keys` section of a direct fetch MUST always
-  be prioritized and exempt from eviction, which is why `verify_keys` itself
-  needs the 50-key hard ceiling above. Implementations MUST rely on existing
+  be prioritized and exempt from eviction. Implementations MUST rely on existing
   federation rate-limiting to discard junk traffic before allocating database
   records. In practice, legitimate servers publish single-digit numbers of
-  active keys at any given time; a server claiming thousands of key IDs is
-  unambiguously hostile. A future Proof-of-Work gated proposal may mitigate the
-  spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
+  active keys at any given time; a server claiming tens of thousands of key IDs
+  is unambiguously hostile. A future Proof-of-Work gated proposal may mitigate
+  the spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
 
 ## Unstable prefix
 
