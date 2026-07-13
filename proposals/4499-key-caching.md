@@ -558,13 +558,16 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   cannot shortcut this either. To evict a corroborated target, the attacker must
   first get up to 3,000 fabricated key_ids independently observed as genuinely
   active, which is throttled by the existing 50-key active-key ceiling and by
-  however long receivers take to re-poll (up to the 7-day refresh cadence): the
-  attack becomes a sustained, multi-month campaign of conspicuously abnormal key
-  churn rather than a single malicious response. This does not make the attack
-  impossible — a sufficiently patient full compromise of the origin can still
-  eventually mint that much corroborated history — but it removes the one-shot
-  version and creates a long window in which the abnormal churn itself (a server
-  rotating its "active" key on an unusually fast cadence) is a strong
+  however long receivers take to re-poll (up to the 7-day refresh cadence): at
+  most 50 newly-corroborated key_ids per refresh cycle, so accumulating 3,000
+  requires roughly 60 cycles — on the order of 60 × 7 days, or about 14 months —
+  of continuously rotating "active" keys before the flood can even be attempted.
+  The attack becomes a sustained, ~14-month campaign of conspicuously abnormal
+  key churn rather than a single malicious response. This does not make the
+  attack impossible — a sufficiently patient full compromise of the origin can
+  still eventually mint that much corroborated history — but it removes the
+  one-shot version and creates a long window in which the abnormal churn itself
+  (a server rotating its "active" key on an unusually fast cadence) is a strong
   operational tell. The prerequisite remains control of the origin's current
   signing capability — as the legitimate operator gone rogue, or via a full
   compromise — the same prerequisite as TOFU cache poisoning above, not the
