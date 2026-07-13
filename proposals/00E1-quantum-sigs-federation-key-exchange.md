@@ -831,7 +831,7 @@ the key body binding before caching it.
 
 ```json
 {
-    "type": "m.server_key.expiry.v1",
+    "type": "tk.nutra.msc45xx.server_key.expiry.v1",
     "server_name": "example.com",
     "key": "fn-dsa-512:<short_id>",
     "key_id_sha256": "<unpadded-base64url-sha256>",
@@ -843,6 +843,26 @@ the key body binding before caching it.
             "fn-dsa-512:<short_id>": "<base64-fn-dsa-signature>"
         }
     }
+}
+```
+
+During the unstable period, expiry claims MUST use the unstable claim type
+`tk.nutra.msc45xx.server_key.expiry.v1`. After stabilization, the stable claim
+type is `m.server_key.expiry.v1`.
+
+When carried in a `/_matrix/key/v2/query` response, expiry claims appear in a
+top-level `expiry_claims` array alongside `server_keys` and any
+`notary_observations`. Each entry is a complete expiry claim object. A notary
+MUST verify a claim before including it. A notary that has observed a valid
+expiry claim for a key it returns MUST include that claim. Receivers
+authenticate each claim by its own signatures, not by the enclosing notary
+response.
+
+```json
+{
+    "server_keys": ["<server-key-response>"],
+    "notary_observations": ["<notary-observation>"],
+    "expiry_claims": ["<self-signed-expiry-claim>"]
 }
 ```
 
@@ -858,12 +878,16 @@ the same Matrix server-key trust model used for replacement key publication.
 For each `(server_name, algorithm, key_id_sha256)` tuple, receivers MUST cache
 the smallest `not_valid_after_ts` from all valid expiry claims they have
 observed. A later claim with a larger cutoff MUST NOT extend the key's accepted
-lifetime. Live federation HTTP authentication using a closed key MUST be
-rejected once the receiver's local clock passes the cached `not_valid_after_ts`,
-subject to a 5-minute clock-skew allowance. Remote-supplied timestamps,
-including `origin_ts_at`, MUST NOT extend acceptance. For historical signed
-objects, the receiver compares the cached `not_valid_after_ts` only against a
-timestamp that is itself covered by the object's signature.
+lifetime. If a valid expiry claim and an enclosing `old_verify_keys` wrapper
+both describe the same key, the effective closure time is the earlier of the
+claim's `not_valid_after_ts` and the wrapper's `expired_ts`; a notary or other
+wrapper MUST NOT extend a key past an earlier self-signed expiry claim. Live
+federation HTTP authentication using a closed key MUST be rejected once the
+receiver's local clock passes the cached `not_valid_after_ts`, subject to a
+5-minute clock-skew allowance. Remote-supplied timestamps, including
+`origin_ts_at`, MUST NOT extend acceptance. For historical signed objects, the
+receiver compares the cached `not_valid_after_ts` only against a timestamp that
+is itself covered by the object's signature.
 
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
@@ -903,7 +927,10 @@ X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:5FQ2
 The FN-DSA signature MUST be computed over the same JSON signing object used for
 existing Matrix federation request authentication (containing `method`, `uri`,
 `origin`, `destination`, and `content` when present), with the additional
-signature-covered `origin_ts_at` field from the `X-Matrix-PQC` header.
+signature-covered `origin_ts_at` field from the `X-Matrix-PQC` header. Although
+`origin_ts_at` is encoded as a quoted HTTP header parameter, senders and
+verifiers MUST parse it as a base-10 integer millisecond timestamp and insert it
+into the JSON signing object as a JSON number, not as a JSON string.
 
 #### Header syntax
 
@@ -912,10 +939,12 @@ signature-covered `origin_ts_at` field from the `X-Matrix-PQC` header.
 `destination`, `key`, `origin_ts_at`, and `sig`. Unknown parameters MUST be
 ignored. Duplicate parameters or multiple `X-Matrix-PQC` headers render the
 request authentication invalid. `origin_ts_at` is an integer millisecond
-timestamp chosen by the origin and covered by the FN-DSA signature. The `sig`
-parameter value is the unpadded base64-encoded FN-DSA signature. Malformed
-headers (invalid base64, missing required parameters, unparsable syntax) MUST be
-treated as absent for enforcement purposes and SHOULD be logged.
+timestamp chosen by the origin and covered by the FN-DSA signature. Header
+values for `origin_ts_at` MUST contain only an unsigned base-10 integer
+representation. The `sig` parameter value is the unpadded base64-encoded FN-DSA
+signature. Malformed headers (invalid base64, missing required parameters,
+unparsable syntax) MUST be treated as absent for enforcement purposes and SHOULD
+be logged.
 
 For live requests, receiving servers MUST reject the `X-Matrix-PQC` header for
 enforcement purposes if `origin_ts_at` differs from the receiver's local clock
@@ -1069,13 +1098,15 @@ where `mac` is `HMAC-SHA-256(session_key, canonical_json(signing_object))` over
 the same JSON signing object used for `X-Matrix-PQC`, including the
 signature-covered `origin_ts_at` value. The Ed25519 `Authorization` header
 remains required as usual. Verifiers MUST compare MAC values in constant time.
-Sessions are unidirectional: only the initiator uses the session to authenticate
-requests _to_ the responder. A responder MUST NOT accept its own issued
-`session_id` on requests it originates, and the swapped `origin`/`destination`
-fields in the signing object make reflected MACs fail verification in any case.
-For live requests, responders MUST reject the `X-Matrix-PQC-Session` header for
-enforcement purposes if `origin_ts_at` differs from the responder's local clock
-by more than 5 minutes.
+The `origin_ts_at` parameter uses the same integer parsing rule as
+`X-Matrix-PQC` and is inserted into the MACed JSON signing object as a JSON
+number. Sessions are unidirectional: only the initiator uses the session to
+authenticate requests _to_ the responder. A responder MUST NOT accept its own
+issued `session_id` on requests it originates, and the swapped
+`origin`/`destination` fields in the signing object make reflected MACs fail
+verification in any case. For live requests, responders MUST reject the
+`X-Matrix-PQC-Session` header for enforcement purposes if `origin_ts_at` differs
+from the responder's local clock by more than 5 minutes.
 
 Sessions are soft state. Either side MAY discard a session at any time (e.g. on
 restart, cache pressure, or expiry). If the receiving server does not recognize

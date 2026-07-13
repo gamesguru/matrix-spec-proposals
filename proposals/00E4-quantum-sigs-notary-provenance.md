@@ -365,12 +365,17 @@ key response, identically to existing behavior.
 ##### Self-signed expiry claim carriage
 
 Notaries MAY include valid `m.server_key.expiry.v1` expiry claims observed from
-the origin or from federation gossip alongside their key-query responses. A
-notary MUST verify the claim's signatures, `server_name`, and `key_id_sha256`
-binding before redistributing it. Notary redistribution does not make the claim
-notary-specific: receivers continue to authenticate the claim by its own
-signatures and use the smallest observed `not_valid_after_ts` for the closed key
-as specified by MSC45XX.
+the origin or from federation gossip in a top-level `expiry_claims` array
+alongside `server_keys` and `notary_observations` in `/_matrix/key/v2/query`
+responses. During the unstable period, the claim type is
+`tk.nutra.msc45xx.server_key.expiry.v1`. A notary MUST verify the claim's
+signatures, `server_name`, and `key_id_sha256` binding before redistributing it.
+A notary that has observed a valid expiry claim for a key it returns MUST
+include that claim. Notary redistribution does not make the claim notary
+specific: receivers continue to authenticate the claim by its own signatures and
+use the smallest observed `not_valid_after_ts` for the closed key as specified
+by MSC45XX. If an enclosing `old_verify_keys` wrapper carries a later
+`expired_ts` for the same key, the earlier self-signed expiry claim wins.
 
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
