@@ -182,6 +182,23 @@ Response body:
 }
 ```
 
+Unlike the identity-binding proof above, this puzzle's graph is seeded from the
+notary's own challenge object, not from the key body, so it uses a distinct,
+generic seed function:
+
+```text
+graph_seed(nonce) = SHA-256(
+    canonical_json(resource) || uint64_le(nonce)
+)
+```
+
+using the same `canonical_json`, `uint64_le`, SipHash-2-4 graph construction
+(`u(i)`, `v(i)`), and 42-cycle solution rules defined under
+[Key publication Proof-of-Work](#key-publication-proof-of-work), with
+`graph_seed(nonce)` in place of `S(nonce)` as the SipHash key. `resource` is the
+exact object of that name inside the notary-signed challenge, byte-identical to
+what the origin received.
+
 The challenge request MUST carry a valid `Authorization: X-Matrix` header. The
 notary MUST reject the request with `403 M_FORBIDDEN` if the authenticated
 origin does not exactly match `server_name` in the request body. If the origin
