@@ -471,42 +471,56 @@ keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys currently
 published in the `verify_keys` section of a direct fetch MUST always be
 prioritized and exempt from eviction.
 
-<!-- TODO: is this a valid "or via a notary"... what about direct precedence? -->
+**Corroboration tier.** This tier answers a narrower question than the
+provisional/permanent split above. It does not decide which key body is correct
+— First Seen Wins already settles that, permanently, regardless of
+corroboration. It only decides which permanently-retained retired-key bindings
+get deleted first if the 3,000-entry ceiling above is ever reached. That
+question matters because `old_verify_keys` entries are plain claims inside a
+self-signed response — the origin asserts "this key used to be active," but
+nothing separately signed by the retired key itself backs that claim up, making
+retired-key claims cheaper to fabricate in bulk than current `verify_keys`
+entries (see [Other considerations](#other-considerations)).
 
-**Corroboration tier.** Among retired keys, implementations MUST first sort
-bindings into two tiers before applying the ordering below. A retired-key
-binding is **corroborated** if the receiving server itself independently
-observed that `(server_name, algorithm, key_id)` as a currently-published
-`verify_keys` entry in some prior response — via a direct fetch, or via a notary
-relaying the origin's genuinely-active state at that earlier time — before this
-retirement claim arrived, or if a local operator has explicitly marked the
-binding corroborated based on independently verified historical evidence.
+Before applying the eviction ordering below, implementations MUST sort retired
+bindings into two tiers:
+
+- **Corroborated:** the receiving server itself independently observed that
+  `(server_name, algorithm, key_id)` as a currently-published `verify_keys`
+  entry in some prior response — via a direct fetch, or via a notary relaying
+  the origin's genuinely-active state at that earlier time — before this
+  retirement claim arrived. A local operator may also mark a binding
+  corroborated based on independently verified historical evidence.
+- **Uncorroborated:** everything else — a retired-key entry that arrives
+  already-retired, with no independent record anywhere that the key was ever
+  genuinely active.
+
 Corroboration MUST be grounded only in the receiver's own accumulated
 observation history or explicit operator action, never in a live attestation
 solicited at retirement time: a notary MUST NOT be queried at retirement time to
-simply vouch that it once saw a key active, because nothing then stops a single
-compromised or colluding notary from making that claim, on demand, about any key
-for any domain — turning one bad notary into a universal corroboration-forging
-oracle and fully defeating this tier's purpose. This corroboration path requires
-nothing beyond the plain self-signed response data every implementation already
-relies on for First Seen Wins — the same baseline `/_matrix/key/v2/server` and
-`/_matrix/key/v2/query` self-signature this MSC assumes throughout. It MUST NOT
-be strengthened, weakened, or otherwise gated by any advisory provenance signal
-a future proposal might define (for example, TLS transcript evidence or a notary
-publication challenge) — such signals are advisory-only wherever they are
-defined, and this MSC has no dependency on them. All other retired-key bindings
-are **uncorroborated**: entries that arrive already-retired, with no independent
-record anywhere that the key was ever genuinely active. Uncorroborated bindings
-MUST still be accepted and retained for historical PDU verification — rejecting
-them outright would break legitimate first-contact backfill (a server that joins
-federation late and has never talked to an origin before its most recent
-rotation) and the lost-key recovery case in
+simply vouch that it once saw a key active. Without the "grounded in a prior,
+organic observation" requirement, nothing would stop a single compromised or
+colluding notary from making that claim, on demand, about any key for any
+domain, turning one bad notary into a universal corroboration-forging oracle and
+defeating this tier's purpose entirely. This corroboration path requires nothing
+beyond the plain self-signed response data every implementation already relies
+on for First Seen Wins — the same baseline `/_matrix/key/v2/server` and
+`/_matrix/key/v2/query` self-signature this MSC assumes throughout — and it MUST
+NOT be strengthened, weakened, or otherwise gated by any advisory provenance
+signal a future proposal might define (for example, TLS transcript evidence or a
+notary publication challenge): such signals are advisory-only wherever they are
+defined, and this MSC has no dependency on them.
+
+Uncorroborated bindings MUST still be accepted and retained for historical PDU
+verification — rejecting them outright would break legitimate first-contact
+backfill (a server that joins federation late and has never talked to an origin
+before its most recent rotation) and the lost-key recovery case in
 [Recovery from key loss](#recovery-from-key-loss), where a peer may legitimately
-be the first to ever see a given historical key. Concretely, corroboration
-decides only one thing: which bindings get evicted first if the 3,000-entry cap
-is ever reached. It changes nothing else — an uncorroborated binding is accepted
-the same way, stored the same way, and blocks a later conflicting key body under
-First Seen Wins exactly as permanently as a corroborated one does.
+be the first to ever see a given historical key. Corroboration changes exactly
+one thing — eviction order under the ceiling — and nothing else: an
+uncorroborated binding is accepted the same way, stored the same way, and blocks
+a later conflicting key body under First Seen Wins exactly as permanently as a
+corroborated one does.
 
 Implementations MUST apply this ceiling deterministically: always retain all
 current `verify_keys`; then retain corroborated retired keys in descending order
