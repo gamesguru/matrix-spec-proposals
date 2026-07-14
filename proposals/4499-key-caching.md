@@ -706,10 +706,10 @@ This proposal introduces no wire-format changes, but does add stricter
 receiver-side validation:
 
 - **No protocol wire changes.** No new fields, endpoints, or response formats.
-  The active-key ceiling, retired-key ceiling, and raw-byte duplicate-key
-  rejection do mean a payload a pre-MSC receiver would have silently tolerated
-  (or handled ambiguously) is now a MUST-reject; no conformant, well-behaved
-  origin produces such a payload today.
+- **Stricter receiver-side validation.** The active-key ceiling, retired-key
+  ceiling, and raw-byte duplicate-key rejection mean a payload a pre-MSC
+  receiver would have silently tolerated (or handled ambiguously) is now a
+  MUST-reject; no conformant, well-behaved origin produces such a payload today.
 - **No room version changes.** No changes in auth or state resolution rules.
 - **Existing well-configured servers are unaffected.** Servers that already use
   unique key IDs on rotation (the newly-defined behavior) experience no change.
