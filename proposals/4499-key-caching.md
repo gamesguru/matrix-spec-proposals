@@ -47,8 +47,8 @@ proactively refresh cached keys before their clamped `valid_until_ts` expiry
 during key rotation windows. When a server re-fetches a key and receives the
 exact same key body it already has, this is a normal refresh; the server MUST
 simply update its cached `valid_until_ts` and `expired_ts` timestamps.
-Furthermore, servers MUST rely on their cache. They MUST NOT fetch keys from the
-network for every inbound message if a valid key is already cached locally.
+Furthermore, servers MUST rely on their cache. They MUST NOT fetch origin keys
+for every inbound message or request if a valid key is already cached locally.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can cause fetch storms if every inbound event or
@@ -76,21 +76,6 @@ re-fetching every remote server's keys from the network.
 **Active key ceiling.** A single server-key response MUST NOT contain more than
 50 active keys in `verify_keys`. Such a payload MUST be rejected as malformed.
 Large historical key sets belong in `old_verify_keys`.
-
-**Novel active-key ingestion throttle.** A receiver MUST NOT let more than 50
-previously-unseen `(algorithm, key_id)` pairs newly enter the corroborated tier
-(see [Storage considerations](#storage-considerations)) for the same remote
-`server_name` within a rolling 7-day window. An authentication or fetch that
-would exceed this threshold MUST be deferred or rejected, with the dependent
-signature treated as unverified until the window admits it, and MUST raise an
-operator-visible alert. This throttle bounds only the rate of _new active-key_
-observations; it MUST NOT be applied to keys a receiver ingests as already
-retired (e.g., historical `old_verify_keys` entries encountered during
-first-contact backfill), since those never grant corroboration in the first
-place and throttling them would break the legitimate late-join backfill case
-this MSC already protects. Implementations SHOULD persist this counter across
-restarts; a receiver that resets it on every restart only bounds the rate
-between restarts, not overall.
 
 **Retired key ceiling (per response).** A single server-key response MUST NOT
 contain more than 3,000 entries in `old_verify_keys`. Such a payload MUST be
@@ -255,14 +240,6 @@ When a server rotates its signing key, the administrator MUST:
    `expired_ts` timestamp.
 3. **Publish the new key.** The new key appears in `verify_keys` with the new
    key ID.
-4. **After a compromise-driven rotation, ping currently-joined peers.** The
-   server MUST send at least one new-key-signed request (existing traffic
-   suffices; otherwise a no-op) to every remote server it shares a
-   currently-joined room with. Key caches are keyed per `(algorithm, key_id)`,
-   so this forces an immediate fetch on every reachable peer instead of leaving
-   discovery to their own refresh cadence — bounding, not eliminating, the lag
-   in [Security considerations](#security-considerations) (offline peers are
-   still bound by it). Not needed for routine, non-emergency rotation.
 
 Reusing a key ID with a different key body is a **protocol violation**. This
 most commonly occurs when an administrator wipes a server's database,
@@ -484,8 +461,8 @@ believe they were following the room version.
   naturally expires and forces a re-fetch. This MSC accepts that ceiling as a
   deliberate trade-off rather than tightening it: mandating faster mandatory
   refreshes would trade this lag for federation-wide fetch storms, and this
-  MSC's own throttling and negative-caching requirements exist precisely to
-  bound that opposite failure mode (see
+  MSC's own negative-caching and backoff requirements exist precisely to bound
+  that opposite failure mode (see
   [Negative caching and backoff](#key-caching-requirements)). An operator who
   learns of a compromise out-of-band before the 7-day window naturally lapses
   can use the operator-gated [manual cache eviction](#recovery-from-key-loss)
@@ -640,29 +617,25 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   [Storage considerations](#storage-considerations)), a compromised notary
   cannot shortcut this either. To evict a corroborated target, the attacker must
   first get up to 3,000 fabricated `key_id`s independently observed as genuinely
-  active. Without any rate limiting, this would only be bounded by the existing
-  50-key active-key ceiling per response and round-trip latency: a compromised
-  or rogue origin could force up to 50 newly-corroborated `key_ids` per burst
-  simply by rotating its `verify_keys` and getting the receiver to authenticate
-  against each new key ID in turn (e.g. via signed federation traffic),
-  accumulating the 3,000 entries needed in as little as tens of such bursts — on
-  the order of minutes to hours. The
-  [novel active-key ingestion throttle](#key-caching-requirements) closes this:
-  by capping new corroborated-tier entries at 50 per remote `server_name` per
-  rolling 7-day window, it forces the same 3,000-entry accumulation back to
-  roughly 60 windows — on the order of 14 months — of sustained, abnormal key
-  churn, restoring the operational tell as a mandatory property of every
-  conformant implementation rather than an optional one a deployment might skip.
-  Because the 3,000-entry ceiling is enforced per remote `server_name`, this
+  active. This is bounded only by the existing 50-key active-key ceiling per
+  response and round-trip latency: a compromised or rogue origin can force up to
+  50 newly-corroborated `key_ids` per burst simply by rotating its `verify_keys`
+  and getting the receiver to authenticate against each new key ID in turn (e.g.
+  via signed federation traffic), accumulating the 3,000 entries needed in as
+  little as tens of such bursts — on the order of minutes to hours. This MSC
+  accepts that timeline rather than mandating a dedicated rate limiter to slow
+  it: because the 3,000-entry ceiling is enforced per remote `server_name`, this
   flood can only accelerate eviction of that _same_ origin's own historical
   retired-key bindings on a given receiver — it cannot be used to evict a
   different domain's history. The prerequisite remains control of the origin's
   current signing capability — as the legitimate operator gone rogue, or via a
   full compromise — the same prerequisite as TOFU cache poisoning above, not the
   narrower "possession of one historical private key" scenario that stolen
-  retired keys describes. This MSC treats the self-scoped severity that survives
-  the throttle — slow, detectable, self-history eviction only, never
-  cross-domain — as the accepted residual risk.
+  retired keys describes. An attacker who already controls an origin's current
+  signing capability gains only the ability to erase that same origin's own
+  historical record faster; this MSC treats that self-scoped outcome as the
+  accepted residual risk, and leaves any rate-limiting of novel key-ID discovery
+  to individual implementations to apply at their own discretion.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has expired or been retired MUST NOT be overridden by
