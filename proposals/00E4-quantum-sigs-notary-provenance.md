@@ -371,6 +371,23 @@ equivocation evidence instead. This check certifies only "no collision known to
 this notary at the time of attestation"; it MUST NOT be described as a global
 non-collision guarantee.
 
+**Interaction with querying servers.** A suppressed attestation means only that
+this specific `key_id` carries no attestation in the response; it MUST NOT be
+treated as grounds to reject the response as a whole, and other keys and records
+in the same response remain independently valid. A querying server that receives
+an accompanying `notary_equivocations` record SHOULD parse and log it to alert
+operators to the conflict, rather than treating the missing attestation as an
+unremarkable cache miss. Beyond that alerting, the record creates no new
+obligation: the querying server proceeds exactly as it would for any other key
+this notary could not supply, subject to its own existing fetch and
+negative-caching behavior — this MSC does not require an immediate direct fetch
+on top of that, since mandating one would hand an attacker a free
+network-amplification lever against a dead or unresponsive origin. If no valid
+key is ultimately obtained by any means, the dependent signature simply fails
+verification, consistent with the advisory-only invariant below: equivocation
+evidence informs operators, and never substitutes for, forces, or blocks a
+verification outcome.
+
 A notary MUST NOT add, remove, reorder, or rewrite any member of the origin key
 object other than adding entries under `signatures`. As a conformance check,
 `server_key_package_sha256` recomputed from a notary-redistributed key object
