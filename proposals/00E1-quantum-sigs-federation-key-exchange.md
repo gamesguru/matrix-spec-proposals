@@ -383,20 +383,6 @@ implementations reject mismatches, and publication proof-of-work is an anti-spam
 and audit-friction mechanism, not a defense against infeasible 120-bit
 `short_id` prefix grinding.
 
-A stricter co-generation binding — deriving the Cuckoo graph seed from a hash of
-the raw public key body plus a nonce, before `key_id_sha256` is computed, so
-that an attacker must pay the full memory-hard cost for every candidate key
-tried in a collision or vanity-prefix search — was considered and rejected.
-`key_id_sha256` already commits to the full public key via a 256-bit hash
-(truncated to a 120-bit `short_id`), so grinding candidate keys for a favorable
-digest is infeasible on its own; a memory-hard bottleneck placed in front of key
-generation would raise the cost of an already-infeasible search without
-addressing any attack this MSC's threat model considers practical. The
-publication stamp instead binds its graph seed to the already-committed
-`key_id_sha256` (see `graph_seed` below), which is sufficient to prevent graph
-precomputation before a key is chosen while keeping proof-of-work scoped to its
-actual purpose: rate-limiting publication, not key generation.
-
 ```json
 {
     "fn-dsa-512:<short_id>": {
