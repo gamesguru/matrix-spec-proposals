@@ -550,11 +550,6 @@ bindings into two tiers:
   the origin's genuinely-active state at that earlier time — before this
   retirement claim arrived. A local operator may also mark a binding
   corroborated based on independently verified historical evidence.
-  Corroboration attaches to the specific key-ID-plus-body binding, not to the
-  key ID alone: in the one case where a key ID's body can legitimately change
-  (the provisional-to-direct override above), the replacement body does not
-  inherit corroboration earned by the body it displaced, unless the replacement
-  was itself independently observed active.
 - **Uncorroborated:** everything else — a retired-key entry that arrives
   already-retired, with no independent record anywhere that the key was ever
   genuinely active.
