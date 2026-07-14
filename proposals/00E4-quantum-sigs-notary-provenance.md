@@ -154,6 +154,56 @@ new `server_name` changes `cogen_stamp`, which changes `S(nonce)` for every
 nonce, so a stale proof cannot be reused). Receivers SHOULD cache successful
 stamp verification by `key_id_sha256`.
 
+##### Key object validation procedure
+
+The checks above are scattered across the preceding prose as individual MUSTs.
+This section states them as one ordered procedure. Receiving servers and
+notaries MUST validate an advertised `fn-dsa-512:<short_id>` key object in this
+order, rejecting the entire key at the first failing step and performing no
+later step once a step has failed:
+
+1. **Field presence and shape.** The key object MUST contain `key` (a
+   well-formed, unpadded base64 FN-DSA-512 public key of the expected length)
+   and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
+   missing or structurally malformed field fails validation here.
+2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
+   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen`. Any other value
+   fails validation here as unrecognized; do not fall back to treating it as the
+   old plain-hash construction.
+3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42
+   unsigned integers, each strictly less than `2^29`, in strictly increasing
+   order, with no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any
+   violation fails validation here, before any hashing is performed.
+4. **Identity digest recomputation.** Recompute `cogen_stamp` from the enclosing
+   response's advertised `key` and `server_name`, then compute `S(nonce) =
+   Keccak-256(canonical_json(cogen_stamp) || uint64_le(nonce))` using the
+   supplied `nonce`. This step cannot itself fail; it produces the value the
+   next two steps check against.
+5. **`short_id` match.** Compare the enclosing dictionary key's `short_id` (the
+   string following `fn-dsa-512:`) against the first 20 base64url characters of
+   `S(nonce)`. A mismatch fails validation here — the graph MUST NOT be
+   evaluated.
+6. **Cycle verification.** Only if steps 1-5 all passed: derive `k0..k3` from
+   `S(nonce)`, compute the 84 SipHash-2-4 endpoints for the 42 supplied edge
+   indices, and confirm they form a single cycle of length 42, alternating
+   between partitions, visiting 21 distinct nodes in each, with no repeated
+   edges. This is the only step that requires evaluating the graph; every
+   earlier step exists specifically to let a receiver reject cheaply before
+   reaching it.
+7. **Self-signature.** Independently of steps 1-6: verify the FN-DSA
+   self-signature over the enclosing response, keyed by the same `short_id`,
+   using the advertised `key` (see the self-signature requirement above). This
+   check does not depend on `pow` and MAY be performed before, after, or
+   concurrently with steps 1-6, but the key is not valid unless both this step
+   and step 6 pass — neither substitutes for the other.
+
+A key object is accepted as PoW-and-signature-valid only if steps 1 through 7
+all pass. Passing this procedure makes the key body a *candidate*; it does not
+by itself determine whether the candidate is bound as new, promoted from a
+provisional binding, or rejected as a collision against a prior observation —
+that determination is First Seen Wins as defined in MSC4499, applied only after
+this procedure succeeds, and is out of scope for this section.
+
 ##### Notary-scoped publication challenges
 
 Notaries MAY offer a challenge endpoint that lets an origin bind additional
