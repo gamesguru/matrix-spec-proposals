@@ -383,6 +383,20 @@ implementations reject mismatches, and publication proof-of-work is an anti-spam
 and audit-friction mechanism, not a defense against infeasible 120-bit
 `short_id` prefix grinding.
 
+A stricter co-generation binding — deriving the Cuckoo graph seed from a hash of
+the raw public key body plus a nonce, before `key_id_sha256` is computed, so
+that an attacker must pay the full memory-hard cost for every candidate key
+tried in a collision or vanity-prefix search — was considered and rejected.
+`key_id_sha256` already commits to the full public key via a 256-bit hash
+(truncated to a 120-bit `short_id`), so grinding candidate keys for a favorable
+digest is infeasible on its own; a memory-hard bottleneck placed in front of key
+generation would raise the cost of an already-infeasible search without
+addressing any attack this MSC's threat model considers practical. The
+publication stamp instead binds its graph seed to the already-committed
+`key_id_sha256` (see `graph_seed` below), which is sufficient to prevent graph
+precomputation before a key is chosen while keeping proof-of-work scoped to its
+actual purpose: rate-limiting publication, not key generation.
+
 ```json
 {
     "fn-dsa-512:<short_id>": {
@@ -817,6 +831,24 @@ Trust and enforcement boundaries:
   faithfully reported by the notary; proving payload fidelity without trusting
   the notary requires a separate TLS transcript-verification system such as
   TLSNotary or DECO.
+- Closing this gap by binding the application payload to the TLS session itself
+  — an RFC 9266 `tls-exporter` value, an X.509 cross-signature over the Matrix
+  key body using the TLS certificate's private key, or a DNS TXT record at the
+  domain (DNSSEC-backed or not) — was considered and deliberately excluded from
+  this MSC. An exporter binding or an X.509 cross-signature both require the
+  Matrix daemon to hold TLS session or private key material it typically does
+  not have when deployed behind a reverse proxy (Nginx, Caddy, HAProxy). A DNS
+  TXT record adds no cryptographic assurance beyond the WebPKI validation
+  `tls_13_provenance` already provides — an unsigned record is spoofable by the
+  same on-path attacker already assumed in this MSC's threat model, and a
+  notary-reported TXT observation is exactly as forgeable as any other bare
+  notary claim, i.e. it could not be given weight in the corroboration tier
+  without recreating the live-oracle problem the `notary_equivocations` design
+  avoids. DNSSEC would close the spoofing gap for the TXT approach but is
+  unevenly deployed across origin domains, so it cannot serve as a baseline
+  mechanism. Closing this class of gap in general requires an MPC-based
+  transcript-verification system such as TLSNotary or DECO (see above), which is
+  out of scope for this MSC.
 - Because the compact form carries only the transcript hash, it does not by
   itself let a later auditor inspect or recompute the handshake transcript,
   confirm the SNI value, confirm a notary challenge, or confirm other handshake
