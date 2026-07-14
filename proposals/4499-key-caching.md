@@ -548,7 +548,7 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   attempt to fabricate synthetic retired-key entries to flood a peer's
   3,000-entry quota and push a legitimate historical key binding below the
   retention floor. The corroboration tier above closes the one-shot version of
-  this: a freshly fabricated key_id that this receiver never independently
+  this: a freshly fabricated `key_id` that this receiver never independently
   observed as active — through its own direct fetches or its own past
   notary-relayed fetches — lands in the uncorroborated tier, where it can only
   evict other uncorroborated entries; it cannot push out a corroborated,
@@ -556,23 +556,40 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   grantable by asking a notary to vouch after the fact (see
   [Storage considerations](#storage-considerations)), a compromised notary
   cannot shortcut this either. To evict a corroborated target, the attacker must
-  first get up to 3,000 fabricated key_ids independently observed as genuinely
-  active, which is throttled by the existing 50-key active-key ceiling and by
-  however long receivers take to re-poll (up to the 7-day refresh cadence): at
-  most 50 newly-corroborated key_ids per refresh cycle, so accumulating 3,000
-  requires roughly 60 cycles — on the order of 60 × 7 days, or about 14 months —
-  of continuously rotating "active" keys before the flood can even be attempted.
-  The attack becomes a sustained, ~14-month campaign of conspicuously abnormal
-  key churn rather than a single malicious response. This does not make the
-  attack impossible — a sufficiently patient full compromise of the origin can
-  still eventually mint that much corroborated history — but it removes the
-  one-shot version and creates a long window in which the abnormal churn itself
-  (a server rotating its "active" key on an unusually fast cadence) is a strong
-  operational tell. The prerequisite remains control of the origin's current
-  signing capability — as the legitimate operator gone rogue, or via a full
-  compromise — the same prerequisite as TOFU cache poisoning above, not the
-  narrower "possession of one historical private key" scenario that stolen
-  retired keys describes.
+  first get up to 3,000 fabricated `key_id`s independently observed as genuinely
+  active, which is throttled by the existing 50-key active-key ceiling per
+  response. It is not, however, throttled by the 7-day refresh cadence: that
+  cadence governs proactive refresh of an _already-cached_ key nearing its
+  `valid_until_ts` expiry (see
+  [Cache refresh lifetime](#key-caching-requirements)), but authentication
+  against a key ID a receiver has never seen requires an immediate fetch to
+  succeed at all — nothing in this MSC delays that fetch by 7 days, or by any
+  interval. A compromised or rogue origin can therefore force up to 50
+  newly-corroborated `key_ids` per burst simply by rotating its `verify_keys`
+  and getting the receiver to authenticate against each new key ID in turn (e.g.
+  via signed federation traffic), bounded only by round-trip latency and by
+  whatever fetch-rate limiting a receiver independently chooses to apply — not
+  by any cadence this MSC mandates. Accumulating the 3,000 corroborated entries
+  needed to reach the eviction floor can therefore take as little as tens of
+  such bursts, on the order of minutes to hours, rather than the ~14 months a
+  previous version of this document claimed; that figure incorrectly assumed all
+  key discovery is gated by the proactive-refresh cadence. The requirement and
+  the blast radius are unchanged by this correction: because the 3,000-entry
+  ceiling is enforced per remote `server_name`, this flood can only accelerate
+  eviction of that _same_ origin's own historical retired-key bindings on a
+  given receiver — it cannot be used to evict a different domain's history. The
+  prerequisite remains control of the origin's current signing capability — as
+  the legitimate operator gone rogue, or via a full compromise — the same
+  prerequisite as TOFU cache poisoning above, not the narrower "possession of
+  one historical private key" scenario that stolen retired keys describes.
+  Compressing the churn into a short burst, if anything, makes the operational
+  tell _more_ conspicuous than a slow year-long drift would have been: dozens of
+  key rotations from one origin within minutes has no legitimate explanation.
+  Implementations MAY apply a receiver-local rate limit on
+  novel-key-ID-triggered fetches per remote `server_name` to slow this further;
+  this MSC does not mandate one, and treats the self-scoped severity above —
+  rapid but detectable self-history eviction, never cross-domain — as the
+  accepted residual risk.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has expired or been retired MUST NOT be overridden by

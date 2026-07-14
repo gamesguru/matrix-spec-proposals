@@ -170,15 +170,15 @@ later step once a step has failed:
    `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen`. Any other value
    fails validation here as unrecognized; do not fall back to treating it as the
    old plain-hash construction.
-3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42
-   unsigned integers, each strictly less than `2^29`, in strictly increasing
-   order, with no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any
-   violation fails validation here, before any hashing is performed.
+3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
+   integers, each strictly less than `2^29`, in strictly increasing order, with
+   no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any violation
+   fails validation here, before any hashing is performed.
 4. **Identity digest recomputation.** Recompute `cogen_stamp` from the enclosing
-   response's advertised `key` and `server_name`, then compute `S(nonce) =
-   Keccak-256(canonical_json(cogen_stamp) || uint64_le(nonce))` using the
-   supplied `nonce`. This step cannot itself fail; it produces the value the
-   next two steps check against.
+   response's advertised `key` and `server_name`, then compute
+   `S(nonce) = Keccak-256(canonical_json(cogen_stamp) || uint64_le(nonce))`
+   using the supplied `nonce`. This step cannot itself fail; it produces the
+   value the next two steps check against.
 5. **`short_id` match.** Compare the enclosing dictionary key's `short_id` (the
    string following `fn-dsa-512:`) against the first 20 base64url characters of
    `S(nonce)`. A mismatch fails validation here — the graph MUST NOT be
@@ -198,7 +198,7 @@ later step once a step has failed:
    and step 6 pass — neither substitutes for the other.
 
 A key object is accepted as PoW-and-signature-valid only if steps 1 through 7
-all pass. Passing this procedure makes the key body a *candidate*; it does not
+all pass. Passing this procedure makes the key body a _candidate_; it does not
 by itself determine whether the candidate is bound as new, promoted from a
 provisional binding, or rejected as a collision against a prior observation —
 that determination is First Seen Wins as defined in MSC4499, applied only after
