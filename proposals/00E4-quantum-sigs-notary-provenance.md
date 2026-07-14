@@ -28,6 +28,24 @@ the Matrix signing object, so the stamp is covered by the origin's server-key
 signatures, included in `server_key_package_sha256`, and preserved by notary
 redistribution without special handling.
 
+**A valid `pow` does not, by itself, prove private-key possession.** `S(nonce)`
+and every input to it — the public key body, `server_name`, and the nonce — are
+public values; anyone who has observed a public key (their own, or one copied
+from another server's response) can mint a valid co-generation proof for it. The
+proof's only job is to rate-limit and anti-spam-gate key publication and
+rotation; it is not an identity credential. Possession of the FN-DSA private key
+is established exclusively by the FN-DSA self-signature: once a server publishes
+an FN-DSA key, its `/_matrix/key/v2/server` response MUST include an FN-DSA
+self-signature in the `signatures` field, keyed by that key's `short_id`,
+alongside the existing Ed25519 signature. Receiving servers and notaries MUST
+verify this self-signature before trusting the FN-DSA key, independently of and
+in addition to verifying `pow`. Both checks are mandatory and neither
+substitutes for the other: a syntactically valid `pow` on a key the origin does
+not hold the private key for MUST still be rejected, because the response cannot
+carry a valid FN-DSA self-signature without the private key, and a validly
+self-signed key without a valid `pow` MUST still be rejected per the requirement
+above.
+
 Unlike a plain hash of the public key, the key's identity digest here is itself
 proof-of-work-bound: it is a function of the raw public key body, key metadata,
 and a nonce, and that same digest seeds the Cuckoo Cycle graph. This forces key
