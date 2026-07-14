@@ -3,7 +3,192 @@
 This draft contains the notary-scoped publication challenge, notary observation,
 and TLS 1.3 compact provenance material split from MSC45XX. The body below is
 intentionally copied nearly verbatim and still needs normal MSC integration
-text.
+text. The base [Key publication Proof-of-Work](#key-publication-proof-of-work)
+section is mirrored here from the now-frozen MSC45XX draft so that the
+key-generation co-binding extension below has its normative parent in the same
+file; MSC45XX remains the source of the base mechanism's normative text.
+
+#### Key publication Proof-of-Work
+
+Homeservers and notaries that support this MSC MUST require a valid
+proof-of-work proof for every newly generated FN-DSA key body — the initial
+publication of a server's first FN-DSA key and every subsequent key-body
+rotation — before accepting or attesting to that key. This requirement is
+unconditional: there is no exemption for TOFU, notary-sourced, or
+otherwise-trusted publications, and no implementation-level opt-out. A receiving
+server or notary MUST reject an FN-DSA key publication that lacks a valid proof
+for the `fn-dsa-key-publication` resource below, regardless of whether the
+accompanying Ed25519/notary authentication is otherwise valid.
+
+The base publication proof is a non-interactive, cacheable stamp produced by the
+origin. It is not issued separately by each receiver. The proof MUST be carried
+inside the corresponding FN-DSA key object as the `pow` field. This placement is
+part of the Matrix signing object, so the stamp is covered by the origin's
+server-key signatures, included in `server_key_package_sha256`, and preserved by
+notary redistribution without special handling.
+
+This MSC does not attempt to make FN-DSA key generation itself memory-hard or
+challenge-bound. Key IDs are derived from a full hash of the public key body,
+implementations reject mismatches, and publication proof-of-work is an anti-spam
+and audit-friction mechanism, not a defense against infeasible 120-bit
+`short_id` prefix grinding. See
+[Key-generation co-binding](#key-generation-co-binding-optional) below for an
+optional, stronger binding that some deployments may choose to layer on top.
+
+```json
+{
+    "fn-dsa-512:<short_id>": {
+        "key": "<unpadded-base64-fn-dsa-512-pubkey>",
+        "pow": {
+            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+            "nonce": 8137226,
+            "solution": [123, 456, 789, "..."]
+        }
+    }
+}
+```
+
+The verifier reconstructs the stamp input from the enclosing key response rather
+than receiving it on the wire. `key_id_sha256` MUST be recomputed from the
+advertised FN-DSA public key body, and the enclosing key's advertised `short_id`
+MUST equal the first 20 base64url characters of that digest. `server_name` is
+the exact `server_name` of the enclosing key response. If any value does not
+match, the proof MUST be rejected without evaluating the puzzle.
+
+**Graph derivation.** A given challenge graph contains a 42-cycle only with some
+probability, so the prover iterates a nonce:
+
+```text
+graph_seed(nonce) = SHA-256(
+    canonical_json(stamp) || uint64_le(nonce)
+)
+```
+
+where `canonical_json` is Matrix Canonical JSON serialization,
+`uint64_le(nonce)` is the prover-chosen nonce (`0 ≤ nonce < 2^64`) as 8
+little-endian bytes, and `||` is byte-string concatenation. The 32-byte
+`graph_seed` is interpreted as four little-endian 64-bit words `k0..k3` forming
+the SipHash-2-4 key. The bipartite graph has `2^29` edges and `2^29` nodes in
+each partition. Edge `i` (for `0 ≤ i < 2^29`) connects:
+
+```text
+u(i) = siphash-2-4(k0..k3, 2i)     mod 2^29   (partition U)
+v(i) = siphash-2-4(k0..k3, 2i + 1) mod 2^29   (partition V)
+```
+
+A valid proof is a set of 42 edge indices whose edges form a single cycle of
+length 42 in this graph (alternating between partitions, visiting 21 distinct
+nodes in each, with no repeated edges).
+
+**Timing target.** The `42-29` parameterization targets roughly 10-15 seconds of
+_expected_ (average) solve time on the reference implementation described in
+[Implementation guidance](#implementation-guidance), running on commodity server
+hardware. This is a target for parameter selection, not a guarantee on
+individual attempts: because a randomly seeded graph contains a 42-cycle only
+with some probability, realized solve time is stochastic — the prover retries
+with new nonces until a solvable graph is found, so any single attempt may
+finish well under or well over the target. Verifiers MUST NOT reject a proof for
+arriving unusually quickly or slowly; the base publication stamp has no timing
+acceptance bound. Implementations calibrating a different deployment's expected
+solve time MUST NOT do so by changing `edge_bits` without minting a new,
+explicitly identified algorithm profile (see
+[Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256` names one fixed
+parameterization so that all conforming implementations impose the same cost.
+
+The proof response is:
+
+```json
+{
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+    "nonce": 8137226,
+    "solution": [123, 456, 789, "..."]
+}
+```
+
+(The example `solution` is truncated for illustration.) The `solution` array
+MUST contain exactly 42 unsigned integer edge indices in strictly increasing
+order (the canonical form of the edge set). Each edge index MUST be less than
+`2^29`, and `nonce` MUST be an integer in `[0, 2^64)`. Verification MUST reject
+duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
+Cuckoo Cycle proof; it then recomputes `graph_seed(nonce)`, derives the 84
+endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
+The base publication stamp has no receiver-issued challenge and no expiry time;
+it remains valid for the committed `(server_name, key_id_sha256)` tuple. If
+either committed value changes, the origin MUST produce a new proof. Receivers
+SHOULD cache successful stamp verification by `key_id_sha256`.
+
+##### Key-generation co-binding (optional)
+
+The base stamp above binds its `graph_seed` to `key_id_sha256` — a hash of the
+already-generated public key — so grinding candidate keys for a favorable
+`short_id` is already infeasible on its own (120 bits) regardless of any PoW.
+Some deployments may nonetheless want the Cuckoo graph itself to depend on the
+raw key material _before_ any candidate key is finalized, so that an attacker
+searching for a key with some other desirable property (not just a `short_id`
+collision — e.g. a future-discovered weak-key class, or a selection criterion
+this MSC does not currently anticipate) must pay the full memory-hard proof cost
+once per candidate, rather than being able to grind candidates cheaply and only
+pay the proof cost once at the end. This is a strictly optional, additive
+upgrade profile — it does not replace the base stamp above, which remains
+mandatory, and implementations that only support the base stamp remain fully
+conformant.
+
+A co-binding proof uses the algorithm identifier
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256-cogen` and is carried as an
+additional `pow_cogen` field alongside `pow` in the FN-DSA key object:
+
+```json
+{
+    "fn-dsa-512:<short_id>": {
+        "key": "<unpadded-base64-fn-dsa-512-pubkey>",
+        "pow": {
+            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+            "nonce": 8137226,
+            "solution": [123, 456, 789, "..."]
+        },
+        "pow_cogen": {
+            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256-cogen",
+            "nonce": 4471932,
+            "solution": [45, 210, 388, "..."]
+        }
+    }
+}
+```
+
+`pow_cogen` MUST be verified as a self-contained proof separate from `pow`; a
+valid `pow_cogen` MUST NOT be treated as a substitute for a missing or invalid
+`pow`. Its `graph_seed` is derived directly from the raw public key body rather
+than from `key_id_sha256`:
+
+```text
+cogen_stamp = {
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256-cogen",
+    "resource": {
+        "action": "fn-dsa-key-publication-cogen",
+        "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
+        "server_name": "example.com"
+    }
+}
+
+graph_seed_cogen(nonce) = SHA-256(
+    canonical_json(cogen_stamp) || uint64_le(nonce)
+)
+```
+
+using the same `canonical_json`, `uint64_le`, graph construction, timing target,
+and solution-encoding rules as the base stamp. Because `graph_seed_cogen` is a
+function of the literal public key bytes rather than a downstream digest, it
+cannot be computed — and therefore no candidate graph can be pre-solved — before
+a specific candidate key exists. `public_key` MUST exactly match the advertised
+`key` field of the enclosing FN-DSA key object, byte-for-byte; verifiers MUST
+reject `pow_cogen` if it does not, without evaluating the puzzle.
+
+A receiving server or notary MUST NOT require `pow_cogen`; it remains an
+optional, origin-chosen upgrade that receivers verify when present and ignore
+when absent. This mirrors how `tls_13_provenance` and notary-scoped challenges
+are treated elsewhere in this MSC family: additive, verifiable-when-present, and
+never a precondition for accepting an otherwise-valid publication.
 
 ##### Notary-scoped publication challenges
 
