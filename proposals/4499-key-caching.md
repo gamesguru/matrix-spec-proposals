@@ -11,8 +11,8 @@ While existing implementations such as Synapse effectively enforce a unique
 remains underspecified and does not give clear guidance on this matter.
 
 This ambiguity leads to an annoying loophole where key collisions in the wild
-can cause room state divergence between servers, and introduces a potential
-CPU-exhaustion risk if attempting to gracefully handle them (by trial).
+can cause room state divergence between servers, and introduces possible risks
+or undefined behaviors if attempting to gracefully handle them (by trial).
 
 This MSC standardizes signing key caching requirements, introduces a strict
 **First Seen Wins** rule for key IDs, and lays the groundwork for future work.
@@ -29,24 +29,26 @@ rules defined in the Matrix specification (specifically the
 [Server-Server API § Retrieving server keys](https://spec.matrix.org/v1.18/server-server-api/#retrieving-server-keys)
 and the notary query endpoint). In particular, this proposal upgrades the
 existing `SHOULD` caching guidance to `MUST`, formalizes the `valid_until_ts`
-7-day validity clamp as a normative cache constraint, and replaces any implicit
-"trial verification" logic with a strict 1:1 key ID uniqueness requirement.
+7-day validity clamp as a cache constraint, and replaces ambiguous logic with a
+strict 1:1 key ID uniqueness paradigm and accompanying caching guidance.
 
 ### Key caching requirements
 
-Servers MUST cache remote server signing keys obtained from
+Servers MUST cache federated server signing keys procured from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
-any future signing algorithms, like `fn-dsa-512`).
+any potential future signing algorithms, like `fn-dsa-512`).
+
+<!-- Read marker. -->
 
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before their clamped `valid_until_ts` expiry
-(restricted to at most 7 days from fetch) to avoid verification failures during
-key rotation windows. When a server re-fetches a key and receives the exact same
-key body it already has, this is a normal refresh; the server MUST simply update
-its cached `valid_until_ts` and `expired_ts` timestamps. Furthermore, servers
-MUST rely on their cache. They MUST NOT fetch keys from the network for every
-single inbound message or request if a valid key is already cached locally.
+(restricted to _at most_ 7 days from fetch) to avoid verification failures
+during key rotation windows. When a server re-fetches a key and receives the
+exact same key body it already has, this is a normal refresh; the server MUST
+simply update its cached `valid_until_ts` and `expired_ts` timestamps.
+Furthermore, servers MUST rely on their cache. They MUST NOT fetch keys from the
+network for every inbound message if a valid key is already cached locally.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can cause fetch storms if every inbound event or
@@ -253,6 +255,14 @@ When a server rotates its signing key, the administrator MUST:
    `expired_ts` timestamp.
 3. **Publish the new key.** The new key appears in `verify_keys` with the new
    key ID.
+4. **After a compromise-driven rotation, ping currently-joined peers.** The
+   server MUST send at least one new-key-signed request (existing traffic
+   suffices; otherwise a no-op) to every remote server it shares a
+   currently-joined room with. Key caches are keyed per `(algorithm, key_id)`,
+   so this forces an immediate fetch on every reachable peer instead of leaving
+   discovery to their own refresh cadence — bounding, not eliminating, the lag
+   in [Security considerations](#security-considerations) (offline peers are
+   still bound by it). Not needed for routine, non-emergency rotation.
 
 Reusing a key ID with a different key body is a **protocol violation**. This
 most commonly occurs when an administrator wipes a server's database,
@@ -356,6 +366,23 @@ malformed for that specific key entry, but MUST NOT poison the rest of the
 response payload. This should be uncommon, but servers must not use the key in
 this case.
 
+**`expired_ts` is bound at time of reliance, not at time of last observation.**
+Once a receiver has relied on a given `expired_ts` (or its absence) to accept a
+PDU, that acceptance MUST NOT be retroactively revoked because a later
+`old_verify_keys` observation for the same key ID asserts a different, including
+earlier, `expired_ts`. Such a conflicting observation MUST be logged as
+suspicious, but MUST NOT trigger re-verification or invalidation of any
+already-accepted PDU or state built on it. Otherwise, a backdated `expired_ts` —
+whether from a genuine mistake or a compromised origin — could retroactively
+fail events every peer already accepted, forcing a state reset over pure key
+metadata with no actual dispute about the event or the key's ownership. Because
+this binding is per-receiver and local, a peer that first observes the changed
+`expired_ts` (e.g., one joining or refreshing after the change) may still reach
+a different verdict than one that locked in the original value earlier — the
+same cross-peer divergence already accepted for key-body First Seen Wins (see
+[Localized DAG divergence is unavoidable](#potential-issues)), just triggered by
+validity-window metadata instead of key-body identity.
+
 The strict key ID uniqueness requirement ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
 one public key body, and its validity window is well-defined. This permanent
@@ -442,6 +469,29 @@ believe they were following the room version.
   never contacted before), TOFU provides no protection regardless of this MSC —
   an inherent limitation of TOFU, not a flaw in the proposal. Currently
   mitigating this is an admin effort.
+
+- **Bounded key revocation lag (inherited limitation).** Matrix key resolution
+  is strictly pull-based; an origin server cannot push a rotation or an
+  emergency revocation to the federation. Because this MSC requires servers to
+  rely on their local cache and not probe the network while a cached key remains
+  within its `valid_until_ts`, worst-case revocation propagation is bounded only
+  by the 7-day ceiling inherited from the base Server-Server specification (see
+  [Cache refresh lifetime](#key-caching-requirements)), not by how quickly the
+  origin publishes the fix. A peer that fetched an origin's keys shortly before
+  a compromise will continue to trust the compromised key for up to 7 days from
+  that peer's own last fetch — counted from when _that peer_ last checked, not
+  from when the origin rotated or discovery occurred — before its cache
+  naturally expires and forces a re-fetch. This MSC accepts that ceiling as a
+  deliberate trade-off rather than tightening it: mandating faster mandatory
+  refreshes would trade this lag for federation-wide fetch storms, and this
+  MSC's own throttling and negative-caching requirements exist precisely to
+  bound that opposite failure mode (see
+  [Negative caching and backoff](#key-caching-requirements)). An operator who
+  learns of a compromise out-of-band before the 7-day window naturally lapses
+  can use the operator-gated [manual cache eviction](#recovery-from-key-loss)
+  mechanism to clear the stale binding immediately; the next signature check
+  against that key_id then triggers a fresh fetch, rather than the eviction
+  itself reaching out to the origin.
 
 - **Origin spoofing.** While allowing direct fetches to override provisional
   notary-learned keys prevents notary-enforced lock-in, it temporarily exposes
