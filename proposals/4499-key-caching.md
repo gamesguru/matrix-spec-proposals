@@ -4,19 +4,21 @@ Because the specification lacks a strict caching contract, new homeserver
 implementations often attempt to be "helpful." Without explicit guidance,
 developers may design flexible caches that store multiple key bodies for a
 single key ID and perform verification either with the most recently observed
-key or the first one which works (trial verification).
+key (last-wins) or the first one which works (trial verification).
 
 While existing implementations such as Synapse effectively enforce a unique
 `(server_name, key_id)` constraint at the storage layer, the protocol itself
-remains underspecified and does not mandate this behavior.
+remains underspecified and does not give clear guidance on this matter.
 
 This ambiguity leads to an annoying loophole where key collisions in the wild
-can cause room state DAG divergence (divergent event acceptance/rejection across
-peers), and introduces a potential CPU-exhaustion DoS vector for any
-implementation that attempts to gracefully handle them.
+can cause room state divergence between servers, and introduces a potential
+CPU-exhaustion risk if attempting to gracefully handle them (by trial).
 
 This MSC standardizes signing key caching requirements, introduces a strict
 **First Seen Wins** rule for key IDs, and lays the groundwork for future work.
+
+My initial instinct was toward trial verification and fewer event rejections,
+but I soon realized a more painstaking, inconvenient solution was better suited.
 
 ## Proposal
 
@@ -469,6 +471,8 @@ keys (keys in `old_verify_keys` with the oldest `expired_ts`). Keys currently
 published in the `verify_keys` section of a direct fetch MUST always be
 prioritized and exempt from eviction.
 
+<!-- TODO: is this a valid "or via a notary"... what about direct precedence? -->
+
 **Corroboration tier.** Among retired keys, implementations MUST first sort
 bindings into two tiers before applying the ordering below. A retired-key
 binding is **corroborated** if the receiving server itself independently
@@ -571,13 +575,10 @@ spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
   whatever fetch-rate limiting a receiver independently chooses to apply — not
   by any cadence this MSC mandates. Accumulating the 3,000 corroborated entries
   needed to reach the eviction floor can therefore take as little as tens of
-  such bursts, on the order of minutes to hours, rather than the ~14 months a
-  previous version of this document claimed; that figure incorrectly assumed all
-  key discovery is gated by the proactive-refresh cadence. The requirement and
-  the blast radius are unchanged by this correction: because the 3,000-entry
-  ceiling is enforced per remote `server_name`, this flood can only accelerate
-  eviction of that _same_ origin's own historical retired-key bindings on a
-  given receiver — it cannot be used to evict a different domain's history. The
+  such bursts, on the order of minutes to hours. Because the 3,000-entry ceiling
+  is enforced per remote `server_name`, this flood can only accelerate eviction
+  of that _same_ origin's own historical retired-key bindings on a given
+  receiver — it cannot be used to evict a different domain's history. The
   prerequisite remains control of the origin's current signing capability — as
   the legitimate operator gone rogue, or via a full compromise — the same
   prerequisite as TOFU cache poisoning above, not the narrower "possession of
