@@ -66,6 +66,27 @@ interoperate only when they implement the same FIPS 206 revision, encodings, and
 signing operation. Subtle differences in encoding or signature mode can cause
 network divergence.
 
+Implementations SHOULD generate FN-DSA server keys from cryptographically secure
+system entropy and protect private keys at rest using an encrypted keystore.
+Human passphrases SHOULD protect stored key material, not directly derive server
+identity keys. Password-protected keystores SHOULD use a memory-hard KDF such as
+Argon2id to derive the wrapping key and MUST encrypt private key material with
+an AEAD construction such as ChaCha20-Poly1305 or AES-GCM.
+
+The AEAD additional authenticated data (AAD) SHOULD bind the encrypted private
+key to its intended server-key context. The AAD SHOULD include at least the
+`server_name`, key algorithm, `key_id` or full key name, public key, FIPS 206
+revision, and keystore format version. This binding does not protect against an
+attacker who has both the passphrase and arbitrary code execution, but it
+prevents accidental key-file substitution and confused-deputy loading by honest
+software.
+
+Deterministic FN-DSA key generation MAY be offered as an explicit recovery or
+testing feature only when driven by high-entropy seed material and a persisted
+random salt. Implementations SHOULD NOT derive server identity keys directly
+from low-entropy human passwords. Deterministic generation policy is local
+operator behavior and is not externally verifiable by this protocol.
+
 ### Compatibility and upgrade classes
 
 Future changes to this mechanism MUST use the narrowest compatible rollout class
