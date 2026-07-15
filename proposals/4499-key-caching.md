@@ -17,8 +17,10 @@ or undefined behaviors if attempting to gracefully handle them (by trial).
 This MSC standardizes signing key caching requirements, introduces a strict
 **First Seen Wins** rule for key IDs, and lays the groundwork for future work.
 
-My initial instinct was toward trial verification and fewer event rejections,
-but I soon realized a more painstaking, inconvenient solution was better suited.
+This proposal deliberately rejects trial verification in favor of deterministic
+binding, even though that causes more visible failures when a server publishes
+conflicting material. Deterministic failure is preferable to receiver-specific
+verification behavior.
 
 ## Proposal
 
