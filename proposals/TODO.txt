@@ -31,7 +31,7 @@ Current protocol shape:
 Remaining work:
 
 1. 00E4 and implementation: align generators and vectors with `key_id`,
-   `short_key_id`, `fn-dsa-key-minting`, and Keccak-256 minting PoW.
+   `short_key_id`, embedded `pow`, and Keccak-256 minting object derivation.
 2. 00E2: confirm the `canonical_sha256` event binding and PQC room enforcement
    rules still match the final room-version story.
 3. 00E5: finish MSC checklist, dependencies, and backwards-compatibility text.

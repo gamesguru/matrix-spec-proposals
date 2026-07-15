@@ -569,8 +569,8 @@ on for First Seen Wins — the same baseline `/_matrix/key/v2/server` and
 `/_matrix/key/v2/query` self-signature this MSC assumes throughout — and it MUST
 NOT be strengthened, weakened, or otherwise gated by any advisory provenance
 signal a future proposal might define (for example, TLS transcript evidence or a
-notary publication challenge): such signals are advisory-only wherever they are
-defined, and this MSC has no dependency on them.
+notary-side anti-spam proof artifact): such signals are advisory-only wherever
+they are defined, and this MSC has no dependency on them.
 
 Uncorroborated bindings MUST still be accepted and retained for historical PDU
 verification — rejecting them outright would break legitimate first-contact

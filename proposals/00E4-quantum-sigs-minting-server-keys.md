@@ -1,4 +1,4 @@
-# MSC 00E4: Notary provenance for post-quantum server keys
+# MSC00E4: Post-quantum server keys and minting
 
 This draft contains notary observations, detached notary provenance bundles, and
 TLS 1.3 compact provenance material split from the archived 00E1 draft, plus the
@@ -95,8 +95,8 @@ initial minting of a server's first FN-DSA key and every subsequent key-body
 rotation — before accepting or attesting to that key. This requirement is
 unconditional: there is no exemption for TOFU, notary-sourced, or
 otherwise-trusted key objects, and no implementation-level opt-out. A receiving
-server or notary MUST reject an FN-DSA key object that lacks a valid proof for
-the `fn-dsa-key-minting` resource below, regardless of whether the accompanying
+server or notary MUST reject an FN-DSA key object that lacks a valid embedded
+`pow` proof conforming to this section, regardless of whether the accompanying
 Ed25519/notary authentication is otherwise valid.
 
 The proof is a non-interactive, cacheable stamp produced by the origin. It is
@@ -124,47 +124,42 @@ carry a valid FN-DSA self-signature without the private key, and a validly
 self-signed key without a valid `pow` MUST still be rejected per the requirement
 above.
 
-Unlike a plain hash of the public key, the key's identity digest here is itself
-proof-of-work-bound: the Cuckoo Cycle graph seed is a function of the raw public
-key body, `server_name`, and a nonce, and the final `key_id` is a function of
-that graph seed plus the validated proof solution. This forces key minting and
-proof-of-work to happen together — an attacker cannot cheaply scan nonces for a
+Unlike a plain hash of the public key, the key's identifier here is
+proof-of-work-bound. The Cuckoo graph is selected from the key body,
+`server_name`, and nonce. The final `key_id` is the Keccak-256 digest of the
+canonical minting object, which includes the key body, server name, proof
+algorithm, nonce, and validated proof solution. This forces key minting and
+proof-of-work to happen together: an attacker cannot cheaply scan nonces for a
 favorable `short_key_id` before solving the graph, because the final identifier
 is unknown until the proof solution is known.
 
-**Identity-binding digest.**
+**Key ID derivation.**
 
 ```text
-cogen_stamp = {
-    "action": "fn-dsa-key-minting",
+minting_object = {
+    "action": "fn-dsa-minting-object",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
+    "nonce": nonce,
     "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
-    "server_name": "example.com"
+    "server_name": "example.com",
+    "solution": [solution[0], ..., solution[41]]
 }
 
-graph_seed = Keccak-256(
-    canonical_json(cogen_stamp) || uint64_le(nonce)
-)
-
-key_id = Keccak-256(
-    len16("matrix:fn-dsa-512:key-id:v2") ||
-    "matrix:fn-dsa-512:key-id:v2" ||
-    graph_seed ||
-    uint32_le(solution[0]) ||
-    ... ||
-    uint32_le(solution[41])
-)
+key_id = Keccak-256(canonical_json(minting_object))
 ```
 
-where `canonical_json` is Matrix Canonical JSON serialization,
-`uint64_le(nonce)` is the prover-chosen nonce (`0 ≤ nonce < 2^64`) as 8
-little-endian bytes, `uint32_le(solution[i])` is each canonical solution edge
-index as 4 little-endian bytes, and `||` is byte-string concatenation.
-`solution` is the strictly increasing 42-edge proof solution carried in the
-`pow` object. `key_id` — the identity digest used throughout this MSC family to
-name a specific key body — is the post-solve digest above, not a plain hash of
-the public key and not the pre-solve graph seed. `short_key_id` remains the
-first 20 base64url characters of `key_id`, unpadded. `key_id` is a Keccak-256
-output under this proof class, not a SHA-256 output.
+where `canonical_json` is Matrix Canonical JSON serialization, `solution` is the
+strictly increasing 42-edge proof solution carried in the `pow` object, and
+`nonce` is the prover-chosen integer (`0 ≤ nonce < 2^64`). The canonical minting
+object is reconstructed by the verifier from the enclosing key object and the
+validated `pow` fields; it is not transmitted as a separate object and does not
+include `short_key_id`, signatures, `valid_until_ts`, `claims`, notary metadata,
+or unknown future extension fields. `key_id` — the identity digest used
+throughout this MSC family to name a specific key body — is the Keccak-256
+digest of this canonical minting object, not a plain hash of the public key and
+not the pre-solve Cuckoo graph selector. `short_key_id` is the first 20
+base64url characters of `key_id`, unpadded; it is not a separate digest.
+`key_id` is a Keccak-256 output under this proof class, not a SHA-256 output.
 
 The 20-character `short_key_id` is approximately a 120-bit prefix. This is not
 relied on as a standalone anti-grinding control: an attacker choosing public
@@ -179,7 +174,7 @@ colliding `short_key_id` candidates.
     "fn-dsa-512:<short_key_id>": {
         "key": "<unpadded-base64-fn-dsa-512-pubkey>",
         "pow": {
-            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen",
+            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
             "nonce": 8137226,
             "solution": [123, 456, 789, "..."]
         }
@@ -187,19 +182,29 @@ colliding `short_key_id` candidates.
 }
 ```
 
-The verifier reconstructs `cogen_stamp` from the enclosing key response's
-advertised public key and `server_name` rather than receiving it on the wire,
-computes `graph_seed` using the supplied `nonce`, verifies the Cuckoo Cycle
-solution against that graph seed, then computes `key_id` from `graph_seed` and
-the canonical solution. The enclosing key's advertised `short_key_id` MUST equal
-the first 20 base64url characters of that final `key_id`.
+The verifier derives the Cuckoo graph from the advertised public key,
+`server_name`, and supplied `nonce`; verifies the Cuckoo Cycle solution against
+that graph; then computes `key_id` from the canonical minting object. The
+enclosing key's advertised `short_key_id` MUST equal the first 20 base64url
+characters of that final `key_id`.
 
 **Graph derivation.** A given graph contains a 42-cycle only with some
 probability, so the prover iterates the nonce until the resulting graph is
-solvable. The 32-byte `graph_seed` is interpreted directly as four little-endian
-64-bit words `k0..k3` forming the SipHash-2-4 key. The bipartite graph has
-`2^29` edges and `2^29` nodes in each partition. Edge `i` (for `0 ≤ i < 2^29`)
-connects:
+solvable. For each nonce, compute:
+
+```text
+Keccak-256(
+    canonical_json({
+        "action": "fn-dsa-key-graph",
+        "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
+        "server_name": "example.com"
+    }) || uint64_le(nonce)
+)
+```
+
+The resulting 32 bytes are interpreted directly as four little-endian 64-bit
+words `k0..k3` forming the SipHash-2-4 key. The bipartite graph has `2^29` edges
+and `2^29` nodes in each partition. Edge `i` (for `0 ≤ i < 2^29`) connects:
 
 ```text
 u(i) = siphash-2-4(k0..k3, 2i)     mod 2^29   (partition U)
@@ -223,14 +228,14 @@ bound. Implementations calibrating a different deployment's expected solve time
 MUST NOT do so by changing `edge_bits` without minting a new, explicitly
 identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
-`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen` names one fixed
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting` names one fixed
 parameterization so that all conforming implementations impose the same cost.
 
 The proof response is:
 
 ```json
 {
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
     "nonce": 8137226,
     "solution": [123, 456, 789, "..."]
 }
@@ -241,16 +246,16 @@ MUST contain exactly 42 unsigned integer edge indices in strictly increasing
 order (the canonical form of the edge set). Each edge index MUST be less than
 `2^29`, and `nonce` MUST be an integer in `[0, 2^64)`. Verification MUST reject
 duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
-Cuckoo Cycle proof; it then recomputes `graph_seed`, derives the 84 endpoints of
-the 42 supplied edges, and checks that they form a single 42-cycle. Only after
-the solution verifies does the verifier compute `key_id` from `graph_seed` and
-the canonical solution. The minting stamp has no receiver-issued challenge and
-no expiry time; it remains valid for the committed `(server_name, key_id)`
-tuple. If either committed value changes, the origin MUST produce a new proof (a
-new key body or new `server_name` changes `cogen_stamp`, which changes
-`graph_seed` for every nonce, and a different solution changes `key_id`, so a
-stale proof cannot be reused). Receivers SHOULD cache successful stamp
-verification by `key_id`.
+Cuckoo Cycle proof; it then recomputes the Cuckoo graph for the supplied nonce,
+derives the 84 endpoints of the 42 supplied edges, and checks that they form a
+single 42-cycle. Only after the solution verifies does the verifier compute
+`key_id` from the canonical minting object. The minting stamp has no
+receiver-issued challenge and no expiry time; it remains valid for the committed
+`(server_name, key_id)` tuple. If either committed value changes, the origin
+MUST produce a new proof (a new key body or new `server_name` selects different
+Cuckoo graphs for every nonce, and a different solution changes the canonical
+minting object and therefore `key_id`, so a stale proof cannot be reused).
+Receivers SHOULD cache successful stamp verification by `key_id`.
 
 ### Key object validation procedure
 
@@ -265,28 +270,27 @@ later step once a step has failed:
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
 2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
-   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-cogen`. Any other value
-   fails validation here as unrecognized; do not fall back to treating it as the
-   old plain-hash construction.
+   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting`. Any other
+   value fails validation here as unrecognized; do not fall back to treating it
+   as the old plain-hash construction.
 3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
    integers, each strictly less than `2^29`, in strictly increasing order, with
    no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any violation
    fails validation here, before any hashing is performed.
-4. **Graph-seed recomputation.** Recompute `cogen_stamp` from the enclosing
-   response's advertised `key` and `server_name`, then compute
-   `graph_seed = Keccak-256(canonical_json(cogen_stamp) || uint64_le(nonce))`
-   using the supplied `nonce`. This step cannot itself fail; it produces the
-   graph seed for cycle verification.
-5. **Cycle verification.** Derive `k0..k3` from `graph_seed`, compute the 84
-   SipHash-2-4 endpoints for the 42 supplied edge indices, and confirm they form
-   a single cycle of length 42, alternating between partitions, visiting 21
+4. **Cuckoo graph selection.** From the enclosing response's advertised `key`
+   and `server_name`, plus the supplied `nonce`, compute the 32-byte value
+   specified in [Graph derivation](#graph-derivation). This step cannot itself
+   fail; it selects the graph used by the proof.
+5. **Cycle verification.** Derive `k0..k3` from that 32-byte value, compute the
+   84 SipHash-2-4 endpoints for the 42 supplied edge indices, and confirm they
+   form a single cycle of length 42, alternating between partitions, visiting 21
    distinct nodes in each, with no repeated edges. This is the only step that
    requires evaluating the graph; every earlier step exists specifically to let
    a receiver reject cheaply before reaching it.
-6. **`short_key_id` match.** Compute `key_id` from `graph_seed` and the
-   canonical solution, then compare the enclosing dictionary key's
-   `short_key_id` (the string following `fn-dsa-512:`) against the first 20
-   base64url characters of `key_id`. A mismatch fails validation here.
+6. **`short_key_id` match.** Compute `key_id` from the canonical minting object,
+   then compare the enclosing dictionary key's `short_key_id` (the string
+   following `fn-dsa-512:`) against the first 20 base64url characters of
+   `key_id`. A mismatch fails validation here.
 7. **Self-signature.** Independently of steps 1-6: verify the FN-DSA
    self-signature over the enclosing response, keyed by the same `short_key_id`,
    using the advertised `key` (see the self-signature requirement above). This
@@ -356,9 +360,9 @@ This MSC introduces the header with advisory-but-verified semantics:
 - Legacy servers that do not support this MSC ignore the `X-Matrix-PQC` header
   entirely.
 
-Mandatory room-scoped enforcement is defined by MSC 00E2. Optional session
+Mandatory room-scoped enforcement is defined by MSC00E2. Optional session
 amortization that replaces per-request FN-DSA signatures with a negotiated MAC
-is defined by MSC 00E5. The Ed25519 `Authorization` header remains required on
+is defined by MSC00E5. The Ed25519 `Authorization` header remains required on
 all federation requests as long as any legacy room version exists in the
 federation.
 
