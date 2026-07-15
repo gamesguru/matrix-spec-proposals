@@ -1,301 +1,42 @@
-2026-07-13 (finalization pass)
-
-Closed out the remaining gaps from the guided review and the equivocation-artifact
-gap flagged below:
-
-- 4499: vanished-key ordering (effective_expired_ts), key_id tie-break collation,
-  per-response old_verify_keys ceiling, minimum_valid_until_ts actor, backoff
-  amplification, notary ceiling scope, duplicate-JSON-key scope/Canonical JSON
-  cite, rollout guidance moved to its own section, eviction-repeals-permanence
-  and provisional-freeze-is-deliberate security prose.
-- 4500: endpoint path vs unstable prefix contradiction fixed, state_hashes/
-  state_hash_mismatch given an explicit stable-vs-unstable naming note, top-level
-  `algorithm` added to state_hashes and mirrored in state_hash_mismatch, shape
-  checksum promoted to a real wire field (second LtHash16 lattice, own domain
-  tag, optional `shape` field on /state_accumulator, self-computed test vectors
-  in Scenario 5), sender-side partial-state omission rule, DAG-frontier bisection
-  caveat, /state_ids-mirrored historical-visibility 403 rule, empty-state
-  sentinel note.
-- Equivocation record: defined `notary_equivocations` (attestation + optional
-  embedded-proof upgrade, capped at 10 full-proof records/response) in both
-  00E1 and 00E4, following the notary_observations signing convention. Added
-  the advisory-only/no-automated-eviction invariant in 00E1, 00E4, and 4499.
-
-Deliberately deferred (raised, not resolved, this pass): the general E1/E4
-notary-content dedup (E1 still fully duplicates E4's body per E4's own header
-note), the M_CONFLICT symbolic definition, and preflight algorithm/short_key_id
-fields — all pre-existing TODO items below, untouched by this pass.
-
-~~~~~~~~~~~~~~~~~~~~~
-
-› should there be some shared concept stored by the notary (and possibly other notaries, ugh) that indexes or "depths" the number of keys a given server has indexed wth that notary?
-
-  so we get conformant, convergent, agreed behavior over the wire with everyone subscribing (at least to a common intersection of notaries) getting identical behavior and identical state resolution, timing, keys, conflict resolution, etc?
-
-
-• A shared count is not enough, and I would not make notary-to-notary agreement on “depth” part of the core model.
-
-  Why not:
-
-  - Two notaries can both say “I have seen 3,000 keys for example.com” and still disagree on which 3,000.
-  - A shared counter does not solve ordering, eviction, or collision handling.
-  - Cross-notary coordination turns advisory notaries into a consensus subsystem, which is a much bigger and more fragile protocol.
-
-  If your goal is convergent wire behavior, the right primitive is not a count. It is a canonical pruning rule or a canonical manifest.
-
-  Best simple option:
-
-  - keep the hard 3,000 limit;
-  - define a deterministic retained set:
-      - always keep all current verify_keys;
-      - among retired keys, keep the newest old_verify_keys by expired_ts;
-      - break ties deterministically, e.g. by key_id;
-
-  - anything older falls below the retention floor.
-
-  Then every conforming implementation that sees the same origin material derives the same retained subset. No shared notary counter needed.
-
-  If you want stronger cross-notary convergence, the next step is an origin-signed key inventory manifest, not a shared count. For example:
-
-  - server_name
-  - manifest sequence / generation
-  - active keys
-  - retired keys in canonical order
-  - retention floor / truncation point
-  - manifest hash
-
-  That would let notaries and receivers compare the same ordered universe and prune identically.
-
-  So the answer is:
-
-  - No to a shared “depth” counter as the main mechanism.
-  - Yes to a shared deterministic rule.
-  - Maybe later to an origin-signed key manifest if you want stronger identical behavior across notaries.
-
-  A count can still be useful as advisory metadata, but it should not drive acceptance, state resolution, or conflict handling.
-
-
-› what if networks partition?
-
-  "      - among retired keys, keep the newest old_verify_keys by expired_ts;
-        - break ties deterministically, e.g. by key_id;"
-
-
-• If networks partition, deterministic pruning still helps, but only after peers have seen the same candidate set.
-
-  It does not solve divergent observation sets.
-
-  Example:
-
-  - Notary A sees retired keys {k1, k2, k3, k4}
-  - Notary B sees {k1, k2, k3, k5}
-  - both apply “keep newest by expired_ts, tie-break by key_id”
-  - they may still retain different sets, because the input universes differ
-
-  So there are two separate problems:
-
-  1. Selection
-      - “Given the same set of candidate keys, which 3,000 do we keep?”
-      - deterministic pruning solves this
-
-  2. Observation
-      - “Did everyone see the same candidate keys at all?”
-      - pruning does not solve this
-
-  Under partition, you only get full convergence if one of these is true:
-
-  - the origin publishes a canonical signed manifest of all relevant keys;
-  - notaries gossip and reconcile manifests/history until they converge;
-  - or receivers treat notaries as advisory and rely on direct origin fetch plus First Seen Wins locally
-
-  That is why I would not oversell notaries as producing identical global behavior under partition. They can improve consistency, but they cannot guarantee it unless you introduce a stronger shared artifact.
-
-  The clean answer is:
-
-  - deterministic pruning is still worth having;
-  - it guarantees same output from same input;
-  - partition means inputs can differ;
-  - if you want convergence across partition, add an origin-signed ordered key manifest.
-
-  That manifest is the real fix, because then notaries are no longer inventing retention sets from partial local history. They are caching and redistributing the origin’s declared ordered history.
-
-  So the stronger model is:
-
-  - origin publishes canonical manifest
-  - notaries cache it
-  - receivers verify it
-  - pruning happens against manifest order, not local discovery order
-
-  Without that, partitioned notaries will remain only approximately aligned.
-
-
-› at least they could merge and reset state or re-eval.although this creates a DoS surface for people to exploit maybe. (hence the, lets gate key publishing behind PoW guys).
-
-  "
-    - Notary B sees {k1, k2, k3, k5}
-    - both apply “keep newest by expired_ts, tie-break by key_id”
-  "
-
-
-• Yes. They can reconcile later, but that is a cache convergence mechanism, not a safety proof.
-
-  The right shape is:
-
-  - notaries keep a deterministic retained set;
-  - notaries MAY periodically merge/re-evaluate when they learn new retired keys;
-  - recomputation is over the full known candidate set, not incremental guesswork.
-
-  That gives eventual convergence after partition heals, assuming they eventually see the same inputs.
-
-  Your DoS concern is real though. If “learning more keys” constantly forces re-evaluation, an attacker can churn key history and make notaries do repeated work or storage growth. That is exactly why the PoW gate helps:
-
-  - it raises the cost of minting each new key body;
-  - it makes spammy retired-key floods more expensive;
-  - it protects notaries from being cheap garbage collectors for hostile origins.
-
-  So the balanced model is:
-
-  1. Origin-side PoW on each new FN-DSA key body.
-  2. Hard retained-key ceiling, e.g. 3,000.
-  3. Deterministic pruning of retired keys.
-  4. Optional notary re-evaluation when new historical material is learned.
-  5. No promise that partitioned notaries are identical in real time.
-  6. Eventual convergence once they ingest the same signed history.
-
-  If you want this to be stronger, the next step is still an origin-signed ordered key manifest. Then “merge and reset state” becomes much safer, because notaries are reconciling against a canonical origin-declared history, not just whatever random subset they happened to observe.
-
-  Without a manifest, post-partition convergence is still possible, but it is:
-
-  - local,
-  - heuristic,
-  - and more exposed to churn/DoS.
-
-  So I’d spec the modest claim:
-
-  > Notaries MAY re-evaluate retained retired-key sets when new valid historical key material is learned. Such re-evaluation MUST apply the same deterministic pruning rule over the full locally known candidate set. This improves eventual convergence after observation gaps or network partitions, but does not
-  > guarantee identical real-time results across notaries.
-
-  That is honest and useful.
-
-
-› "origin-signed ordered key manifest."
-
-  what's this?
-
-
-• An origin-signed ordered key manifest is just a canonical, signed inventory of a server’s own key history.
-
-  Instead of notaries inferring history from whatever keys they happened to observe, the origin publishes:
-
-  - which keys exist
-  - which are active
-  - which are retired
-  - the canonical order of retired keys
-  - optionally where truncation/retention should happen
-
-  So a manifest might look like:
-
-  {
-    "type": "m.server_key_manifest.v1",
-    "server_name": "example.com",
-    "algorithm": "fn-dsa-512",
-    "issued_at_ts": 1798848000000,
-    "manifest_seq": 42,
-    "active": [
-      {
-        "key": "fn-dsa-512:abcd...",
-        "key_id": "..."
-      }
-    ],
-    "retired": [
-      {
-        "key": "fn-dsa-512:old1...",
-        "key_id": "...",
-        "expired_ts": 1790000000000
-      },
-      {
-        "key": "fn-dsa-512:old2...",
-        "key_id": "...",
-        "expired_ts": 1780000000000
-      }
-    ],
-    "signatures": {
-      "example.com": {
-        "ed25519:auto": "...",
-        "fn-dsa-512:abcd...": "..."
-      }
-    }
-  }
-
-  What it buys you:
-
-  - Canonical ordering
-      - notaries don’t sort by local discovery time
-      - they sort by the origin’s signed declared history
-
-  - Cross-notary convergence
-      - if two notaries both fetch the same manifest, they retain/prune the same keys
-
-  - Partition recovery
-      - once a partition heals, a notary can fetch the latest manifest and recompute from the declared history
-
-  - Cleaner retention
-      - if the limit is 3,000, everyone keeps the same newest 3,000 retired keys by manifest order
-
-  What it does not solve:
-
-  - a malicious origin can still lie in its own manifest
-  - if the origin omits a historical key, the manifest cannot conjure it back
-  - you still need direct observations, notary evidence, or old cached data for forensics
-
-  So this is not a trust upgrade. It is a coordination upgrade.
-
-  The main question is whether you want that complexity in MSC4499 / MSC45XX now. My view:
-
-  - useful idea
-  - probably too much for the current scope unless cross-notary convergence becomes a central goal
-  - better as future work or a short note in open questions / future considerations
-
-  In one line: it is a signed “table of contents” for a server’s key history.
-
-
-~~~~~~~~~~~~~~~~~~~~~
-
-• A few things are still only partly included.
-
-  1. The biggest gap is the equivocation artifact shape.
-     Right now E1/E4 say the notary SHOULD retain or emit advisory equivocation evidence, but they do not define the record. If you want this to be real and interoperable, you still need a small signed object or top-level array shape for:
-     server_name, algorithm, short_key_id, old/new key_id, observation times, maybe package hashes.
-
-  2. The preflight input is still underspecified.
-     The challenge request currently carries server_name, key_id, key_metadata_sha256, and server_key_package_sha256, but not an explicit algorithm or short_key_id. The text works around that with “if the request gives enough information,” which is honest but soft. If you want deterministic preflight conflict
-     checks, add algorithm and short_key_id to the request body.
-
-  3. The error semantics are there, but not the symbolic error code.
-     You now have 409 M_CONFLICT in prose, which is fine. What is still missing is a short definition of what M_CONFLICT means here, unless you’re fine reusing the name informally.
-
-  4. The “same expiry claim mechanism covers break-glass” conclusion is only in E1.
-     That is probably enough, but E4 does not mirror it. If you want the split drafts to stand more independently, a one-line reminder in E4’s expiry-claim carriage section would make it clearer.
-
-  5. The two dirty files are still staged but not committed.
-     git status shows E1 and E4 modified/staged state from the notary conflict edits.
-
-  So the only substantive missing conclusion, in my view, is the first one: define the advisory equivocation evidence format. The rest are polish/precision.
-
-
----
-
-2026-07-12
-
-Remaining items I’d still handle before calling it PR-ready:
-
-1. 00E1 checklist/backcompat text is stale:
-    - says “No MSC dependencies” despite the new MSC4499 dependency.
-    - outdated note: says “One new endpoint” but still assumes publication_challenge endpoints that should now be demoted to detached, notary-local provenance artifacts rather than core protocol endpoints.
-
-2. Session section still says “future MSC” while defining normative endpoint behavior. Either split it out or remove the “future MSC / follow-up MSC” language.
-3. Vector rigor is not fully solved by editing the generator strings. We should still add a real canonical JSON cross-check/property test so this doesn’t regress.
-4. The readiness doc recommends splitting notary provenance and ML-KEM sessions into separate MSCs. Not strictly necessary for local consistency, but likely important for reviewability.
-5. The /tmp/msc00e1-advisor-oracle-update bundle is now stale if you plan to reuse it; it doesn’t include the latest 00E1 edits.
-
-The most immediate patch I’d do next is the stale checklist/backcompat cleanup, because reviewers will catch that fast.
+2026-07-15 live-doc inventory
+
+Active drafts:
+
+- 00E4: normative server-key minting, notary observation, notary provenance,
+  and TLS compact provenance draft.
+- 00E2: PQC room PDU enforcement draft, dependent on 00E4 and optionally 00E5.
+- 00E5: optional ML-KEM federation session negotiation draft, dependent on 00E4.
+- 00EA: E2EE device and cross-signing FN-DSA draft, dependent on 00E4 for the
+  algorithm profile.
+- 4499: server-key caching and First Seen Wins base behavior.
+- 4500: state accumulators, separate from the key-minting work.
+
+Archived drafts:
+
+- archive/00E1-quantum-sigs-federation-key-exchange.md
+- archive/MSC45XX-PR-readiness-directions.md
+
+Current protocol shape:
+
+- Server FN-DSA key IDs are `key_id`, with `short_key_id` as the first 20
+  base64url characters of `key_id`.
+- Server `key_id` is minting-bound and Keccak-256-derived as defined by 00E4.
+- Minting PoW is produced by the origin when the key body is generated. It is
+  not a notary-issued challenge and not repeated for every notary acquisition.
+- Notary provenance is a detached asset that notaries keep and redistribute
+  with observations when available.
+- `key_id_sha256`, `short_id`, and publication/notary challenge flows are
+  obsolete for the live docs.
+
+Remaining work:
+
+1. 00E4 and implementation: align generators and vectors with `key_id`,
+   `short_key_id`, `fn-dsa-key-minting`, and Keccak-256 minting PoW.
+2. 00E2: confirm the `canonical_sha256` event binding and PQC room enforcement
+   rules still match the final room-version story.
+3. 00E5: finish MSC checklist, dependencies, and backwards-compatibility text.
+4. 00EA: keep the distinction explicit between E2EE cross-signing key IDs
+   (SHA-256 over the raw public key) and server-key IDs (minting-bound
+   Keccak-derived `key_id`).
+5. Cross-doc: replace placeholder MSC numbers and unstable prefixes once final
+   PR numbers exist.

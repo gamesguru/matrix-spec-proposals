@@ -1,13 +1,12 @@
 # MSC 00E4: Notary provenance for post-quantum server keys
 
 This draft contains notary observations, detached notary provenance bundles, and
-TLS 1.3 compact provenance material split from MSC45XX, plus the
+TLS 1.3 compact provenance material split from the archived 00E1 draft, plus the
 [Key minting Proof-of-Work](#key-minting-proof-of-work) mechanism. The version
 of that mechanism here supersedes the plain SHA-256 key identifier construction
-still on record in the now-frozen MSC45XX (00E1) draft: this file is normative
-for FN-DSA key minting and observation going forward. The body below is
-intentionally copied nearly verbatim in places and still needs normal MSC
-integration text.
+still on record in the now-frozen 00E1 draft: this file is normative for FN-DSA
+key minting and observation going forward. The body below is intentionally
+copied nearly verbatim in places and still needs normal MSC integration text.
 
 #### Key minting Proof-of-Work
 
@@ -201,6 +200,67 @@ by itself determine whether the candidate is bound as new, promoted from a
 provisional binding, or rejected as a collision against a prior observation —
 that determination is First Seen Wins as defined in MSC4499, applied only after
 this procedure succeeds, and is out of scope for this section.
+
+##### Federation HTTP authentication
+
+Sending servers that support this MSC MUST include the `X-Matrix-PQC` header on
+outgoing federation requests when they have a valid FN-DSA server key. Unknown
+HTTP headers are ignored by legacy receivers, so no capability discovery is
+needed for deployment.
+
+```http
+Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:<short_key_id>",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
+```
+
+The FN-DSA signature MUST be computed over the same JSON signing object used for
+existing Matrix federation request authentication (containing `method`, `uri`,
+`origin`, `destination`, and `content` when present), with the additional
+signature-covered `origin_ts_at` field from the `X-Matrix-PQC` header. Although
+`origin_ts_at` is encoded as a quoted HTTP header parameter, senders and
+verifiers MUST parse it as a base-10 integer millisecond timestamp and insert it
+into the JSON signing object as a JSON number, not as a JSON string.
+
+`X-Matrix-PQC` uses the same parameter syntax and parsing rules as the existing
+`Authorization: X-Matrix` header. Required parameters are `origin`,
+`destination`, `key`, `origin_ts_at`, and `sig`. Unknown parameters MUST be
+ignored. Duplicate parameters or multiple `X-Matrix-PQC` headers render the PQC
+transport authentication invalid. `origin_ts_at` is an integer millisecond
+timestamp chosen by the origin and covered by the FN-DSA signature. Header
+values for `origin_ts_at` MUST contain only an unsigned base-10 integer
+representation. The `sig` parameter value is the unpadded base64-encoded FN-DSA
+signature. Malformed headers (invalid base64, missing required parameters, or
+unparsable syntax) MUST be treated as absent for enforcement purposes and SHOULD
+be logged.
+
+For live requests, receiving servers MUST reject the `X-Matrix-PQC` header for
+enforcement purposes if `origin_ts_at` differs from the receiver's local clock
+by more than 5 minutes. This bounds replay and makes the signed timestamp
+meaningful for key-expiry evaluation; it does not let the origin extend an
+expired or closed key's accepted lifetime.
+
+This MSC introduces the header with advisory-but-verified semantics:
+
+- Receiving servers that support this MSC MUST verify the `X-Matrix-PQC` header
+  whenever it is present and the sending server has a published FN-DSA key.
+- A verification failure SHOULD be logged as a warning but MUST NOT cause
+  request rejection, provided the Ed25519 `Authorization` header is valid.
+- If a receiving server has already cached an FN-DSA key for the sending server,
+  absence of the `X-Matrix-PQC` header on requests from that server SHOULD be
+  logged as a potential downgrade indicator.
+- Implementations MAY offer an operator-level strict mode that rejects requests
+  lacking valid PQC transport authentication from peers with cached FN-DSA keys.
+  Strict mode MUST be configurable because legacy servers and advisory-period
+  deployments may omit `X-Matrix-PQC` even when the Ed25519 `Authorization`
+  header is valid.
+- Legacy servers that do not support this MSC ignore the `X-Matrix-PQC` header
+  entirely.
+
+Mandatory room-scoped enforcement is defined by MSC 00E2. Optional session
+amortization that replaces per-request FN-DSA signatures with a negotiated MAC
+is defined by MSC 00E5. The Ed25519 `Authorization` header remains required on
+all federation requests as long as any legacy room version exists in the
+federation.
 
 ##### Detached notary provenance bundles
 
@@ -513,6 +573,14 @@ conflict, alongside `server_keys` and `notary_observations` in
 `/_matrix/key/v2/query` responses, and in the body of a `409 M_CONFLICT`
 response body or in any detached provenance artifact the notary serves.
 
+`M_CONFLICT` is introduced by this MSC for this use case. A `409 M_CONFLICT`
+response means the notary or receiver has already observed a different
+minting-valid FN-DSA key body for the same
+`(server_name, algorithm, short_key_id)` tuple and is refusing to treat the new
+body as an acceptable binding for that tuple. The response SHOULD include
+`notary_equivocations` records when the responder has signed evidence it is
+willing to disclose.
+
 A bare record is only a notary's claim that it observed both key bodies — any
 consumer must trust the notary to believe it. But because each conflicting
 `/_matrix/key/v2/server` response is itself self-signed by the origin, two such
@@ -701,9 +769,9 @@ signatures, `server_name`, and `key_id` binding before redistributing it. A
 notary that has observed a valid expiry claim for a key it returns MUST include
 that claim. Notary redistribution does not make the claim notary specific:
 receivers continue to authenticate the claim by its own signatures and use the
-smallest observed `not_valid_after_ts` for the closed key as specified by
-MSC45XX. If an enclosing `old_verify_keys` wrapper carries a later `expired_ts`
-for the same key, the earlier self-signed expiry claim wins.
+smallest observed `not_valid_after_ts` for the closed key as specified by this
+MSC family. If an enclosing `old_verify_keys` wrapper carries a later
+`expired_ts` for the same key, the earlier self-signed expiry claim wins.
 
 Any third-party attestation metadata a server or notary chooses to additionally
 track (e.g. historic corroboration records, reputation signals) is advisory
@@ -717,14 +785,13 @@ legacy federation traffic, and converge according to the established network
 rules.
 
 Because a server's very first FN-DSA key observation is TOFU and authenticates
-only via the existing Ed25519 trust model (see
-[Server key trust model](#server-key-trust-model)), it is vulnerable to an
-attacker positioned on that specific fetch path — a targeted, localized
-man-in-the-middle rather than a global compromise. Implementations MUST NOT
-treat contradictory notary observations, by themselves, as sufficient to reject
-or invalidate an otherwise valid first observation: doing so would let any
-false, compromised, or stale notary create a denial-of-service condition against
-legitimate bootstrap. This MSC therefore leaves first-observation acceptance
-semantics aligned with the existing Matrix server-key trust model; it does not
-define any cross-source consensus or conflict-resolution mechanism for FN-DSA
-bootstrap.
+only via the existing Ed25519 trust model and MSC4499 First Seen Wins semantics,
+it is vulnerable to an attacker positioned on that specific fetch path — a
+targeted, localized man-in-the-middle rather than a global compromise.
+Implementations MUST NOT treat contradictory notary observations, by themselves,
+as sufficient to reject or invalidate an otherwise valid first observation:
+doing so would let any false, compromised, or stale notary create a
+denial-of-service condition against legitimate bootstrap. This MSC therefore
+leaves first-observation acceptance semantics aligned with the existing Matrix
+server-key trust model and MSC4499; it does not define any cross-source
+consensus or conflict-resolution mechanism for FN-DSA bootstrap.
