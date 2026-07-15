@@ -23,7 +23,7 @@ gap flagged below:
 
 Deliberately deferred (raised, not resolved, this pass): the general E1/E4
 notary-content dedup (E1 still fully duplicates E4's body per E4's own header
-note), the M_CONFLICT symbolic definition, and preflight algorithm/short_id
+note), the M_CONFLICT symbolic definition, and preflight algorithm/short_key_id
 fields — all pre-existing TODO items below, untouched by this pass.
 
 ~~~~~~~~~~~~~~~~~~~~~
@@ -204,18 +204,18 @@ fields — all pre-existing TODO items below, untouched by this pass.
     "active": [
       {
         "key": "fn-dsa-512:abcd...",
-        "key_id_sha256": "..."
+        "key_id": "..."
       }
     ],
     "retired": [
       {
         "key": "fn-dsa-512:old1...",
-        "key_id_sha256": "...",
+        "key_id": "...",
         "expired_ts": 1790000000000
       },
       {
         "key": "fn-dsa-512:old2...",
-        "key_id_sha256": "...",
+        "key_id": "...",
         "expired_ts": 1780000000000
       }
     ],
@@ -265,11 +265,11 @@ fields — all pre-existing TODO items below, untouched by this pass.
 
   1. The biggest gap is the equivocation artifact shape.
      Right now E1/E4 say the notary SHOULD retain or emit advisory equivocation evidence, but they do not define the record. If you want this to be real and interoperable, you still need a small signed object or top-level array shape for:
-     server_name, algorithm, short_id, old/new key_id_sha256, observation times, maybe package hashes.
+     server_name, algorithm, short_key_id, old/new key_id, observation times, maybe package hashes.
 
   2. The preflight input is still underspecified.
-     The challenge request currently carries server_name, key_id_sha256, key_metadata_sha256, and server_key_package_sha256, but not an explicit algorithm or short_id. The text works around that with “if the request gives enough information,” which is honest but soft. If you want deterministic preflight conflict
-     checks, add algorithm and short_id to the request body.
+     The challenge request currently carries server_name, key_id, key_metadata_sha256, and server_key_package_sha256, but not an explicit algorithm or short_key_id. The text works around that with “if the request gives enough information,” which is honest but soft. If you want deterministic preflight conflict
+     checks, add algorithm and short_key_id to the request body.
 
   3. The error semantics are there, but not the symbolic error code.
      You now have 409 M_CONFLICT in prose, which is fine. What is still missing is a short definition of what M_CONFLICT means here, unless you’re fine reusing the name informally.
@@ -291,7 +291,7 @@ Remaining items I’d still handle before calling it PR-ready:
 
 1. 00E1 checklist/backcompat text is stale:
     - says “No MSC dependencies” despite the new MSC4499 dependency.
-    - says “One new endpoint” but now there are key_exchange, publication_challenge, and publication_challenge/complete.
+    - outdated note: says “One new endpoint” but still assumes publication_challenge endpoints that should now be demoted to detached, notary-local provenance artifacts rather than core protocol endpoints.
 
 2. Session section still says “future MSC” while defining normative endpoint behavior. Either split it out or remove the “future MSC / follow-up MSC” language.
 3. Vector rigor is not fully solved by editing the generator strings. We should still add a real canonical JSON cross-check/property test so this doesn’t regress.
@@ -299,4 +299,3 @@ Remaining items I’d still handle before calling it PR-ready:
 5. The /tmp/msc00e1-advisor-oracle-update bundle is now stale if you plan to reuse it; it doesn’t include the latest 00E1 edits.
 
 The most immediate patch I’d do next is the stale checklist/backcompat cleanup, because reviewers will catch that fast.
-

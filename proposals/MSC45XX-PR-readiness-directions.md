@@ -32,16 +32,17 @@ statements cannot coexist with Matrix's pull-based key distribution:
    required to reject a key for lacking a proof it has no defined way to
    receive.
 
-**Fix design: redefine the base publication PoW as a non-interactive stamp.**
-The publication gate's semantics are "minting this key cost work," which is a
-Hashcash-style stamp, not a freshness challenge. Freshness is what the
-_notary-scoped_ challenge exists for. Concretely:
+**Fix design: redefine the base publication PoW as a non-interactive minting
+stamp.** The gate's semantics are "minting this key cost work," which is a
+Hashcash-style stamp, not a freshness challenge. Notary provenance, if any,
+belongs in detached observer-held artifacts rather than in the issuance path.
+Concretely:
 
 - The stamp travels inside the FN-DSA key object itself:
 
     ```json
     "verify_keys": {
-        "fn-dsa-512:<short_id>": {
+        "fn-dsa-512:<short_key_id>": {
             "key": "<unpadded-base64-fn-dsa-512-pubkey>",
             "pow": {
                 "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
@@ -66,17 +67,17 @@ _notary-scoped_ challenge exists for. Concretely:
         "resource": {
             "action": "fn-dsa-key-publication",
             "server_name": <server_name of the enclosing response>,
-            "key_id_sha256": <recomputed from the advertised key body>
+            "key_id": <recomputed from the advertised key body>
         }
     }
     graph_seed(nonce) = SHA-256(canonical_json(stamp_object) || uint64_le(nonce))
     ```
 
     No `challenge`, no `expires_ts`, no issuer. The "issued by the verifier" and
-    expiry rules move to the notary-scoped challenge section, which is the only
-    interactive flow. Drop `key_metadata_sha256` from the stamp binding:
-    metadata can legitimately change across refreshes without re-minting the
-    key, and it is already covered by both self-signatures.
+    expiry rules move out of the minting PoW entirely. Drop
+    `key_metadata_sha256` from the stamp binding: metadata can legitimately
+    change across refreshes without re-minting the key, and it is already
+    covered by both self-signatures.
 
 - Cost profile becomes sane: ~10–15 s once per key at generation time, zero per
   rotation of _other_ material, zero per `valid_until_ts` refresh, zero per
@@ -85,7 +86,7 @@ _notary-scoped_ challenge exists for. Concretely:
   accordingly (the cost sits at keygen, not in the refresh loop).
 
 - Receivers verify the stamp on first observation of a key body and cache the
-  result by `key_id_sha256`.
+  result by `key_id`.
 
 One honest paragraph must accompany the unconditional MUST wherever it stays: a
 receiver-side hard-reject means a Cuckoo-verifier bug in any homeserver bricks
@@ -97,9 +98,9 @@ those three things together explicitly in the text.
 ### B2. The normative PoW challenge-object vector is non-canonical — and the generator is at fault
 
 Independently recomputed: the published `canonical_json_utf8` orders the
-`resource` keys `action`, `server_name`, `key_id_sha256`. Matrix Canonical JSON
-requires lexicographic ordering: `action`, `key_id_sha256`, `server_name`.
-Worse, the published `graph_seed_hex` (`284e0a66…`) reproduces exactly from the
+`resource` keys `action`, `server_name`, `key_id`. Matrix Canonical JSON
+requires lexicographic ordering: `action`, `key_id`, `server_name`. Worse, the
+published `graph_seed_hex` (`284e0a66…`) reproduces exactly from the
 **unsorted** serialization (SHA-256 over the published string plus
 `uint64_le(8137226)`), while the correctly canonicalized object yields
 `8750291f…`. Conclusion: this is not a transcription slip — the vector generator
@@ -133,14 +134,14 @@ text that test profiles MUST NOT be accepted on the wire — the current "not th
 production profile" note is right but the profile itself is unspecified, which
 defeats the vector's purpose.
 
-### B4. The `short_id` trial-verification rule contradicts MSC4499, which this MSC claims to incorporate
+### B4. The `short_key_id` trial-verification rule contradicts MSC4499, which this MSC claims to incorporate
 
 The intro says this MSC "incorporates cleanup from MSC4499." MSC4499's key-ID
 uniqueness invariant states: a key ID MUST map to exactly one key body per
 server, receiving servers "MUST NOT perform trial verification," and
 first-seen-wins with intra-payload rejection governs collisions. 00E1's
 collision rule mandates the opposite: retain up to four colliding bodies per
-`short_id` and trial-verify against each with an exactly-one-verifies rule.
+`short_key_id` and trial-verify against each with an exactly-one-verifies rule.
 These cannot both hold, and 4499's position is the right one — its security
 rationale (trial verification creates signature-ambiguity machinery in every
 verifier to accommodate a pathological publisher) applies with full force here.
@@ -149,16 +150,16 @@ The hash-derived ID makes the 4499-conformant fix nearly free, because
 collisions are exclusively self-inflicted and preventable at the source:
 
 - **Origin-side prevention (new normative rule):** at key generation, if the new
-  key's `short_id` collides with any FN-DSA key the server has ever published
-  (`verify_keys`, `old_verify_keys`, or historical), the server MUST discard the
-  candidate and generate a fresh keypair. Expected cost: nothing — a
+  key's `short_key_id` collides with any FN-DSA key the server has ever
+  published (`verify_keys`, `old_verify_keys`, or historical), the server MUST
+  discard the candidate and generate a fresh keypair. Expected cost: nothing — a
   within-server collision needs ~2^48 generated keys to occur by chance, and
   deliberate collision-grinding is now a wasted 2^48 effort because the second
   key is unpublishable.
 - **Receiver-side handling (adopt 4499 verbatim):** two distinct bodies under
-  one `short_id` within a single response → reject the whole response as
+  one `short_key_id` within a single response → reject the whole response as
   malformed (4499 intra-payload rule). A fetch that rebinds a previously
-  observed `short_id` to a different body → retain the original binding, log
+  observed `short_key_id` to a different body → retain the original binding, log
   loudly, never trial-verify (4499 collision detection). Recovery from a
   genuinely wedged binding is 4499's operator-gated manual eviction, which you
   can cite rather than respecify.
@@ -198,18 +199,16 @@ replacement-model decision, and should stay. It is a defensible position
 provided the document never again claims continuity it doesn't provide; the
 current draft, to its credit, no longer does.
 
-### B6. The notary challenge endpoint fails the MSC checklist it claims to pass
+### B6. The notary challenge endpoint should not be in the core protocol
 
-`POST /_matrix/key/v2/fn_dsa_publication_challenge` as staged: squats the stable
-`v2` namespace before acceptance (must be
-`/_matrix/key/unstable/tk.nutra.msc45xx/publication_challenge` during the draft
-period, with the stable target listed in the Unstable Prefix table); specifies
-no authentication, no rate limiting, no error responses, no replay or single-use
-semantics, and no completion path beyond "for example … a notary-specific
-challenge-completion endpoint." Meanwhile the MSC Checklist's endpoint items
-remain ticked with answers written for the session endpoint. Part II Q2/Q3/Q5
-below give the full endpoint design; the checklist must then be re-answered per
-endpoint, not globally.
+The staged `publication_challenge` endpoint family turns later notary
+observation into part of issuance, which is the wrong boundary for an
+offline-generated key that may be fetched zero times or thousands of times on an
+unpredictable schedule. Even if fully specified, it would still be the wrong
+primitive in the core path. The right split is: minting PoW inside the origin
+key object; optional notary observations and detached provenance bundles outside
+it. Any local anti-spam challenge a notary chooses to run belongs in those
+detached artifacts and MUST NOT become a receiver-visible validity requirement.
 
 ---
 
@@ -289,8 +288,8 @@ the proof:
 ```
 
 The completion request MUST carry `Authorization: X-Matrix` from the origin and
-MUST carry `X-Matrix-PQC` signed by the very FN-DSA key whose `key_id_sha256`
-the challenge binds (notary checks the header's `short_id` against the bound
+MUST carry `X-Matrix-PQC` signed by the very FN-DSA key whose `key_id` the
+challenge binds (notary checks the header's `short_key_id` against the bound
 digest's prefix and verifies against the fetched key body). This is the piece
 that makes the provenance claim real: without keyholder-bound completion, anyone
 can request and solve a challenge over `example.com`'s public data, and the
@@ -323,7 +322,7 @@ but treat that as the concession position, not the proposal.
 
 ### Q5. Are the challenge fields sufficient against replay/rebinding?
 
-Nearly. The resource binds `action`, `server_name`, `key_id_sha256`,
+Nearly. The resource binds `action`, `server_name`, `key_id`,
 `key_metadata_sha256`, `server_key_package_sha256`, and `issuer`, and the seed
 covers the whole challenge object including `algorithm` and `expires_ts` — so
 cross-key, cross-server, cross-package, and cross-algorithm rebinding are all
@@ -426,13 +425,13 @@ academically concrete:
 Current assignments, verified consistent: FN-DSA public keys and signatures,
 Ed25519 material, `X-Matrix-PQC`/`X-Matrix-PQC-Session` `sig`/`mac` parameters,
 and ML-KEM `encapsulation_key`/`ciphertext` — unpadded **standard base64**
-(matching existing Matrix signature conventions). All SHA-256 digests
-(`key_id_sha256`, `key_metadata_sha256`, `server_key_package_sha256`,
-`leaf_spki_sha256`, `leaf_cert_sha256`, observation digests), `short_id`, PoW
-`challenge` values, and `session_id` — unpadded **base64url** (URL/
-identifier-safe). This split is coherent; the direction is to state it once as a
-normative rule ("signatures and key material: unpadded standard base64; digests
-and identifiers: unpadded base64url") rather than per-field, then fix the two
+(matching existing Matrix signature conventions). All SHA-256 digests (`key_id`,
+`key_metadata_sha256`, `server_key_package_sha256`, `leaf_spki_sha256`,
+`leaf_cert_sha256`, observation digests), `short_key_id`, PoW `challenge`
+values, and `session_id` — unpadded **base64url** (URL/ identifier-safe). This
+split is coherent; the direction is to state it once as a normative rule
+("signatures and key material: unpadded standard base64; digests and
+identifiers: unpadded base64url") rather than per-field, then fix the two
 undefined fields from Part III item 2 and define
 `notary_challenge.challenge_id`'s alphabet. No other inconsistencies found.
 
@@ -466,15 +465,16 @@ advisory request's own "too many advisory mechanisms?" worry is the correct
 instinct. The layering is individually defensible but jointly heavy, and Matrix
 reviewers evaluate blast radius per MSC. Recommended partition:
 
-- **00E1 (core):** algorithm definition, key ID/`short_id`, encoding/signing,
-  server signing keys, trust model, publication stamp (post-B1), `X-Matrix-PQC`
-  transport, migration. This is the minimum viable protocol, and the text should
-  say so in one sentence: _FN-DSA keys + self-signature + hash-derived short
-  ID + advisory transport header; everything else is a detachable layer._
-- **00E4 (notary provenance suite):** notary observations, TLS 1.3 compact
-  provenance, notary-scoped challenges, completion endpoint. These are one
-  coherent feature (signed third-party observation of key publication) with one
-  consumer (audit/diagnostics), zero acceptance-semantics impact by design — the
+- **00E1 (core):** algorithm definition, key ID/`short_key_id`,
+  encoding/signing, server signing keys, trust model, publication stamp
+  (post-B1), `X-Matrix-PQC` transport, migration. This is the minimum viable
+  protocol, and the text should say so in one sentence: _FN-DSA keys +
+  self-signature + hash-derived short ID + advisory transport header; everything
+  else is a detachable layer._
+- **00E4 (notary provenance suite):** notary observations, detached provenance
+  bundles, and TLS 1.3 compact provenance. These are one coherent feature
+  (signed third-party observation of key publication) with one consumer
+  (audit/diagnostics), zero acceptance-semantics impact by design — the
   definition of a splittable MSC.
 - **00E5 (session negotiation):** the ML-KEM section. The heading already says
   "(future MSC)" while the body is fully normative and the checklist claims its
