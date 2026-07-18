@@ -7,8 +7,12 @@ single key ID and perform verification either with the most recently observed
 key (last-wins) or the first one which works (trial verification).
 
 While existing implementations such as Synapse effectively enforce a unique
-`(server_name, key_id)` constraint at the storage layer, the protocol itself
-remains underspecified and does not give clear guidance on this matter.
+`(server_name, key_id)` constraint at the storage layer, this only guarantees
+one stored row per key ID, not which key body wins when a new observation
+conflicts with an existing one: Synapse's storage layer resolves such conflicts
+by last-write-wins (an upsert keyed on `(server_name, key_id)`), the opposite of
+the First Seen Wins rule this MSC introduces. The protocol itself remains
+underspecified and does not give clear guidance on this matter.
 
 This ambiguity leads to an annoying loophole where key collisions in the wild
 can cause room state divergence between servers, and introduces possible risks
@@ -58,18 +62,22 @@ reference triggers a fresh network request. Servers MUST implement exponential
 backoff (e.g., starting at 1 minute, capping at 1 hour) per remote server for
 failed key fetches. Inbound federation demand whose authentication _requires_ a
 key fetch for a backoff-listed server SHOULD permit at most one immediate
-(rate-limited) fetch attempt per remote server per backoff interval; all further
-demand arriving within that interval MUST fail fast against the negative cache
-rather than triggering its own probe. Without this per-interval limit, an
-attacker can relay junk purportedly signed by a dead server's name to induce one
-outbound probe per inbound request, defeating the backoff entirely.
-Implementations SHOULD coalesce concurrent outgoing key fetch requests for the
-same remote domain into a single active HTTP request to prevent network
-saturation. If that fetch succeeds and the request authenticates, servers SHOULD
-clear the backoff state.
+(rate-limited) fetch attempt per remote server per backoff interval, where the
+rate limit MUST NOT be looser than the current backoff interval itself (i.e.
+this escape valve MUST NOT be used to reconstruct a fetch frequency above what
+the backoff schedule already allows); all further demand arriving within that
+interval MUST fail fast against the negative cache rather than triggering its
+own probe. Without this per-interval limit, an attacker can relay junk
+purportedly signed by a dead server's name to induce one outbound probe per
+inbound request, defeating the backoff entirely. Implementations SHOULD coalesce
+concurrent outgoing key fetch requests for the same remote domain into a single
+active HTTP request to prevent network saturation. If that fetch succeeds and
+the request authenticates, servers SHOULD clear the backoff state.
 
-Implementations SHOULD allow the minimum backoff floor to be shortened in test
-configurations, so conformance tests do not need to sleep for a full minute.
+Implementations SHOULD allow the minimum backoff floor to be shortened or
+otherwise overridden (e.g. via a test-only configuration hook) in test
+configurations, so conformance tests do not need to sleep for a full minute in
+order to observe backoff being enforced and later cleared.
 
 **Cache persistence.** Key caches SHOULD be persisted to durable storage (e.g.,
 database) rather than held only in memory. A server restart should not require
@@ -246,7 +254,12 @@ When a server rotates its signing key, the administrator MUST:
 Reusing a key ID with a different key body is a **protocol violation**. This
 most commonly occurs when an administrator wipes a server's database,
 regenerates signing keys, but leaves the server configuration set to the same
-key ID (e.g., the default `ed25519:auto`).
+key ID (e.g., the default `ed25519:auto`). This is not a hypothetical: Synapse
+defaulted every new installation to the literal key ID `auto` until a 2016 fix
+introduced a randomized suffix, and any deployment whose signing key file was
+generated before then, or was later restored from a backup or template predating
+the fix, still carries it today — a real, non-trivial population of servers in
+current federation, not merely an illustrative example.
 
 If this happens, administrators must rotate to a fresh key ID immediately. They
 should further take efforts to correct membership or state drifts that occurred
@@ -530,7 +543,15 @@ to the deterministic ordering defined below — not by recency or
 least-recently-used heuristics, which would make eviction
 implementation-dependent rather than the deterministic behavior this MSC
 requires. Keys currently published in the `verify_keys` section of a direct
-fetch MUST always be prioritized and exempt from eviction.
+fetch MUST always be prioritized and exempt from eviction. This exemption is
+bounded by the 50-key active ceiling on any single response
+([Key caching requirements](#key-caching-requirements)); it is not a license for
+a `verify_keys` set to grow without bound across many legitimate rotations over
+time. A remote server whose cumulative set of currently-active key IDs, observed
+across successive responses, grows far beyond the single-digit counts typical of
+legitimate operation is itself the signal described as "unambiguously hostile"
+below, independent of whether any individual response stays under the 50-key
+cap.
 
 **Corroboration tier.** This tier answers a narrower question than the
 provisional/permanent split above. It does not decide which key body is correct
