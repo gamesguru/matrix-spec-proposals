@@ -102,7 +102,17 @@ However, to preserve a forensic trail of misconfigurations and anomalous event
 rejections, notary implementations SHOULD internally index observed key bodies
 by their full SHA-256 digest. This allows the notary to safely store historical
 collisions without database constraint violations, even if it only serves the
-"first seen" key via the active API. This also familiarizes developers with the
+"first seen" key via the active API. Because `/_matrix/key/v2/server` and
+`/_matrix/key/v2/query` responses are self-signed by the origin over the entire
+payload, a notary MUST NOT satisfy this by locally patching a colliding response
+to substitute the first-seen key body: mutating `verify_keys` or
+`old_verify_keys` invalidates the origin's `signatures` entry for that payload,
+so a patched response fails verification for any downstream client checking the
+origin's own signature, regardless of any additional signature the notary itself
+appends. Implementations instead satisfy this requirement by declining to update
+their served cache entry for that origin when a fetch contains a rejected
+collision, continuing to serve the last self-signed payload consistent with the
+bindings they actually accepted. This also familiarizes developers with the
 inescapable future where key _bodies_ (values as opposed to IDs) become close to
 ~1 KB (prohibitively large for a "unique identifier" in a relational database).
 This forensic index is an implementation-private log of rejected material; it is
