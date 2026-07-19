@@ -1,7 +1,5 @@
 # MSC45XX: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
-<!-- Proofread marker. [e09a5b01] -->
-
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
 the shape of the graph we are traversing, whether it is a dead end, or whether
@@ -36,7 +34,7 @@ POST /_matrix/federation/unstable/tk.nutra.msc45xx/topology_query
 
 The endpoint accepts a bounded query over one or more starting events. The
 requesting homeserver chooses the edge types it wants to walk, how deep it wants
-to recurse, and which small metadata fields it wants back.
+to recurse, and which specific metadata fields it wants back.
 
 For example:
 
@@ -55,7 +53,7 @@ For example:
 ```
 
 This asks the responding server to walk backwards through `prev_events`, up to
-50 hops, returning only previous-event edges and origin hints.
+50 hops, returning only previous-event edges and `origin` hints.
 
 The response is intentionally sparse:
 
@@ -89,6 +87,8 @@ try next, then verify full events through normal Matrix rules once it retrieves
 them.
 
 ### Query shape
+
+<!-- Proofread marker. [e09a5b01] -->
 
 The initial query fields are:
 
@@ -316,9 +316,11 @@ Implementations SHOULD use conservative defaults no higher than:
 Implementations MAY use lower local defaults or absolute maxima. If a response
 is truncated because of an effective limit, the server sets `limited` to `true`.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ### Authorization
 
-The responding server MUST only return topology metadata which the requesting
+The responding server MUST only return sparse metadata which the requesting
 server is allowed to learn over federation. This endpoint should not bypass
 normal room access checks, membership checks, or history visibility policy.
 
@@ -338,14 +340,14 @@ wrong-room event. If any requested or discovered event is omitted for being
 unknown, wrong-room, or not visible to the requester, the response MUST set
 `limited` to `true`.
 
-The responding server MUST NOT return topology metadata for an event if it would
-not be allowed to serve the corresponding full event to the requester.
+The responding server MUST NOT return event metadata if it would not be allowed
+to serve the corresponding full event to the requester.
 
 This means the answer can differ by room and event. A joined server can normally
 query visible history for the room. An invited server should only receive
 metadata that would already be visible through invite-stripped state or other
 invite-legal federation flows. A non-joined server should not get private room
-topology merely because it knows an event ID. For world-readable history, the
+metadata merely because it knows an event ID. For world-readable history, the
 server may answer consistently with the room's history visibility rules, but
 should still avoid disclosing fields beyond what the requester asked for.
 
@@ -362,8 +364,6 @@ requester is allowed to access the room but some branches, events, or fields are
 not visible, the server omits those branches, events, or fields and sets
 `limited` to `true`. Hidden branches are not replaced with opaque markers,
 because such markers would still leak graph shape.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
 
 ### Room versions
 
