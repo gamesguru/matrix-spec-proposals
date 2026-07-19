@@ -529,9 +529,9 @@ the top-level hashes `prev_events_hash`, `auth_events_hash`,
 Using SHA3-256, each hash is 32 bytes, so storing these five hashes adds 160
 bytes of raw hash material per event before database row, index, and encoding
 overhead. For a 2 KiB event, this raw hash material is approximately 7.8% of the
-event size; for a 5 KiB event, it is approximately 3.1%. Storing full header
-leaf hashes or dedicated proof-acceleration indexes would increase this
-overhead.
+event size; for a 5 KiB event, it is approximately 3.1%. Implementations can
+recompute proof paths on demand; caching intermediate Merkle nodes or proof
+indexes is optional and would increase this overhead.
 
 <!-- Reverse proofread marker. [bc3742f4] -->
 
