@@ -572,7 +572,9 @@ gap resolved.
 ### Bandwidth consumption
 
 This MSC does expose a bandwidth-consumption surface for servers which implement
-the endpoint.
+the endpoint. Authenticated federation peers could issue repeated large bounded
+topology queries, so implementations should apply the same conservative
+response-size and rate-limit controls described above.
 
 This is not unique to this endpoint: `/event`, `/backfill`,
 `/get_missing_events`, and `/state_ids` already expose heavier bandwidth
@@ -582,7 +584,7 @@ The intended use case here is real-world gap repair: inbound transactions,
 backfill attempts, and auth-chain recovery often need to know a few edges or
 origins before deciding which full events to fetch. Returning compact metadata
 can reduce total bandwidth compared to fetching full PDUs or state sets blindly.
-This may also be of use in manual admin commands.
+This can also support operator-initiated repair tooling.
 
 Servers should still treat this as an optional endpoint with hard response-size
 limits, per-origin rate limits, and conservative defaults. If a deployment does
