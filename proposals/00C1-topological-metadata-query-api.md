@@ -452,13 +452,16 @@ and verification rules. This keeps the present proposal focused on the topology
 query API while leaving signature migration mechanics to the room-version
 proposal.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ### Cryptographic proof responses
 
-When the queried room version supports split canonicalization, a server MAY
-include proof material for requested fields inside a `proof` object. A room
-version adopting this format also extends the queryable `fields` set with the
-header leaves not exposed in hint-only mode (`sender`, `type`, `state_key`),
-since a field must be returnable to be provable.
+When `proof` is requested in `fields` and the queried room version supports
+split canonicalization, a server MAY include proof material for provable
+requested fields inside a `proof` object. A room version adopting this format
+also extends the queryable `fields` set with the header leaves not exposed in
+hint-only mode (`sender`, `type`, `state_key`), since a field must be returnable
+to be provable.
 
 The `proof` object schema explicitly maps the proven fields to their Merkle
 paths, provides any required top-level component hashes needed to reconstruct
@@ -505,8 +508,6 @@ performs the following steps:
 If a required hash is missing or any hash check fails, verification fails. By
 chaining hashes upward, the server only needs to send missing neighbor hashes in
 the proof, and the verifier recomputes the root locally.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
 
 ## Future extensions
 
