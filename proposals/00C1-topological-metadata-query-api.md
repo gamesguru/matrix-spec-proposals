@@ -533,13 +533,15 @@ event size; for a 5 KiB event, it is approximately 3.1%. Storing full header
 leaf hashes or dedicated proof-acceleration indexes would increase this
 overhead.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ### Empirical benchmarking
 
 Implementations SHOULD benchmark this endpoint against their specific event
 store and federation workload. Recommended metrics include total bytes
 transferred, number of round trips, database rows read, full event JSON decode
-count, CPU time, wall-clock latency, and success rate for gap repair path
-selection.
+count, CPU time, active RAM usage, wall-clock latency, and success rate for gap
+repair path selection.
 
 ## Relationship to other proposals
 
@@ -560,8 +562,6 @@ state-DAG extension of this query shape can add efficient filters by event
 `type` and `state_key`, allowing a server to ask targeted questions such as
 "which membership-state branch contains this user?" without fetching full state
 events or scanning unrelated state keys.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
 
 ## Security considerations
 
