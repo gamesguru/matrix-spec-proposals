@@ -1,4 +1,4 @@
-# MSC45XX: Topological peek/query API via sparse fieldsets and Merkleized metadata
+# MSC45XX: Topological peek/query API via sparse fieldsets
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -15,7 +15,7 @@ homeservers to return customized queries of highly granular data, including:
 A new federation endpoint is added:
 
 ```http
-POST /_matrix/federation/unstable/tk.nutra.msc45xx/topology/query
+POST /_matrix/federation/unstable/tk.nutra.topology_query
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -27,12 +27,10 @@ For example:
 ```json
 {
     "room_id": "!room:example.org",
-    "start_event_ids": ["$missing_event_A", "$missing_event_B"],
+    "start_event_ids": ["$missing_event"],
     "edge_types": ["prev_events"],
-    "depth": 50,
-    "fields": ["prev_events", "origin"],
-    "compute": ["common_ancestor", "hop_distance"],
-    "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
+    "max_depth": 50,
+    "fields": ["prev_events", "origin"]
 }
 ```
 
@@ -43,14 +41,15 @@ The response is intentionally sparse:
 
 ```json
 {
-    "fields": ["prev_events", "origin"],
     "events": {
-        "$missing_event_A": [["$prev_1", "$prev_2"], "example.org"],
-        "$missing_event_B": [["$prev_1"], "elsewhere.example"]
-    },
-    "computed": {
-        "common_ancestor": ["$prev_1"],
-        "hop_distance": [3]
+        "$missing_event": {
+            "prev_events": ["$prev_1", "$prev_2"],
+            "origin": "example.org"
+        },
+        "$prev_1": {
+            "prev_events": ["$prev_0"],
+            "origin": "elsewhere.example"
+        }
     },
     "limited": true
 }
@@ -68,26 +67,21 @@ The initial query fields are:
 - `room_id`: the room being queried.
 - `start_event_ids`: event IDs to start from.
 - `edge_types`: one or more of `prev_events` or `auth_events`.
-- `depth`: the maximum number of recursive hops requested (not the event's
-  `depth` field).
+- `max_depth`: the maximum number of recursive hops requested.
 - `fields`: the exact metadata fields requested.
-- `compute`: optional graph facts to compute over the same bounded traversal.
-- `compute_event_pairs`: event ID pairs to use for computed graph facts.
 
 The initial response fields for each event are:
 
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
 - `origin`: the best known origin server for the event.
-- `depth`: the event depth, if known.
 - `type`: the event type, if known.
 - `state_key`: the state key, if known and applicable.
 - `sender`: the sender, if known.
 
-The response repeats the returned `fields` order once, then maps each event ID
-to a list of values in that order. The value list MUST have the same length as
-`fields`. Unknown or unavailable values are `null`. Servers MAY omit requested
-fields by omitting them from the returned `fields` list.
+The response maps each event ID to an object containing the fields returned for
+that event. Servers may omit fields they do not know, do not store efficiently,
+or are not willing to disclose to the requester.
 
 ### Traversal
 
@@ -101,7 +95,8 @@ an already-seen event is not queued again.
 
 Within the same recursion depth, events should be processed in bytewise
 lexicographic order by event ID. This gives stable results when a response is
-limited.
+limited. Because event IDs may be hashes, this is not intended to prefer the
+most recent or most useful branch. It is only a deterministic truncation rule.
 
 The server applies limits in this order:
 
@@ -114,42 +109,6 @@ If any limit, visibility check, wrong-room event, unknown event, response-size
 cap, or timeout prevents the server from returning data it otherwise would have
 walked, it sets `limited` to `true`. If several conditions apply, `limited` is
 still just `true`; this proposal does not require exposing which limit was hit.
-
-### Optional graph queries
-
-Responding servers MAY support small computed graph queries in addition to raw
-metadata fields. These queries are bounded by the same recursion, record, time,
-authorization, and room-boundary limits as normal traversal.
-
-Computed graph queries operate on `compute_event_pairs`. Each entry is a
-two-element list of event IDs. If `compute` is present, `compute_event_pairs`
-MUST also be present and non-empty. Malformed pairs, pairs with fewer or more
-than two event IDs, or pairs containing malformed event IDs cause the request to
-fail with `M_INVALID_PARAM`.
-
-The initial computed query names are:
-
-- `common_ancestor`: given two event IDs, return the nearest event ID known to
-  the responding server which is reachable from both events by following the
-  selected edge types.
-- `hop_distance`: given two event IDs, return the shortest known hop distance
-  between them when following the selected edge types, or `null` if no path is
-  found within the effective recursion limit.
-
-Computed queries only walk events which belong to the requested room and are
-visible to the requester. Hidden history-visibility branches are pruned, not
-replaced with opaque markers. If pruning affects the answer, the server sets
-`limited` to `true`.
-
-If more than one pair is supplied, the server computes each requested graph fact
-for each pair independently. The `computed` object maps each requested compute
-name to a list of results aligned with `compute_event_pairs`. If either event in
-a pair is unknown, wrong-room, or not visible to the requester, the result for
-that pair is `null` and `limited` is set to `true`.
-
-These results are hints. They MUST NOT be used as proof that two branches are
-authentically related without fetching and verifying the relevant events, unless
-a future room version provides Merkleized topology proofs for the path.
 
 ### Limits
 
@@ -212,99 +171,58 @@ because such markers would still leak graph shape.
 However, when the responding server cannot determine full-event visibility due
 to local partial-state, missing-auth, or repair-in-progress conditions, it MAY
 return only the minimum routing fields needed for repair, such as `origin` and
-edge event IDs, provided the requester is already joined to the room or
-otherwise authorized to participate in federation for that room. It MUST NOT
-return `sender`, `type`, `state_key`, `depth`, content-derived fields, or proof
-material in this degraded mode.
+edge event IDs, provided the requester is already joined to the room. It MUST
+NOT return `sender`, `type`, `state_key`, content-derived fields, or proof
+material in this degraded mode. If current membership is also uncertain, the
+responding server should use the most restrictive known membership or event-auth
+view it can reconstruct for the queried event. If it cannot establish joined
+membership, it must omit the event or reject the request with `M_FORBIDDEN`.
 
-### Merkleized metadata
+### Room versions
 
-For current room versions, this endpoint cannot prove an arbitrary topology
-claim without fetching the full event payload. Modern event IDs commit to the
-canonical JSON, but a server must fetch the full event to verify its hash.
+This endpoint only applies to room versions 3 and later.
 
-This means the immediately deployable version of this API should treat returned
-metadata as authenticated but untrusted routing information.
+Older room versions have different event ID and reference shapes. In particular,
+room versions 1 and 2 use server-assigned event IDs and include hashes in
+`prev_events` / `auth_events` entries rather than using the bare event ID shape
+used by later room versions. Supporting those versions would either require
+version-specific response shapes or lossy stripping of hashes.
 
-Older room versions, including v5, stay in that hint-only mode. Responding
-servers should extract whatever requested fields are well-defined for that
-room's event format, and return `null` or omit fields that are not cleanly
-available. They MUST NOT try to apply the Merkleized proof rules below to room
-versions which did not define that split canonicalization.
+Servers MUST reject requests for older room versions with
+`M_UNSUPPORTED_ROOM_VERSION`. This keeps the first version of the endpoint
+simple and avoids pretending that old event formats provide the same trust
+properties as hash-based event IDs.
 
-A future room version could make the metadata independently provable by changing
-the event hashing rules. This should not require adding proof objects to normal
-PDUs. Instead, the room version would define a split canonicalization:
+The metadata returned by this endpoint is still a hint. Even in room versions
+with hash-based event IDs, a server must fetch the full event payload to verify
+the claimed topology against the event hash.
 
-- `prev_events_hash`: canonical hash of the event's `prev_events`;
-- `auth_events_hash`: canonical hash of the event's `auth_events`;
-- `event_header_root`: Merkle root over small routing/authorship fields such as
-  `room_id`, `sender`, `type`, `state_key`, `depth`, `origin`, and
-  `origin_server_ts`;
-- `content_hash`: canonical hash of the remaining event body;
-- `event_root`: root hash committing to the above roots and leaves.
+## Future extensions
 
-The hash algorithm is SHA-256. Each hash input is domain-separated:
+Computed graph queries such as `common_ancestor` and `delta_depth` are useful
+follow-up work. They can help a server decide whether two branches reconnect
+within a bounded walk, or estimate how many events might be needed to bridge a
+gap. They are deliberately not part of the initial endpoint because common
+ancestors are not always unique in a DAG, and computing them safely needs its
+own tie-breaking and leakage analysis.
 
-- leaf hash:
-  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || "\x00" || canonical_value)`;
-- inner hash: `SHA256("tk.nutra.msc45xx.node.v1" || left_hash || right_hash)`;
-- root hash:
-  `SHA256("tk.nutra.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+A future room version could also make topology metadata independently provable
+by changing event hashing rules. One possible direction is split
+canonicalization: separate hashes for `prev_events`, `auth_events`, a small
+event header, and content, with an event root used for the event ID and signed
+by the origin server. That proof system belongs in a dedicated room-version MSC.
+This MSC only defines the hinting API for existing hash-based room versions.
 
-The header tree is binary. Header leaves are ordered bytewise by field name.
-Missing optional fields use the canonical value `null`; present fields use their
-normal Matrix canonical JSON encoding. This allows a server to prove `sender` or
-`type` without revealing every other header field.
+## Relationship to other proposals
 
-The event ID would be `"$" || unpadded_base64url(event_root)`. The origin
-server's Ed25519 signature would cover the canonical signed envelope:
+This proposal is a lower-level, targeted, pull-based metadata primitive. A
+set-reconciliation or gossip protocol could use it as a lookup step after
+detecting divergence.
 
-```json
-{
-    "room_id": "!room:example.org",
-    "room_version": "msc45xx",
-    "event_root": "unpadded_base64url_sha256_hash"
-}
-```
-
-rather than an unrelated metadata blob.
-
-This keeps normal federation lightweight. A `/send` PDU can still look
-functionally like an ordinary PDU; the receiving server computes the split
-hashes locally when verifying the event.
-
-The extra proof material only appears when a server asks this topology API for
-it. For example, a response proving `prev_events` would return the canonical
-`prev_events` leaf, the top-level sibling hashes needed to reconstruct
-`event_root`, and the origin signature. Those top-level siblings include
-`auth_events_hash`, `event_header_root`, and `content_hash` unless they are
-being separately proven in the same response. The verifier hashes the leaf,
-reconstructs the root, checks that the event ID is derived from that root, and
-verifies the signature.
-
-Sibling paths are represented from leaf to root as ordered pairs of side and
-hash, for example:
-
-```json
-[
-    ["right", "base64url_sha256_hash"],
-    ["left", "base64url_sha256_hash"]
-]
-```
-
-To verify a proof, the requester canonicalizes the returned value, computes its
-domain-separated leaf hash, applies each sibling in order to reconstruct either
-the header root or the event root, reconstructs `event_root` using the other
-provided top-level sibling hashes, checks that the event ID is derived from that
-root, then verifies the origin server's Ed25519 signature over the signed
-envelope. If a top-level sibling hash is not provided and not reconstructed from
-another proof in the same response, verification fails.
-
-`prev_events` and `auth_events` should be separate leaves. Bundling them into
-one `topology_hash` is simpler, but it forces a server asking only for timeline
-edges to also learn auth edges, and vice versa. Separate leaves better match the
-sparse fieldset shape of this proposal.
+This proposal does not define push gossip, session state, set digests, or bulk
+event repair. If another reconciliation proposal defines those higher-level
+flows, this endpoint should compose underneath it rather than compete with its
+wire format.
 
 ## Security considerations
 
