@@ -378,14 +378,14 @@ A compatible future room version modifies event hashing to generate an
 - `content_hash`: canonical hash of the remaining event body;
 - `event_root`: the root hash committing to the above components.
 
-The hash algorithm is SHA-256. Each hash input is domain-separated:
+The hash algorithm is SHA3-256. Each hash input is domain-separated:
 
 - Leaf hash:
-  `SHA256("tk.nutra.msc45xx.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
+  `SHA3-256("tk.nutra.msc45xx.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
 - Inner hash:
-  `SHA256("tk.nutra.msc45xx.topology_query.node.v1" || left_hash || right_hash)`.
+  `SHA3-256("tk.nutra.msc45xx.topology_query.node.v1" || left_hash || right_hash)`.
 - Root hash:
-  `SHA256("tk.nutra.msc45xx.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+  `SHA3-256("tk.nutra.msc45xx.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
 
 The top-level component hashes (`prev_events_hash`, `auth_events_hash`, and
 `content_hash`) are computed with the leaf-hash construction above, using the
@@ -423,7 +423,7 @@ containing this root:
 {
     "room_id": "!room:example.org",
     "room_version": "tk.nutra.topology_query",
-    "event_root": "unpadded_base64url_sha256_hash"
+    "event_root": "unpadded_base64url_sha3_256_hash"
 }
 ```
 
@@ -450,13 +450,13 @@ siblings, provides any required top-level component hashes needed to reconstruct
     "leaves": {
         "prev_events": [],
         "origin_server_ts": [
-            { "side": "right", "hash": "base64url_sha256_hash" },
-            { "side": "left", "hash": "base64url_sha256_hash" }
+            { "side": "right", "hash": "base64url_sha3_256_hash" },
+            { "side": "left", "hash": "base64url_sha3_256_hash" }
         ]
     },
     "event_root_siblings": {
-        "auth_events_hash": "base64url_sha256_hash",
-        "content_hash": "base64url_sha256_hash"
+        "auth_events_hash": "base64url_sha3_256_hash",
+        "content_hash": "base64url_sha3_256_hash"
     },
     "signatures": {
         "example.org": {
