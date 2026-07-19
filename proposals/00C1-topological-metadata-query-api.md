@@ -270,8 +270,6 @@ the room version provides Merkleized topology proofs for the path.
 
 ### Limits
 
-<!-- Proofread marker. [e09a5b01] -->
-
 Responding servers MUST enforce local limits regardless of what the requester
 asks for. The effective limit is the lower of the requester-provided limit and
 the server's configured local limit. If the requester omits an optional limit,
@@ -312,16 +310,17 @@ therefore has no `limited` flag.
 
 Implementations SHOULD use conservative defaults no higher than:
 
-- `max_depth`: 50;
+- `max_depth`: 500;
 - `max_event_records`: 1000;
 - `max_nodes_visited`: 5000;
 - maximum start events: 20;
 - maximum response body size: 1 MiB;
-- maximum processing time: 5 seconds.
+- maximum processing time: 3 seconds.
 
 Implementations MAY use lower local defaults or absolute maxima. If a response
 is truncated because of an effective limit, the server sets `limited` to `true`.
 
+<!-- Proofread marker. [e09a5b01] -->
 <!-- Reverse proofread marker. [bc3742f4] -->
 
 ### Authorization
