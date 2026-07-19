@@ -151,8 +151,6 @@ Each event ID is visited at most once, even if it is reachable through multiple
 paths or multiple edge types. This also prevents cycles from causing repeated
 work: an already-seen event is not queued again.
 
-<!-- Proofread marker. [e09a5b01] -->
-
 Within the same recursion depth, events should be processed in bytewise
 lexicographic order by event ID. This gives stable results when a response is
 limited. Because event IDs may be hashes, this is not intended to prefer the
@@ -174,9 +172,9 @@ cap, or timeout prevents the server from returning data it otherwise would have
 walked, it sets `limited` to `true`. If several conditions apply, `limited` is
 still just `true`.
 
-When requested via `fields`, a server MAY include `edge_errors` for an event to
-explain why specific edge targets were not followed. The initial reason codes
-are:
+When requested via `fields`, a server MAY include `edge_errors` explaining why
+certain edge targets were not followed. Servers MUST omit `edge_errors` unless
+it is requested in `fields`. The initial reason codes are:
 
 - `wrong_room`: the target event is known to belong to a different room.
 
@@ -195,18 +193,17 @@ wrong-room event. Additionally, a server MUST only apply the `wrong_room` label
 if it would be allowed to serve the target event to the requester under the
 target event's own room's authorization and history-visibility rules; otherwise
 the edge target is treated as unknown and omitted. Without this restriction, the
-label would act as an oracle for whether the responding server holds an
-arbitrary event ID from an unrelated, possibly private, room. Unknown,
-inaccessible, and hidden events are omitted rather than labelled, because
-distinguishing those cases can reveal room state or history-visibility
-information.
+label would disclose whether the responding server holds an arbitrary event ID
+from an unrelated, possibly private, room. Unknown, inaccessible, and hidden
+events are omitted rather than labelled, because distinguishing those cases can
+reveal room state or history-visibility information.
 
 Implementations SHOULD maintain indexes for `prev_events`, `auth_events`, and
 known forward extremities per room. These indexes allow the endpoint to answer
 bounded reverse-edge queries and help local repair logic choose useful starting
 events without scanning full event JSON. Forward extremities are not returned by
 this endpoint because they describe a server's local view of the room DAG
-boundary, not metadata committed to an individual event.
+boundary, rather than metadata committed to an individual event.
 
 ### Computed graph queries
 
@@ -236,6 +233,8 @@ reset for each pair rather than shared across the whole request, so an expensive
 earlier pair does not consume the budget for later pairs. If the search for any
 pair hits the effective cap, that pair's affected computed result is `null` and
 the response sets `limited` to `true`.
+
+<!-- Proofread marker. [e09a5b01] -->
 
 The initial computed query names are:
 
