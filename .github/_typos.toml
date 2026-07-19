@@ -15,5 +15,6 @@ extend-exclude = [
   # Use this array to exclude MSCs which have translations in them, after verifying
   # that the remainder of the proposal is typo-free.
 
+  "proposals/00BA-testnet-protocol.md", # MSC slug trips filename checking on "BA"
   "proposals/4335-user-limit-exceeded.md", # Contains French
 ]
