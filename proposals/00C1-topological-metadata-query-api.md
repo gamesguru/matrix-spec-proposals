@@ -2,14 +2,27 @@
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
-the shape of the graph we are traversing, or whether it is a dead end.
+the shape of the graph we are traversing, whether it is a dead end, or whether
+two branches reconnect at a known common ancestor. When a server encounters a
+gap in the DAG, the current federation API provides limited ways to discover
+which event IDs or remote servers are most likely to help bridge that gap before
+fetching full events.
 
-This proposal seeks to remedy such inefficiencies and blockades by allowing
-homeservers to return routing hints as customized queries of highly granular
-data, including:
+This proposal seeks to reduce these inefficiencies and traversal failures by
+allowing homeservers to return routing hints as customized queries of highly
+granular metadata and bounded graph facts, including:
 
-- `prev_events` edges, up to a recursion limit.
+- `prev_events` and `auth_events` edges, up to a recursion limit.
 - `origin` for a missing event (potentially useful for retrieving it).
+- whether a known edge target is outside the requested room.
+- graph shape hints and bounded computed facts, such as common ancestors, hop
+  distances, and per-event branching factor from returned edges.
+
+For current room versions 3 and later, returned metadata remains a hint that
+must be verified by fetching full events. This proposal also sketches an opt-in
+future room-version extension for Merkleized event metadata, allowing selected
+metadata fields to be independently verified without fetching the full event
+payload.
 
 ## Proposal
 
