@@ -31,6 +31,7 @@ For example:
     "start_event_ids": ["$missing_event_A", "$missing_event_B"],
     "edge_types": ["prev_events"],
     "max_depth": 50,
+    "max_nodes_visited": 5000,
     "fields": ["prev_events", "origin"],
     "compute": ["common_ancestor", "hop_distance"],
     "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
@@ -75,6 +76,8 @@ The initial query fields are:
 - `start_event_ids`: event IDs to start from.
 - `edge_types`: one or more of `prev_events` or `auth_events`.
 - `max_depth`: the maximum number of recursive hops requested.
+- `max_nodes_visited`: the maximum number of distinct events visited while
+  serving computed graph queries.
 - `fields`: the exact metadata fields requested.
 - `compute`: optional graph facts to compute over the same bounded traversal.
 - `compute_event_pairs`: event ID pairs to use for computed graph facts.
@@ -127,11 +130,19 @@ Responding servers MAY support small computed graph queries in addition to raw
 metadata fields. These queries are bounded by the same recursion, record, time,
 authorization, and room-boundary limits as normal traversal.
 
+If a server does not support computed graph queries, it MUST ignore `compute`
+and `compute_event_pairs` and process the rest of the metadata request normally.
+
 Computed graph queries operate on `compute_event_pairs`. Each entry is a
 two-element list of event IDs. If `compute` is present, `compute_event_pairs`
 MUST also be present and non-empty. Malformed pairs, pairs with fewer or more
 than two event IDs, or pairs containing malformed event IDs cause the request to
 fail with `M_INVALID_PARAM`.
+
+Computed graph queries MUST enforce a hard cap on the total number of distinct
+events visited during the search. The effective cap is the lower of
+`max_nodes_visited` and the responding server's local limit. Hitting this cap
+sets `limited` to `true`.
 
 The initial computed query names are:
 
@@ -139,7 +150,9 @@ The initial computed query names are:
   the responding server which is reachable from both events by following the
   selected edge types. If the search is limited before a common ancestor is
   found, the result is `null`; the server MUST NOT return a partial local
-  ancestor as if it were final.
+  ancestor as if it were final. If multiple common ancestors are found at the
+  same minimal hop distance, the server MUST return the lexicographically lowest
+  event ID.
 - `hop_distance`: given two event IDs, return the shortest known hop distance
   between them when following the selected edge types, or `null` if no path is
   found within the effective recursion limit.
