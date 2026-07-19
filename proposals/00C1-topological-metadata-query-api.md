@@ -28,10 +28,12 @@ For example:
 ```json
 {
     "room_id": "!room:example.org",
-    "start_event_ids": ["$missing_event"],
+    "start_event_ids": ["$missing_event_A", "$missing_event_B"],
     "edge_types": ["prev_events"],
     "max_depth": 50,
-    "fields": ["prev_events", "origin"]
+    "fields": ["prev_events", "origin"],
+    "compute": ["common_ancestor", "hop_distance"],
+    "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
 }
 ```
 
@@ -43,14 +45,18 @@ The response is intentionally sparse:
 ```json
 {
     "events": {
-        "$missing_event": {
+        "$missing_event_A": {
             "prev_events": ["$prev_1", "$prev_2"],
             "origin": "example.org"
         },
-        "$prev_1": {
-            "prev_events": ["$prev_0"],
+        "$missing_event_B": {
+            "prev_events": ["$prev_1"],
             "origin": "elsewhere.example"
         }
+    },
+    "computed": {
+        "common_ancestor": ["$prev_1"],
+        "hop_distance": [3]
     },
     "limited": true
 }
@@ -70,6 +76,8 @@ The initial query fields are:
 - `edge_types`: one or more of `prev_events` or `auth_events`.
 - `max_depth`: the maximum number of recursive hops requested.
 - `fields`: the exact metadata fields requested.
+- `compute`: optional graph facts to compute over the same bounded traversal.
+- `compute_event_pairs`: event ID pairs to use for computed graph facts.
 
 The initial response fields for each event are:
 
@@ -79,6 +87,8 @@ The initial response fields for each event are:
 - `type`: the event type, if known.
 - `state_key`: the state key, if known and applicable.
 - `sender`: the sender, if known.
+- `proof`: Merkle proof material, only for room versions which define split
+  canonicalization.
 
 The response maps each event ID to an object containing the fields returned for
 that event. Servers may omit fields they do not know, do not store efficiently,
@@ -110,6 +120,44 @@ If any limit, visibility check, wrong-room event, unknown event, response-size
 cap, or timeout prevents the server from returning data it otherwise would have
 walked, it sets `limited` to `true`. If several conditions apply, `limited` is
 still just `true`; this proposal does not require exposing which limit was hit.
+
+### Computed graph queries
+
+Responding servers MAY support small computed graph queries in addition to raw
+metadata fields. These queries are bounded by the same recursion, record, time,
+authorization, and room-boundary limits as normal traversal.
+
+Computed graph queries operate on `compute_event_pairs`. Each entry is a
+two-element list of event IDs. If `compute` is present, `compute_event_pairs`
+MUST also be present and non-empty. Malformed pairs, pairs with fewer or more
+than two event IDs, or pairs containing malformed event IDs cause the request to
+fail with `M_INVALID_PARAM`.
+
+The initial computed query names are:
+
+- `common_ancestor`: given two event IDs, return the nearest event ID known to
+  the responding server which is reachable from both events by following the
+  selected edge types. If the search is limited before a common ancestor is
+  found, the result is `null`; the server MUST NOT return a partial local
+  ancestor as if it were final.
+- `hop_distance`: given two event IDs, return the shortest known hop distance
+  between them when following the selected edge types, or `null` if no path is
+  found within the effective recursion limit.
+
+Computed queries only walk events which belong to the requested room and are
+visible to the requester. Hidden history-visibility branches are pruned, not
+replaced with opaque markers. If pruning affects the answer, the server sets
+`limited` to `true`.
+
+If more than one pair is supplied, the server computes each requested graph fact
+for each pair independently. The `computed` object maps each requested compute
+name to a list of results aligned with `compute_event_pairs`. If either event in
+a pair is unknown, wrong-room, or not visible to the requester, the result for
+that pair is `null` and `limited` is set to `true`.
+
+These results are hints. They MUST NOT be used as proof that two branches are
+authentically related without fetching and verifying the relevant events, unless
+the room version provides Merkleized topology proofs for the path.
 
 ### Limits
 
@@ -198,21 +246,95 @@ The metadata returned by this endpoint is still a hint. Even in room versions
 with hash-based event IDs, a server must fetch the full event payload to verify
 the claimed topology against the event hash.
 
+## Split canonicalization and Merkleized metadata
+
+To make topology metadata independently provable without fetching the full event
+payload, this MSC defines split canonicalization for a new room version.
+
+The new room version modifies event hashing to generate an `event_root` from
+isolated metadata leaves:
+
+- `prev_events_hash`: canonical hash of the event's `prev_events`;
+- `auth_events_hash`: canonical hash of the event's `auth_events`;
+- `event_header_root`: Merkle root over routing and authorship fields:
+  `room_id`, `sender`, `type`, `state_key`, and `origin_server_ts`;
+- `content_hash`: canonical hash of the remaining event body;
+- `event_root`: the root hash committing to the above components.
+
+The hash algorithm is SHA-256. Each hash input is domain-separated:
+
+- Leaf hash:
+  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || "\x00" || canonical_value)`.
+- Inner hash: `SHA256("tk.nutra.msc45xx.node.v1" || left_hash || right_hash)`.
+- Root hash:
+  `SHA256("tk.nutra.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+
+During development, implementations use `tk.nutra.msc45xx.*` domain separators.
+Before stabilization, these MUST be replaced with the final room-version
+identifier.
+
+### Header tree construction
+
+The `event_header_root` is constructed as a binary Merkle tree. Header leaves
+are ordered bytewise by field name. Missing optional fields use the canonical
+JSON value `null`; present fields use their standard Matrix canonical JSON
+encoding.
+
+Because the number of header leaves is not guaranteed to be a power of two,
+implementations MUST construct `event_header_root` using the Merkle tree
+algorithm defined in
+[RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1).
+
+### Event IDs and signatures
+
+The event ID is derived directly from the root:
+`"$" || unpadded_base64url(event_root)`.
+
+The origin server's Ed25519 signature covers the canonical signed envelope
+containing this root:
+
+```json
+{
+    "room_id": "!room:example.org",
+    "room_version": "msc45xx",
+    "event_root": "unpadded_base64url_sha256_hash"
+}
+```
+
+This keeps normal federation lightweight. A `/send` PDU can still look
+functionally like an ordinary PDU; the receiving server computes the split
+hashes locally when verifying the event.
+
+### Cryptographic proof responses
+
+When the queried room version supports split canonicalization, a server MAY
+include proof material for requested fields. For example, a response proving
+`prev_events` returns the canonical `prev_events` leaf, the top-level sibling
+hashes needed to reconstruct `event_root`, and the origin signature. Those
+top-level siblings include `auth_events_hash`, `event_header_root`, and
+`content_hash` unless they are separately proven in the same response.
+
+Sibling paths are represented from leaf to root as an array of objects:
+
+```json
+[
+    { "side": "right", "hash": "base64url_sha256_hash" },
+    { "side": "left", "hash": "base64url_sha256_hash" }
+]
+```
+
+To verify topology without the payload, the requester canonicalizes the returned
+field, computes its domain-separated leaf hash, applies each sibling in order to
+reconstruct either the header root or the event root, reconstructs `event_root`
+using the other provided top-level sibling hashes, checks that the event ID is
+derived from that root, then verifies the origin server's Ed25519 signature over
+the signed envelope. If a top-level sibling hash is not provided and not
+reconstructed from another proof in the same response, verification fails.
+
 ## Future extensions
 
-Computed graph queries such as `common_ancestor` and `delta_depth` are useful
-follow-up work. They can help a server decide whether two branches reconnect
-within a bounded walk, or estimate how many events might be needed to bridge a
-gap. They are deliberately not part of the initial endpoint because common
-ancestors are not always unique in a DAG, and computing them safely needs its
-own tie-breaking and leakage analysis.
-
-A future room version could also make topology metadata independently provable
-by changing event hashing rules. One possible direction is split
-canonicalization: separate hashes for `prev_events`, `auth_events`, a small
-event header, and content, with an event root used for the event ID and signed
-by the origin server. That proof system belongs in a dedicated room-version MSC.
-This MSC only defines the hinting API for existing hash-based room versions.
+Future room versions may extend the proof fields, add more independently
+provable leaves, or alter the domain separators during stabilization.
 
 ## Relationship to other proposals
 
@@ -291,3 +413,5 @@ passes normal Matrix authorization and event verification.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
   as prior art for committing to metadata with a root hash while revealing only
   the pieces needed by the verifier.
+- [RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1)
+  for the Merkle tree construction used by `event_header_root`.
