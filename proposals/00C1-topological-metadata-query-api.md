@@ -50,7 +50,7 @@ For example:
     "max_nodes_visited": 5000,
     "fields": ["prev_events", "origin"],
     "compute": ["common_ancestor", "hop_distance"],
-    "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
+    "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
 }
 ```
 
@@ -69,11 +69,15 @@ The response is intentionally sparse:
         "$missing_event_B": {
             "prev_events": ["$prev_1"],
             "origin": "elsewhere.example"
+        },
+        "$prev_1": {
+            "prev_events": ["$prev_0"],
+            "origin": "example.org"
         }
     },
     "computed": {
         "common_ancestor": ["$prev_1"],
-        "hop_distance": [3]
+        "hop_distance": [1]
     },
     "limited": true
 }
@@ -94,7 +98,7 @@ The initial query fields are:
 - `max_depth`: the maximum number of recursive hops requested.
 - `max_event_records`: the maximum number of event records returned.
 - `max_nodes_visited`: the maximum number of distinct events visited while
-  serving computed graph queries.
+  serving raw or computed graph queries.
 - `fields`: the exact metadata fields requested.
 - `compute`: optional graph facts to compute over the same bounded traversal.
 - `compute_event_pairs`: event ID pairs to use for computed graph facts.
@@ -142,8 +146,12 @@ most recent or most useful branch. It is only a deterministic truncation rule.
 The server applies limits in this order:
 
 - reject malformed request fields before traversal;
+- reject requests with more than the effective maximum number of start events
+  before looking up any events;
 - stop before returning more than the effective maximum event record count;
 - do not follow edges past the requested or server-configured recursion depth;
+- stop queueing or inspecting new events before visiting more than the effective
+  maximum number of distinct events;
 - stop before exceeding the server's response-size or processing-time limits.
 
 If any limit, visibility check, wrong-room event, unknown event, response-size
@@ -204,8 +212,14 @@ fail with `M_INVALID_PARAM`.
 
 Computed graph queries MUST enforce a hard cap on the total number of distinct
 events visited during the search. The effective cap is the lower of
-`max_nodes_visited` and the responding server's local limit. Hitting this cap
-sets `limited` to `true`.
+`max_nodes_visited` and the responding server's local limit.
+
+When more than one `compute_event_pairs` entry is supplied, the server MUST
+process pairs in request order. The effective `max_nodes_visited` budget is
+reset for each pair rather than shared across the whole request, so an expensive
+earlier pair does not consume the budget for later pairs. If the search for any
+pair hits the effective cap, that pair's affected computed result is `null` and
+the response sets `limited` to `true`.
 
 The initial computed query names are:
 
@@ -249,7 +263,7 @@ At minimum, implementations MUST enforce these limits:
 
 - maximum recursion depth;
 - maximum returned event records;
-- maximum distinct events visited while serving computed graph queries;
+- maximum distinct events visited while serving raw or computed graph queries;
 - maximum number of start events;
 - maximum response body size;
 - maximum processing time;
@@ -267,6 +281,12 @@ the request with `M_INVALID_PARAM`. A request limit larger than the server's
 configured maximum is not an error: consistent with the effective-limit rule
 above, it is clamped to that maximum. Clamping by itself does not set `limited`;
 `limited` is only set if the effective limit actually truncates the response.
+
+If the number of `start_event_ids` entries exceeds the responding server's
+effective maximum start-event count, the server MUST reject the request with
+`M_INVALID_PARAM` before performing any event lookup, authorization check, or
+graph traversal. This rejection does not produce a partial response and
+therefore has no `limited` flag.
 
 Implementations SHOULD use conservative defaults no higher than:
 
@@ -422,8 +442,8 @@ header leaves not exposed in hint-only mode (`sender`, `type`, `state_key`),
 since a field must be returnable to be provable.
 
 The `proof` object schema explicitly maps the proven fields to their Merkle
-siblings, provides any required top-level component hashes needed to
-reconstruct `event_root`, and includes the origin signature:
+siblings, provides any required top-level component hashes needed to reconstruct
+`event_root`, and includes the origin signature:
 
 ```json
 "proof": {
