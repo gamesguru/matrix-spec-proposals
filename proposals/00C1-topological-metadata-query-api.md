@@ -155,3 +155,18 @@ Implementations should decay these penalties over time to prevent transient
 corruption or partial-state desyncs from permanently poisoning a peer. Such
 reputation data MUST NOT cause the requester to reject a valid event which
 passes normal Matrix authorization and event verification.
+
+## References
+
+- [Matrix Server-Server API](https://spec.matrix.org/latest/server-server-api/)
+  for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
+  authorization, and the existing PDU flow this proposal tries to avoid
+  overusing.
+- [Matrix room version 7](https://spec.matrix.org/latest/rooms/v7/) for current
+  event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`, and event
+  format behavior.
+- [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
+  art for selective, client-chosen field/query shapes in Matrix.
+- [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
+  as prior art for committing to metadata with a root hash while revealing only
+  the pieces needed by the verifier.
