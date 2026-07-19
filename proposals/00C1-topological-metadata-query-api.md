@@ -567,26 +567,27 @@ rate-limiting, and treating responses as hints. A server should still fetch and
 verify full events before accepting any event, repairing state, or considering a
 gap resolved.
 
+<!-- Reverse proofread marker. -->
+
 ### Bandwidth consumption
 
 This MSC does expose a bandwidth-consumption surface for servers which implement
-the endpoint. An attacker who is already able to make authenticated federation
-requests could ask for large bounded topology responses repeatedly.
+the endpoint.
 
 This is not unique to this endpoint: `/event`, `/backfill`,
 `/get_missing_events`, and `/state_ids` already expose heavier bandwidth
-surfaces. The intended use case here is real-world gap repair: inbound
-transactions, backfill attempts, and auth-chain recovery often need to know a
-few edges or origins before deciding which full events to fetch. Returning
-compact metadata can reduce total bandwidth compared to fetching full PDUs or
-state sets blindly.
+surfaces.
+
+The intended use case here is real-world gap repair: inbound transactions,
+backfill attempts, and auth-chain recovery often need to know a few edges or
+origins before deciding which full events to fetch. Returning compact metadata
+can reduce total bandwidth compared to fetching full PDUs or state sets blindly.
+This may also be of use in manual admin commands.
 
 Servers should still treat this as an optional endpoint with hard response-size
 limits, per-origin rate limits, and conservative defaults. If a deployment does
 not see federation repair value from this query shape, it can decline to expose
 the endpoint.
-
-<!-- Reverse proofread marker. -->
 
 ### Hint validation and reputation
 
