@@ -1,4 +1,4 @@
-# MSC45XX: Topological peek/query API with sparse fieldsets and Merkleized metadata
+# MSC4510: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -29,7 +29,7 @@ payload.
 A new federation endpoint is added:
 
 ```http
-POST /_matrix/federation/unstable/tk.nutra.msc45xx/topology_query
+POST /_matrix/federation/unstable/tk.nutra.msc4510/topology_query
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -404,17 +404,17 @@ A compatible future room version modifies event hashing to generate an
 The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
 
 - Leaf hash:
-  `SHA3-256("tk.nutra.msc45xx.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
+  `SHA3-256("tk.nutra.msc4510.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
 - Inner hash:
-  `SHA3-256("tk.nutra.msc45xx.topology_query.node.v1" || left_hash || right_hash)`.
+  `SHA3-256("tk.nutra.msc4510.topology_query.node.v1" || left_hash || right_hash)`.
 - Root hash:
-  `SHA3-256("tk.nutra.msc45xx.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+  `SHA3-256("tk.nutra.msc4510.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
 
 The top-level component hashes (`prev_events_hash`, `auth_events_hash`, and
 `content_hash`) are computed with the leaf-hash construction above, using the
 field names `prev_events`, `auth_events`, and `content` respectively.
 
-During development, implementations use `tk.nutra.msc45xx.topology_query.*`
+During development, implementations use `tk.nutra.msc4510.topology_query.*`
 domain separators. Before stabilization, these MUST be replaced with the final
 room-version identifier.
 
@@ -447,7 +447,7 @@ containing this root:
 ```json
 {
     "room_id": "!room:example.org",
-    "room_version": "tk.nutra.msc45xx.topology_query",
+    "room_version": "tk.nutra.msc4510.topology_query",
     "event_root": "unpadded_base64url_sha3_256_hash"
 }
 ```
