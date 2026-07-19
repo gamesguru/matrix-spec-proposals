@@ -474,17 +474,17 @@ paths, provides any required top-level component hashes needed to reconstruct
 ```
 
 To verify topology without the payload, the requester canonicalizes the returned
-field, computes its domain-separated leaf hash, applies each entry in
+field, computes its domain-separated leaf hash, applies each step in
 `leaf_paths` in order to reconstruct either the header root or the event root,
 reconstructs `event_root` using the other provided `top_level_hashes`, checks
 that the event ID is derived from that root, then verifies the origin server's
 Ed25519 signature. Top-level components (`prev_events`, `auth_events`, and
-content) have an empty sibling list: their leaf hash is used directly as the
+content) have an empty path list: their leaf hash is used directly as the
 corresponding component of the root hash. `top_level_hashes` MUST contain every
 top-level component hash that is not reconstructed from another proof in the
 same response; in the example above, `event_header_root` is omitted because it
-is reconstructed from the `origin_server_ts` proof. If a required sibling hash
-is missing, verification fails.
+is reconstructed from the `origin_server_ts` proof. If a required hash is
+missing, verification fails.
 
 ## Future extensions
 
