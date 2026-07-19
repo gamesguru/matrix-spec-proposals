@@ -398,8 +398,8 @@ The top-level component hashes (`prev_events_hash`, `auth_events_hash`, and
 `content_hash`) are computed with the leaf-hash construction above, using the
 field names `prev_events`, `auth_events`, and `content` respectively.
 
-During development, implementations use `tk.nutra.topology_query.*` domain
-separators. Before stabilization, these MUST be replaced with the final
+During development, implementations use `tk.nutra.msc45xx.topology_query.*`
+domain separators. Before stabilization, these MUST be replaced with the final
 room-version identifier.
 
 ### Header tree construction
@@ -429,7 +429,7 @@ containing this root:
 ```json
 {
     "room_id": "!room:example.org",
-    "room_version": "tk.nutra.topology_query",
+    "room_version": "tk.nutra.msc45xx.topology_query",
     "event_root": "unpadded_base64url_sha3_256_hash"
 }
 ```
