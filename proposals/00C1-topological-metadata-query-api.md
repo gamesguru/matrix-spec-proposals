@@ -320,9 +320,6 @@ Implementations SHOULD use conservative defaults no higher than:
 Implementations MAY use lower local defaults or absolute maxima. If a response
 is truncated because of an effective limit, the server sets `limited` to `true`.
 
-<!-- Proofread marker. [e09a5b01] -->
-<!-- Reverse proofread marker. [bc3742f4] -->
-
 ### Authorization
 
 The responding server MUST only return sparse metadata which the requesting
