@@ -491,6 +491,48 @@ missing, verification fails.
 Future room versions may extend the proof fields, add more independently
 provable leaves, or alter the domain separators during stabilization.
 
+## Performance characteristics and benchmarking
+
+Exact speedups depend on implementation, database layout, cache state, and
+workload, but the theoretical bandwidth bounds and storage overhead can be
+quantified.
+
+### Asymptotic bandwidth analysis
+
+For a traversal visiting `N` events:
+
+- full-event retrieval transfers `O(N * S_event)` bytes;
+- sparse topology query transfers `O(N * S_meta + P)` bytes, where `S_meta` is
+  the size of the requested metadata fieldset and `P` is the size of optional
+  proof material.
+
+When proofs are not requested, the bandwidth reduction approaches
+`1 - (S_meta / S_event)`. As an illustrative range, if a full event is 1 to 5
+KiB and the requested topology metadata is 80 to 300 bytes per event, the
+bandwidth reduction is roughly 70% to 98%. Implementations MUST NOT rely on
+these illustrative percentages as protocol guarantees.
+
+### Storage overhead
+
+The split-canonicalization sketch introduces storage overhead if a server stores
+the top-level hashes `prev_events_hash`, `auth_events_hash`,
+`event_header_root`, `content_hash`, and `event_root`.
+
+Using SHA3-256, each hash is 32 bytes, so storing these five hashes adds 160
+bytes of raw hash material per event before database row, index, and encoding
+overhead. For a 2 KiB event, this raw hash material is approximately 7.8% of the
+event size; for a 5 KiB event, it is approximately 3.1%. Storing full header
+leaf hashes or dedicated proof-acceleration indexes would increase this
+overhead.
+
+### Empirical benchmarking
+
+Implementations SHOULD benchmark this endpoint against their specific event
+store and federation workload. Recommended metrics include total bytes
+transferred, number of round trips, database rows read, full event JSON decode
+count, CPU time, wall-clock latency, and success rate for gap repair path
+selection.
+
 ## Relationship to other proposals
 
 This proposal is a lower-level, targeted, pull-based metadata primitive. A
@@ -501,6 +543,15 @@ This proposal does not define push gossip, session state, set digests, or bulk
 event repair. If another reconciliation proposal defines those higher-level
 flows, this endpoint should compose underneath it rather than compete with its
 wire format.
+
+This proposal is also complementary to
+[MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242).
+State DAGs split state progression from the message event DAG; this endpoint
+provides a sparse query primitive that can compose with state-DAG edges. A
+state-DAG extension of this query shape can add efficient filters by event
+`type` and `state_key`, allowing a server to ask targeted questions such as
+"which membership-state branch contains this user?" without fetching full state
+events or scanning unrelated state keys.
 
 ## Security considerations
 
@@ -570,6 +621,9 @@ passes normal Matrix authorization and event verification.
   federation.
 - [MSC2716: Incrementally Importing History](https://github.com/matrix-org/matrix-spec-proposals/pull/2716),
   as related background for historical DAG gaps and inserted history chunks.
+- [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
+  as related work for representing state progression separately from the message
+  event DAG.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
   as prior art for committing to metadata with a root hash while revealing only
   the pieces needed by the verifier.
