@@ -434,11 +434,11 @@ containing this root:
 }
 ```
 
-For room versions adopting this format, this root signature replaces the
-traditional PDU JSON signature, serving as the sole cryptographic commitment for
-the event. This keeps normal federation lightweight: a `/send` PDU still looks
-functionally like an ordinary PDU, and the receiving server simply computes the
-split hashes locally when verifying the event.
+For room versions adopting this format, a future room-version MSC MUST specify
+how the root signature interacts with, or replaces, existing event authorization
+and verification rules. This keeps the present proposal focused on the topology
+query API while leaving signature migration mechanics to the room-version
+proposal.
 
 ### Cryptographic proof responses
 
@@ -449,19 +449,19 @@ header leaves not exposed in hint-only mode (`sender`, `type`, `state_key`),
 since a field must be returnable to be provable.
 
 The `proof` object schema explicitly maps the proven fields to their Merkle
-siblings, provides any required top-level component hashes needed to reconstruct
+paths, provides any required top-level component hashes needed to reconstruct
 `event_root`, and includes the origin signature:
 
 ```json
 "proof": {
-    "leaves": {
+    "leaf_paths": {
         "prev_events": [],
         "origin_server_ts": [
             { "side": "right", "hash": "base64url_sha3_256_hash" },
             { "side": "left", "hash": "base64url_sha3_256_hash" }
         ]
     },
-    "event_root_siblings": {
+    "top_level_hashes": {
         "auth_events_hash": "base64url_sha3_256_hash",
         "content_hash": "base64url_sha3_256_hash"
     },
@@ -474,17 +474,17 @@ siblings, provides any required top-level component hashes needed to reconstruct
 ```
 
 To verify topology without the payload, the requester canonicalizes the returned
-field, computes its domain-separated leaf hash, applies each sibling in `leaves`
-in order to reconstruct either the header root or the event root, reconstructs
-`event_root` using the other provided `event_root_siblings`, checks that the
-event ID is derived from that root, then verifies the origin server's Ed25519
-signature. Top-level components (`prev_events`, `auth_events`, and content) have
-an empty sibling list: their leaf hash is used directly as the corresponding
-component of the root hash. `event_root_siblings` MUST contain every top-level
-component hash that is not reconstructed from another proof in the same
-response; in the example above, `event_header_root` is omitted because it is
-reconstructed from the `origin_server_ts` proof. If a required sibling hash is
-missing, verification fails.
+field, computes its domain-separated leaf hash, applies each entry in
+`leaf_paths` in order to reconstruct either the header root or the event root,
+reconstructs `event_root` using the other provided `top_level_hashes`, checks
+that the event ID is derived from that root, then verifies the origin server's
+Ed25519 signature. Top-level components (`prev_events`, `auth_events`, and
+content) have an empty sibling list: their leaf hash is used directly as the
+corresponding component of the root hash. `top_level_hashes` MUST contain every
+top-level component hash that is not reconstructed from another proof in the
+same response; in the example above, `event_header_root` is omitted because it
+is reconstructed from the `origin_server_ts` proof. If a required sibling hash
+is missing, verification fails.
 
 ## Future extensions
 
