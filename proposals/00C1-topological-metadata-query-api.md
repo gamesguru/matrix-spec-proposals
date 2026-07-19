@@ -99,8 +99,10 @@ The initial query fields are:
 
 The initial response fields for each event are:
 
-- `room_id`: the room the event belongs to. For ordinary event records this is
-  the requested room.
+- `room_id`: the room the event belongs to. This is always the requested room,
+  since wrong-room events are never returned as records; it exists as a
+  queryable field so that room versions with split canonicalization can prove
+  it.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
 - `origin`: the best known origin server for the event.
@@ -109,6 +111,12 @@ The initial response fields for each event are:
 - `edge_errors`: non-followed edge targets grouped by edge type and reason.
 - `proof`: Merkle proof material, only for future room versions which opt into
   split canonicalization.
+
+Unrecognized `edge_types` entries or `compute` names cause the request to fail
+with `M_INVALID_PARAM`, because silently ignoring them would change traversal or
+computation semantics without the requester knowing. Unrecognized `fields`
+entries are ignored, which is indistinguishable from a server declining to
+disclose a known field and keeps the field set forward-extensible.
 
 The response maps each event ID to an object containing the fields returned for
 that event. Servers may omit fields they do not know, do not store efficiently,
@@ -158,9 +166,15 @@ For example:
 ```
 
 The server MUST NOT include the other room's ID or any metadata from the
-wrong-room event. Unknown, inaccessible, and hidden events are omitted rather
-than labelled, because distinguishing those cases can reveal room state or
-history-visibility information.
+wrong-room event. Additionally, a server MUST only apply the `wrong_room` label
+if it would be allowed to serve the target event to the requester under the
+target event's own room's authorization and history-visibility rules; otherwise
+the edge target is treated as unknown and omitted. Without this restriction, the
+label would act as an oracle for whether the responding server holds an
+arbitrary event ID from an unrelated, possibly private, room. Unknown,
+inaccessible, and hidden events are omitted rather than labelled, because
+distinguishing those cases can reveal room state or history-visibility
+information.
 
 Implementations SHOULD maintain indexes for `prev_events`, `auth_events`, and
 known forward extremities per room. These indexes allow the endpoint to answer
@@ -243,9 +257,11 @@ integers:
 - `max_event_records`;
 - `max_nodes_visited`.
 
-If a request limit is `0`, negative, not an integer, or larger than the server's
-configured absolute maximum, the server MUST reject the request with
-`M_INVALID_PARAM`.
+If a request limit is `0`, negative, or not an integer, the server MUST reject
+the request with `M_INVALID_PARAM`. A request limit larger than the server's
+configured maximum is not an error: consistent with the effective-limit rule
+above, it is clamped to that maximum. Clamping by itself does not set `limited`;
+`limited` is only set if the effective limit actually truncates the response.
 
 Implementations SHOULD use conservative defaults no higher than:
 
@@ -275,10 +291,11 @@ responding server MUST validate that the event belongs to the requested
 `room_id` before returning metadata for it or following its edges. Unknown
 events and wrong-room events are omitted from the response as event records. If
 `edge_errors` was requested, the server MAY label a known wrong-room edge target
-as `wrong_room` on the source event, but MUST NOT follow that edge or return
-metadata from the wrong-room event. If any requested or discovered event is
-omitted for being unknown, wrong-room, or not visible to the requester, the
-response MUST set `limited` to `true`.
+as `wrong_room` on the source event, subject to the disclosure restriction in
+the traversal section, but MUST NOT follow that edge or return metadata from the
+wrong-room event. If any requested or discovered event is omitted for being
+unknown, wrong-room, or not visible to the requester, the response MUST set
+`limited` to `true`.
 
 The responding server MUST NOT return topology metadata for an event if it would
 not be allowed to serve the corresponding full event to the requester.
@@ -321,7 +338,7 @@ topology against the event hash. Cryptographic proofs of topology without
 fetching the payload require a future room version that explicitly opts into
 split canonicalization.
 
-## Split canonicalization and Merkleized metadata (Opt-In Sketch)
+## Split canonicalization and Merkleized metadata (opt-in sketch)
 
 To make topology metadata independently provable, this MSC sketches a split
 canonicalization design for future room versions to opt into.
@@ -339,14 +356,19 @@ A compatible future room version modifies event hashing to generate an
 The hash algorithm is SHA-256. Each hash input is domain-separated:
 
 - Leaf hash:
-  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || "\x00" || canonical_value)`.
-- Inner hash: `SHA256("tk.nutra.msc45xx.node.v1" || left_hash || right_hash)`.
+  `SHA256("tk.nutra.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
+- Inner hash:
+  `SHA256("tk.nutra.topology_query.node.v1" || left_hash || right_hash)`.
 - Root hash:
-  `SHA256("tk.nutra.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+  `SHA256("tk.nutra.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
 
-During development, implementations use `tk.nutra.msc45xx.*` domain separators.
-Before stabilization, these MUST be replaced with the final room-version
-identifier.
+The top-level component hashes (`prev_events_hash`, `auth_events_hash`, and
+`content_hash`) are computed with the leaf-hash construction above, using the
+field names `prev_events`, `auth_events`, and `content` respectively.
+
+During development, implementations use `tk.nutra.topology_query.*` domain
+separators. Before stabilization, these MUST be replaced with the final
+room-version identifier.
 
 ### Header tree construction
 
@@ -358,7 +380,11 @@ encoding.
 Because the number of header leaves is not guaranteed to be a power of two,
 implementations MUST construct `event_header_root` using the Merkle tree
 algorithm defined in
-[RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1).
+[RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1),
+substituting the domain-separated leaf and inner hash constructions defined
+above for the RFC's `0x00`- and `0x01`-prefixed hashes. Only the tree shape (the
+largest-power-of-two split rule and its recursion) is taken from RFC 6962; no
+padding leaves are used.
 
 ### Event IDs and signatures
 
@@ -371,7 +397,7 @@ containing this root:
 ```json
 {
     "room_id": "!room:example.org",
-    "room_version": "msc45xx",
+    "room_version": "tk.nutra.topology_query",
     "event_root": "unpadded_base64url_sha256_hash"
 }
 ```
@@ -385,7 +411,10 @@ split hashes locally when verifying the event.
 ### Cryptographic proof responses
 
 When the queried room version supports split canonicalization, a server MAY
-include proof material for requested fields inside a `proof` object.
+include proof material for requested fields inside a `proof` object. A room
+version adopting this format also extends the queryable `fields` set with the
+header leaves not exposed in hint-only mode (`sender`, `type`, `state_key`),
+since a field must be returnable to be provable.
 
 The `proof` object schema explicitly maps the proven fields to their Merkle
 siblings, provides any required top-level root siblings, and includes the origin
@@ -394,14 +423,14 @@ signature:
 ```json
 "proof": {
     "leaves": {
-        "prev_events": [
+        "prev_events": [],
+        "origin_server_ts": [
             { "side": "right", "hash": "base64url_sha256_hash" },
             { "side": "left", "hash": "base64url_sha256_hash" }
         ]
     },
     "event_root_siblings": {
         "auth_events_hash": "base64url_sha256_hash",
-        "event_header_root": "base64url_sha256_hash",
         "content_hash": "base64url_sha256_hash"
     },
     "signatures": {
@@ -417,7 +446,13 @@ field, computes its domain-separated leaf hash, applies each sibling in `leaves`
 in order to reconstruct either the header root or the event root, reconstructs
 `event_root` using the other provided `event_root_siblings`, checks that the
 event ID is derived from that root, then verifies the origin server's Ed25519
-signature. If a required sibling hash is missing, verification fails.
+signature. Top-level components (`prev_events`, `auth_events`, and content) have
+an empty sibling list: their leaf hash is used directly as the corresponding
+component of the root hash. `event_root_siblings` MUST contain every top-level
+component hash that is not reconstructed from another proof in the same
+response; in the example above, `event_header_root` is omitted because it is
+reconstructed from the `origin_server_ts` proof. If a required sibling hash is
+missing, verification fails.
 
 ## Future extensions
 
