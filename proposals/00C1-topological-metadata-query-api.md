@@ -1,5 +1,7 @@
 # MSC45XX: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
+<!-- Proofread marker. [e09a5b01] -->
+
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
 the shape of the graph we are traversing, whether it is a dead end, or whether
