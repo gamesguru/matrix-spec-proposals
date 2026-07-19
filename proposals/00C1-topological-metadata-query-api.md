@@ -1,4 +1,4 @@
-# MSC45XX: Topological peek/query API via sparse fieldsets
+# MSC45XX: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
