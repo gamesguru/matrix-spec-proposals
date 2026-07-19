@@ -98,7 +98,7 @@ The initial query fields are:
 - `max_depth`: the maximum number of recursive hops requested.
 - `max_event_records`: the maximum number of event records returned.
 - `max_nodes_visited`: the maximum number of distinct events visited while
-  serving raw or computed graph queries.
+  serving raw traversal, or while serving each computed graph query pair.
 - `fields`: the exact metadata fields requested.
 - `compute`: optional graph facts to compute over the same bounded traversal.
 - `compute_event_pairs`: event ID pairs to use for computed graph facts.
@@ -221,13 +221,14 @@ receive expected computations.
 
 Computed graph queries operate on `compute_event_pairs`. Each entry is a
 two-element list of event IDs. If `compute` is present, `compute_event_pairs`
-MUST also be present and non-empty. Malformed pairs, pairs with fewer or more
-than two event IDs, or pairs containing malformed event IDs cause the request to
-fail with `M_INVALID_PARAM`.
+MUST also be present and non-empty. If `compute_event_pairs` is present without
+`compute`, the server MUST reject the request with `M_INVALID_PARAM`. Malformed
+pairs, pairs with fewer or more than two event IDs, or pairs containing
+malformed event IDs cause the request to fail with `M_INVALID_PARAM`.
 
-Computed graph queries MUST enforce a hard cap on the total number of distinct
-events visited during the search. The effective cap is the lower of
-`max_nodes_visited` and the responding server's local limit.
+Computed graph queries MUST enforce a hard cap on the number of distinct events
+visited while processing each `compute_event_pairs` entry. The effective cap is
+the lower of `max_nodes_visited` and the responding server's local limit.
 
 When more than one `compute_event_pairs` entry is supplied, the server MUST
 process pairs in request order. The effective `max_nodes_visited` budget is
