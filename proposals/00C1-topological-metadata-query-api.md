@@ -12,7 +12,7 @@ This proposal seeks to reduce these inefficiencies and traversal failures by
 allowing homeservers to return routing hints as customized queries of highly
 granular metadata and bounded graph facts, including:
 
-- `prev_events` and `auth_events` edges, up to a recursion limit.
+- `prev_events` / `auth_events` edge event IDs, up to a recursion limit.
 - `origin` for a missing event (potentially useful for retrieving it).
 - whether a known edge target is outside the requested room.
 - graph shape hints and bounded computed facts, such as common ancestors, hop
