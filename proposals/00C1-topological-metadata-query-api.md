@@ -565,15 +565,15 @@ events or scanning unrelated state keys.
 
 The major risks are:
 
-- recursive queries being used for CPU, memory, or database exhaustion;
-- repeated valid-looking queries being used for bandwidth consumption;
+- recursive queries hanging or entering unbounded traversals;
+- large repeated queries increasing bandwidth or processing load;
 - metadata leaks about rooms, participants, or historical graph shape;
-- malicious servers returning false topology to misroute repair attempts.
+- buggy or misrepresented topology output causing incorrect repair attempts.
 
 These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints. A server should still fetch and
-verify full events before accepting any event, repairing state, or considering a
-gap resolved.
+rate-limiting, and treating responses as hints (unless in a fully Merkleized
+room). A server should still fetch and verify full events before accepting any
+event, repairing state, or considering a gap resolved.
 
 <!-- Reverse proofread marker. -->
 
