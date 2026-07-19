@@ -363,6 +363,8 @@ not visible, the server omits those branches, events, or fields and sets
 `limited` to `true`. Hidden branches are not replaced with opaque markers,
 because such markers would still leak graph shape.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ### Room versions
 
 This endpoint applies to room versions 3 and later in a hint-only capacity.
@@ -374,15 +376,15 @@ Servers MUST reject requests for older room versions with
 hash stripping.
 
 The metadata returned by this endpoint for current room versions is strictly a
-hint. A server must still fetch the full event payload to verify the claimed
+**hint**. A server must still fetch the full event payload to verify the claimed
 topology against the event hash. Cryptographic proofs of topology without
 fetching the payload require a future room version that explicitly opts into
 split canonicalization.
 
 ## Split canonicalization and Merkleized metadata (opt-in sketch)
 
-To make topology metadata independently provable, this MSC sketches a split
-canonicalization design for future room versions to opt into.
+To make selected event metadata independently verifiable, this MSC sketches a
+split canonicalization design for future room versions to opt into.
 
 A compatible future room version modifies event hashing to generate an
 `event_root` from isolated metadata leaves:
@@ -396,8 +398,6 @@ A compatible future room version modifies event hashing to generate an
   legacy event `hashes` field unless a future room-version MSC explicitly maps
   them together;
 - `event_root`: the root hash committing to the above components.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
 
 The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
 
