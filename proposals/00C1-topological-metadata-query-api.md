@@ -17,7 +17,6 @@ A new federation endpoint is added:
 
 ```http
 POST /_matrix/federation/unstable/tk.nutra.topology_query
-
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -32,6 +31,7 @@ For example:
     "start_event_ids": ["$missing_event_A", "$missing_event_B"],
     "edge_types": ["prev_events"],
     "max_depth": 50,
+    "max_event_records": 1000,
     "max_nodes_visited": 5000,
     "fields": ["prev_events", "origin"],
     "compute": ["common_ancestor", "hop_distance"],
@@ -77,6 +77,7 @@ The initial query fields are:
 - `start_event_ids`: event IDs to start from.
 - `edge_types`: one or more of `prev_events` or `auth_events`.
 - `max_depth`: the maximum number of recursive hops requested.
+- `max_event_records`: the maximum number of event records returned.
 - `max_nodes_visited`: the maximum number of distinct events visited while
   serving computed graph queries.
 - `fields`: the exact metadata fields requested.
@@ -85,12 +86,14 @@ The initial query fields are:
 
 The initial response fields for each event are:
 
+- `room_id`: the room the event belongs to. For ordinary event records this is
+  the requested room.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
 - `origin`: the best known origin server for the event.
-- `type`: the event type, if known.
-- `state_key`: the state key, if known and applicable.
-- `sender`: the sender, if known.
+- `origin_server_ts`: the event timestamp, if known.
+- `depth`: the event depth, if known.
+- `edge_errors`: non-followed edge targets grouped by edge type and reason.
 - `proof`: Merkle proof material, only for future room versions which opt into
   split canonicalization.
 
@@ -123,7 +126,28 @@ The server applies limits in this order:
 If any limit, visibility check, wrong-room event, unknown event, response-size
 cap, or timeout prevents the server from returning data it otherwise would have
 walked, it sets `limited` to `true`. If several conditions apply, `limited` is
-still just `true`; this proposal does not require exposing which limit was hit.
+still just `true`.
+
+When requested via `fields`, a server MAY include `edge_errors` for an event to
+explain why specific edge targets were not followed. The initial reason codes
+are:
+
+- `wrong_room`: the target event is known to belong to a different room.
+
+For example:
+
+```json
+"edge_errors": {
+    "prev_events": {
+        "$foreign_event": "wrong_room"
+    }
+}
+```
+
+The server MUST NOT include the other room's ID or any metadata from the
+wrong-room event. Unknown, inaccessible, and hidden events are omitted rather
+than labelled, because distinguishing those cases can reveal room state or
+history-visibility information.
 
 ### Computed graph queries
 
@@ -178,16 +202,42 @@ the room version provides Merkleized topology proofs for the path.
 ### Limits
 
 Responding servers MUST enforce local limits regardless of what the requester
-asks for. At minimum, implementations should have admin-configurable limits for:
+asks for. The effective limit is the lower of the requester-provided limit and
+the server's configured local limit. If the requester omits an optional limit,
+the server's configured local default applies.
 
-- maximum recursion depth,
-- maximum returned event records,
-- maximum number of start events,
-- maximum response size,
+At minimum, implementations MUST enforce these limits:
+
+- maximum recursion depth;
+- maximum returned event records;
+- maximum distinct events visited while serving computed graph queries;
+- maximum number of start events;
+- maximum response body size;
+- maximum processing time;
 - request rate per origin server.
 
-If a response is truncated because of one of these limits, the server sets
-`limited` to `true`.
+The following request limits are optional. If present, they MUST be positive
+integers:
+
+- `max_depth`;
+- `max_event_records`;
+- `max_nodes_visited`.
+
+If a request limit is `0`, negative, not an integer, or larger than the server's
+configured absolute maximum, the server MUST reject the request with
+`M_INVALID_PARAM`.
+
+Implementations SHOULD use conservative defaults no higher than:
+
+- `max_depth`: 50;
+- `max_event_records`: 1000;
+- `max_nodes_visited`: 5000;
+- maximum start events: 20;
+- maximum response body size: 1 MiB;
+- maximum processing time: 5 seconds.
+
+Implementations MAY use lower local defaults or absolute maxima. If a response
+is truncated because of an effective limit, the server sets `limited` to `true`.
 
 ### Authorization
 
@@ -203,9 +253,12 @@ the request. Malformed event IDs cause the request to fail with
 For every start event and every event discovered during traversal, the
 responding server MUST validate that the event belongs to the requested
 `room_id` before returning metadata for it or following its edges. Unknown
-events and wrong-room events are omitted from the response. If any requested or
-discovered event is omitted for being unknown, wrong-room, or not visible to the
-requester, the response MUST set `limited` to `true`.
+events and wrong-room events are omitted from the response as event records. If
+`edge_errors` was requested, the server MAY label a known wrong-room edge target
+as `wrong_room` on the source event, but MUST NOT follow that edge or return
+metadata from the wrong-room event. If any requested or discovered event is
+omitted for being unknown, wrong-room, or not visible to the requester, the
+response MUST set `limited` to `true`.
 
 The responding server MUST NOT return topology metadata for an event if it would
 not be allowed to serve the corresponding full event to the requester.
@@ -222,8 +275,7 @@ Where the relevant historical state is known, visibility should be evaluated at
 the event being queried, not only against current room state. If the responding
 server cannot reconstruct the relevant historical state, it may fall back to
 current room policy only when that fallback is at least as restrictive as the
-known historical policy. Otherwise it should omit the event or use the degraded
-repair mode below.
+known historical policy. Otherwise it should omit the event.
 
 If the requester is not allowed to access the room at all, for example because
 no user on the requesting server is joined or otherwise permitted by the room's
@@ -232,16 +284,6 @@ requester is allowed to access the room but some branches, events, or fields are
 not visible, the server omits those branches, events, or fields and sets
 `limited` to `true`. Hidden branches are not replaced with opaque markers,
 because such markers would still leak graph shape.
-
-However, when the responding server cannot determine full-event visibility due
-to local partial-state, missing-auth, or repair-in-progress conditions, it MAY
-return only the minimum routing fields needed for repair, such as `origin` and
-edge event IDs, provided the requester is already joined to the room. It MUST
-NOT return `sender`, `type`, `state_key`, content-derived fields, or proof
-material in this degraded mode. If current membership is also uncertain, the
-responding server should use the most restrictive known membership or event-auth
-view it can reconstruct for the queried event. If it cannot establish joined
-membership, it must omit the event or reject the request with `M_FORBIDDEN`.
 
 ### Room versions
 
@@ -348,7 +390,6 @@ signature:
         }
     }
 }
-
 ```
 
 To verify topology without the payload, the requester canonicalizes the returned
@@ -432,11 +473,11 @@ passes normal Matrix authorization and event verification.
   for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
   authorization, and the existing PDU flow this proposal tries to avoid
   overusing.
-- [Matrix room version 11](https://www.google.com/search?q=https://spec.matrix.org/latest/rooms/v11/)
-  for current event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`,
-  and event format behavior.
-- [MSC4186: Simplified Sliding Sync](https://www.google.com/search?q=4186-simplified-sliding-sync.md),
-  as prior art for selective, client-chosen field/query shapes in Matrix.
+- [Matrix room version 11](https://spec.matrix.org/latest/rooms/v11/) for
+  current event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`, and
+  event format behavior.
+- [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
+  art for selective, client-chosen field/query shapes in Matrix.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
   as prior art for committing to metadata with a root hash while revealing only
   the pieces needed by the verifier.
