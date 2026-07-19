@@ -208,6 +208,12 @@ canonical JSON, but a server must fetch the full event to verify its hash.
 This means the immediately deployable version of this API should treat returned
 metadata as authenticated but untrusted routing information.
 
+Older room versions, including v5, stay in that hint-only mode. Responding
+servers should extract whatever requested fields are well-defined for that
+room's event format, and return `null` or omit fields that are not cleanly
+available. They MUST NOT try to apply the Merkleized proof rules below to room
+versions which did not define that split canonicalization.
+
 A future room version could make the metadata independently provable by changing
 the event hashing rules. This should not require adding proof objects to normal
 PDUs. Instead, the room version would define a split canonicalization:
