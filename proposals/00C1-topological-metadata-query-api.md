@@ -88,8 +88,6 @@ them.
 
 ### Query shape
 
-<!-- Proofread marker. [e09a5b01] -->
-
 The initial query fields are:
 
 - `room_id`: the room being queried.
@@ -101,14 +99,14 @@ The initial query fields are:
   serving raw traversal, or while serving each computed graph query pair.
 - `fields`: the exact metadata fields requested.
 - `compute`: optional graph facts to compute over the same bounded traversal.
-- `compute_event_pairs`: event ID pairs to use for computed graph facts.
+- `compute_event_pairs`: ordered event ID pairs that each computed graph fact
+  operates on.
 
 The initial response fields for each event are:
 
 - `room_id`: the room the event belongs to. This is always the requested room,
-  since wrong-room events are never returned as records; it exists as a
-  queryable field so that room versions with split canonicalization can prove
-  it.
+  since wrong-room events are never returned as records; it is a queryable field
+  so that room versions with split canonicalization can prove it.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
 - `origin`: the best known origin server for the event.
@@ -150,8 +148,10 @@ recursion depth `0`. Events reached by following one requested edge are at depth
 `1`, and so on.
 
 Each event ID is visited at most once, even if it is reachable through multiple
-paths or multiple edge types. This also handles accidental or malicious cycles:
-an already-seen event is not queued again.
+paths or multiple edge types. This also prevents cycles from causing repeated
+work: an already-seen event is not queued again.
+
+<!-- Proofread marker. [e09a5b01] -->
 
 Within the same recursion depth, events should be processed in bytewise
 lexicographic order by event ID. This gives stable results when a response is
@@ -291,6 +291,10 @@ integers:
 - `max_depth`;
 - `max_event_records`;
 - `max_nodes_visited`.
+
+Omitting a limit uses the server's configured default, which may be lower than
+its configured maximum. There is no request syntax for unlimited traversal;
+negative values such as `-1` are invalid.
 
 If a request limit is `0`, negative, or not an integer, the server MUST reject
 the request with `M_INVALID_PARAM`. A request limit larger than the server's
