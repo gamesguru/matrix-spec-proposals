@@ -29,7 +29,7 @@ payload.
 A new federation endpoint is added:
 
 ```http
-POST /_matrix/federation/unstable/tk.nutra.topology_query
+POST /_matrix/federation/unstable/tk.nutra.msc45xx/topology_query
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -215,8 +215,11 @@ The initial computed query names are:
   combined hop distance, the server MUST return the lexicographically lowest
   event ID.
 - `hop_distance`: given two event IDs, return the shortest directed hop distance
-  from the first event to the second event following the selected edge types, or
-  `null` if no directed path is found within the effective recursion limit.
+  from the first event to the second event following the selected edge types. If
+  no directed path is found within the effective recursion limit, the result is
+  `null`. If the search is limited (for example by `max_nodes_visited`,
+  processing-time, or response-size limits) before a result can be determined,
+  the result is `null` and the server MUST set `limited` to `true`.
 
 Computed queries only walk events which belong to the requested room and are
 visible to the requester. Hidden history-visibility branches are pruned, not
@@ -356,11 +359,11 @@ A compatible future room version modifies event hashing to generate an
 The hash algorithm is SHA-256. Each hash input is domain-separated:
 
 - Leaf hash:
-  `SHA256("tk.nutra.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
+  `SHA256("tk.nutra.msc45xx.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
 - Inner hash:
-  `SHA256("tk.nutra.topology_query.node.v1" || left_hash || right_hash)`.
+  `SHA256("tk.nutra.msc45xx.topology_query.node.v1" || left_hash || right_hash)`.
 - Root hash:
-  `SHA256("tk.nutra.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+  `SHA256("tk.nutra.msc45xx.topology_query.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
 
 The top-level component hashes (`prev_events_hash`, `auth_events_hash`, and
 `content_hash`) are computed with the leaf-hash construction above, using the
@@ -417,8 +420,8 @@ header leaves not exposed in hint-only mode (`sender`, `type`, `state_key`),
 since a field must be returnable to be provable.
 
 The `proof` object schema explicitly maps the proven fields to their Merkle
-siblings, provides any required top-level root siblings, and includes the origin
-signature:
+siblings, provides any required top-level component hashes needed to
+reconstruct `event_root`, and includes the origin signature:
 
 ```json
 "proof": {
