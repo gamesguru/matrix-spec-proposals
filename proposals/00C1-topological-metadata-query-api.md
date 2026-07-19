@@ -101,7 +101,33 @@ If a response is truncated because of one of these limits, the server sets
 
 The responding server MUST only return topology metadata which the requesting
 server is allowed to learn over federation. This endpoint should not bypass
-normal room access checks or history visibility policy.
+normal room access checks, membership checks, or history visibility policy.
+
+The responding server MUST NOT return topology metadata for an event if it would
+not be allowed to serve the corresponding full event to the requester.
+
+This means the answer can differ by room and event. A joined server can normally
+query visible history for the room. An invited server should only receive
+metadata that would already be visible through invite-stripped state or other
+invite-legal federation flows. A non-joined server should not get private room
+topology merely because it knows an event ID. For world-readable history, the
+server may answer consistently with the room's history visibility rules, but
+should still avoid disclosing fields beyond what the requester asked for.
+
+Where the relevant historical state is known, visibility should be evaluated at
+the event being queried, not only against current room state. If the responding
+server cannot reconstruct the relevant historical state, it may fall back to
+current room policy only when that fallback is at least as restrictive as the
+known historical policy. Otherwise it should omit the event or use the degraded
+repair mode below.
+
+However, when the responding server cannot determine full-event visibility due
+to local partial-state, missing-auth, or repair-in-progress conditions, it MAY
+return only the minimum routing fields needed for repair, such as `origin` and
+edge event IDs, provided the requester is already joined to the room or
+otherwise authorized to participate in federation for that room. It MUST NOT
+return `sender`, `type`, `state_key`, `depth`, content-derived fields, or proof
+material in this degraded mode.
 
 ### Merkleized metadata
 
