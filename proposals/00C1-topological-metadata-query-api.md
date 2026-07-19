@@ -118,11 +118,18 @@ The initial response fields for each event are:
 - `proof`: Merkle proof material, only for future room versions which opt into
   split canonicalization.
 
-Unrecognized `edge_types` entries or `compute` names cause the request to fail
-with `M_INVALID_PARAM`, because silently ignoring them would change traversal or
-computation semantics without the requester knowing. Unrecognized `fields`
-entries are ignored, which is indistinguishable from a server declining to
-disclose a known field and keeps the field set forward-extensible.
+Unrecognized `edge_types` entries cause the request to fail with
+`M_INVALID_PARAM`, because silently ignoring them would change traversal
+semantics without the requester knowing.
+
+If the server does not support computed graph queries at all, it rejects any
+request containing `compute` with `M_UNRECOGNIZED`, as described below. If the
+server does support computed graph queries, unrecognized `compute` names cause
+the request to fail with `M_INVALID_PARAM`.
+
+Unrecognized `fields` entries are ignored, which is indistinguishable from a
+server declining to disclose a known field and keeps the field set
+forward-extensible.
 
 The response maps each event ID to an object containing the fields returned for
 that event. Servers may omit fields they do not know, do not store efficiently,
