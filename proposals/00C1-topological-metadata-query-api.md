@@ -15,7 +15,7 @@ homeservers to return customized queries of highly granular data, including:
 A new federation endpoint is added:
 
 ```http
-POST /_matrix/federation/unstable/org.matrix.msc45xx/topology/query
+POST /_matrix/federation/unstable/tk.nutra.msc45xx/topology/query
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -197,10 +197,10 @@ PDUs. Instead, the room version would define a split canonicalization:
 The hash algorithm is SHA-256. Each hash input is domain-separated:
 
 - leaf hash:
-  `SHA256("org.matrix.msc45xx.leaf.v1" || field_name || canonical_value)`;
-- inner hash: `SHA256("org.matrix.msc45xx.node.v1" || left_hash || right_hash)`;
+  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || canonical_value)`;
+- inner hash: `SHA256("tk.nutra.msc45xx.node.v1" || left_hash || right_hash)`;
 - root hash:
-  `SHA256("org.matrix.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
+  `SHA256("tk.nutra.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
 
 The header tree is binary. Header leaves are ordered bytewise by field name.
 Missing optional fields use the canonical value `null`; present fields use their
