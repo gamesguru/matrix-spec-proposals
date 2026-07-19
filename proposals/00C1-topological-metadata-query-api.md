@@ -481,18 +481,26 @@ paths, provides any required top-level component hashes needed to reconstruct
 }
 ```
 
-To verify topology without the payload, the requester canonicalizes the returned
-field, computes its domain-separated leaf hash, applies each step in
-`leaf_paths` in order to reconstruct the relevant top-level component hash or
-`event_header_root`, reconstructs `event_root` using the other provided
-`top_level_hashes`, checks that the event ID is derived from that root, then
-verifies the origin server's Ed25519 signature. Top-level components
-(`prev_events`, `auth_events`, and content) have an empty path list: their leaf
-hash is used directly as the corresponding component of the root hash.
-`top_level_hashes` MUST contain every top-level component hash that is not
-reconstructed from another proof in the same response; in the example above,
-`event_header_root` is omitted because it is reconstructed from the
-`origin_server_ts` proof. If a required hash is missing, verification fails.
+To verify the authenticity of a field all the way to the root, the requester
+performs the following steps:
+
+1. Canonicalize the returned field and compute its domain-separated leaf hash.
+2. Apply each step in `leaf_paths`, computing the parent inner hash using the
+   provided left or right sibling, to reconstruct `event_header_root` or the
+   relevant top-level component hash. For top-level components (`prev_events`,
+   `auth_events`, and content), the path list is empty and the leaf hash is used
+   directly.
+3. Combine the reconstructed component with the remaining hashes in
+   `top_level_hashes` to compute the master `event_root`. `top_level_hashes`
+   MUST contain every component hash not reconstructed from a proof in the same
+   response.
+4. Verify that the event ID matches `"$" || unpadded_base64url(event_root)`.
+5. Verify the origin server's Ed25519 signature over the canonical signed
+   envelope containing the `event_root`.
+
+If a required hash is missing or any hash check fails, verification fails. By
+chaining hashes upward, the server only needs to send missing neighbor hashes in
+the proof, and the verifier recomputes the root locally.
 
 ## Future extensions
 
