@@ -17,6 +17,7 @@ A new federation endpoint is added:
 
 ```http
 POST /_matrix/federation/unstable/tk.nutra.topology_query
+
 ```
 
 The endpoint accepts a bounded query over one or more starting events. The
@@ -90,8 +91,8 @@ The initial response fields for each event are:
 - `type`: the event type, if known.
 - `state_key`: the state key, if known and applicable.
 - `sender`: the sender, if known.
-- `proof`: Merkle proof material, only for room versions which define split
-  canonicalization.
+- `proof`: Merkle proof material, only for future room versions which opt into
+  split canonicalization.
 
 The response maps each event ID to an object containing the fields returned for
 that event. Servers may omit fields they do not know, do not store efficiently,
@@ -130,8 +131,10 @@ Responding servers MAY support small computed graph queries in addition to raw
 metadata fields. These queries are bounded by the same recursion, record, time,
 authorization, and room-boundary limits as normal traversal.
 
-If a server does not support computed graph queries, it MUST ignore `compute`
-and `compute_event_pairs` and process the rest of the metadata request normally.
+If a server does not support computed graph queries, it MUST reject requests
+containing the `compute` field with `M_UNRECOGNIZED`. This ensures the requester
+can gracefully fall back to raw edge traversal rather than silently failing to
+receive expected computations.
 
 Computed graph queries operate on `compute_event_pairs`. Each entry is a
 two-element list of event IDs. If `compute` is present, `compute_event_pairs`
@@ -146,16 +149,16 @@ sets `limited` to `true`.
 
 The initial computed query names are:
 
-- `common_ancestor`: given two event IDs, return the nearest event ID known to
-  the responding server which is reachable from both events by following the
-  selected edge types. If the search is limited before a common ancestor is
+- `common_ancestor`: given two event IDs, return the nearest event ID reachable
+  from both. Distance is measured as the sum of directed hops from each start
+  event to the ancestor. If the search is limited before a common ancestor is
   found, the result is `null`; the server MUST NOT return a partial local
-  ancestor as if it were final. If multiple common ancestors are found at the
-  same minimal hop distance, the server MUST return the lexicographically lowest
+  ancestor as if it were final. If multiple ancestors tie for the minimal
+  combined hop distance, the server MUST return the lexicographically lowest
   event ID.
-- `hop_distance`: given two event IDs, return the shortest known hop distance
-  between them when following the selected edge types, or `null` if no path is
-  found within the effective recursion limit.
+- `hop_distance`: given two event IDs, return the shortest directed hop distance
+  from the first event to the second event following the selected edge types, or
+  `null` if no directed path is found within the effective recursion limit.
 
 Computed queries only walk events which belong to the requested room and are
 visible to the requester. Hidden history-visibility branches are pruned, not
@@ -242,35 +245,32 @@ membership, it must omit the event or reject the request with `M_FORBIDDEN`.
 
 ### Room versions
 
-This endpoint only applies to room versions 3 and later.
+This endpoint applies to room versions 3 and later in a hint-only capacity.
 
-Older room versions have different event ID and reference shapes. In particular,
-room versions 1 and 2 use server-assigned event IDs and include hashes in
-`prev_events` / `auth_events` entries rather than using the bare event ID shape
-used by later room versions. Supporting those versions would either require
-version-specific response shapes or lossy stripping of hashes.
-
+Older room versions (1 and 2) use server-assigned event IDs and include hashes
+in `prev_events` / `auth_events` entries rather than using bare event IDs.
 Servers MUST reject requests for older room versions with
-`M_UNSUPPORTED_ROOM_VERSION`. This keeps the first version of the endpoint
-simple and avoids pretending that old event formats provide the same trust
-properties as hash-based event IDs.
+`M_UNSUPPORTED_ROOM_VERSION` to avoid version-specific response shapes and lossy
+hash stripping.
 
-The metadata returned by this endpoint is still a hint. Even in room versions
-with hash-based event IDs, a server must fetch the full event payload to verify
-the claimed topology against the event hash.
+The metadata returned by this endpoint for current room versions is strictly a
+hint. A server must still fetch the full event payload to verify the claimed
+topology against the event hash. Cryptographic proofs of topology without
+fetching the payload require a future room version that explicitly opts into
+split canonicalization.
 
-## Split canonicalization and Merkleized metadata
+## Split canonicalization and Merkleized metadata (Opt-In Sketch)
 
-To make topology metadata independently provable without fetching the full event
-payload, this MSC defines split canonicalization for a new room version.
+To make topology metadata independently provable, this MSC sketches a split
+canonicalization design for future room versions to opt into.
 
-The new room version modifies event hashing to generate an `event_root` from
-isolated metadata leaves:
+A compatible future room version modifies event hashing to generate an
+`event_root` from isolated metadata leaves:
 
 - `prev_events_hash`: canonical hash of the event's `prev_events`;
 - `auth_events_hash`: canonical hash of the event's `auth_events`;
 - `event_header_root`: Merkle root over routing and authorship fields:
-  `room_id`, `sender`, `type`, `state_key`, and `origin_server_ts`;
+  `room_id`, `sender`, `type`, `state_key`, `depth`, and `origin_server_ts`;
 - `content_hash`: canonical hash of the remaining event body;
 - `event_root`: the root hash committing to the above components.
 
@@ -314,35 +314,49 @@ containing this root:
 }
 ```
 
-This keeps normal federation lightweight. A `/send` PDU can still look
-functionally like an ordinary PDU; the receiving server computes the split
-hashes locally when verifying the event.
+For room versions adopting this format, this root signature replaces the
+traditional PDU JSON signature, serving as the sole cryptographic commitment for
+the event. This keeps normal federation lightweight: a `/send` PDU still looks
+functionally like an ordinary PDU, and the receiving server simply computes the
+split hashes locally when verifying the event.
 
 ### Cryptographic proof responses
 
 When the queried room version supports split canonicalization, a server MAY
-include proof material for requested fields. For example, a response proving
-`prev_events` returns the canonical `prev_events` leaf, the top-level sibling
-hashes needed to reconstruct `event_root`, and the origin signature. Those
-top-level siblings include `auth_events_hash`, `event_header_root`, and
-`content_hash` unless they are separately proven in the same response.
+include proof material for requested fields inside a `proof` object.
 
-Sibling paths are represented from leaf to root as an array of objects:
+The `proof` object schema explicitly maps the proven fields to their Merkle
+siblings, provides any required top-level root siblings, and includes the origin
+signature:
 
 ```json
-[
-    { "side": "right", "hash": "base64url_sha256_hash" },
-    { "side": "left", "hash": "base64url_sha256_hash" }
-]
+"proof": {
+    "leaves": {
+        "prev_events": [
+            { "side": "right", "hash": "base64url_sha256_hash" },
+            { "side": "left", "hash": "base64url_sha256_hash" }
+        ]
+    },
+    "event_root_siblings": {
+        "auth_events_hash": "base64url_sha256_hash",
+        "event_header_root": "base64url_sha256_hash",
+        "content_hash": "base64url_sha256_hash"
+    },
+    "signatures": {
+        "example.org": {
+            "ed25519:key": "signature_base64"
+        }
+    }
+}
+
 ```
 
 To verify topology without the payload, the requester canonicalizes the returned
-field, computes its domain-separated leaf hash, applies each sibling in order to
-reconstruct either the header root or the event root, reconstructs `event_root`
-using the other provided top-level sibling hashes, checks that the event ID is
-derived from that root, then verifies the origin server's Ed25519 signature over
-the signed envelope. If a top-level sibling hash is not provided and not
-reconstructed from another proof in the same response, verification fails.
+field, computes its domain-separated leaf hash, applies each sibling in `leaves`
+in order to reconstruct either the header root or the event root, reconstructs
+`event_root` using the other provided `event_root_siblings`, checks that the
+event ID is derived from that root, then verifies the origin server's Ed25519
+signature. If a required sibling hash is missing, verification fails.
 
 ## Future extensions
 
@@ -414,15 +428,15 @@ passes normal Matrix authorization and event verification.
 
 ## References
 
-- [Matrix Server-Server API](https://spec.matrix.org/v1.16/server-server-api/)
+- [Matrix Server-Server API](https://spec.matrix.org/latest/server-server-api/)
   for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
   authorization, and the existing PDU flow this proposal tries to avoid
   overusing.
-- [Matrix room version 7](https://spec.matrix.org/v1.16/rooms/v7/) for current
-  event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`, and event
-  format behavior.
-- [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
-  art for selective, client-chosen field/query shapes in Matrix.
+- [Matrix room version 11](https://www.google.com/search?q=https://spec.matrix.org/latest/rooms/v11/)
+  for current event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`,
+  and event format behavior.
+- [MSC4186: Simplified Sliding Sync](https://www.google.com/search?q=4186-simplified-sliding-sync.md),
+  as prior art for selective, client-chosen field/query shapes in Matrix.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
   as prior art for committing to metadata with a root hash while revealing only
   the pieces needed by the verifier.
