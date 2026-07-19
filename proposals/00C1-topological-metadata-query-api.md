@@ -498,6 +498,11 @@ passes normal Matrix authorization and event verification.
   event format behavior.
 - [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
   art for selective, client-chosen field/query shapes in Matrix.
+- [MSC2836: Twitter-style Threading](https://github.com/matrix-org/matrix-spec-proposals/pull/2836),
+  as prior art for bounded traversal of Matrix event relationships over
+  federation.
+- [MSC2716: Incrementally Importing History](https://github.com/matrix-org/matrix-spec-proposals/pull/2716),
+  as related background for historical DAG gaps and inserted history chunks.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata](https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html)
   as prior art for committing to metadata with a root hash while revealing only
   the pieces needed by the verifier.
