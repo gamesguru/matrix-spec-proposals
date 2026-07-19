@@ -31,7 +31,7 @@ For example:
     "edge_types": ["prev_events"],
     "depth": 50,
     "fields": ["prev_events", "origin"],
-    "compute": ["common_ancestor", "delta_depth"],
+    "compute": ["common_ancestor", "hop_distance"],
     "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
 }
 ```
@@ -49,8 +49,8 @@ The response is intentionally sparse:
         "$missing_event_B": [["$prev_1"], "elsewhere.example"]
     },
     "computed": {
-        "common_ancestor": "$prev_1",
-        "delta_depth": 3
+        "common_ancestor": ["$prev_1"],
+        "hop_distance": [3]
     },
     "limited": true
 }
@@ -85,9 +85,9 @@ The initial response fields for each event are:
 - `sender`: the sender, if known.
 
 The response repeats the returned `fields` order once, then maps each event ID
-to a list of values in that order. Unknown or unavailable values are `null`.
-Servers may omit fields they do not know, do not store efficiently, or are not
-willing to disclose to the requester.
+to a list of values in that order. The value list MUST have the same length as
+`fields`. Unknown or unavailable values are `null`. Servers MAY omit requested
+fields by omitting them from the returned `fields` list.
 
 ### Traversal
 
@@ -132,7 +132,7 @@ The initial computed query names are:
 - `common_ancestor`: given two event IDs, return the nearest event ID known to
   the responding server which is reachable from both events by following the
   selected edge types.
-- `delta_depth`: given two event IDs, return the shortest known hop distance
+- `hop_distance`: given two event IDs, return the shortest known hop distance
   between them when following the selected edge types, or `null` if no path is
   found within the effective recursion limit.
 
@@ -142,9 +142,10 @@ replaced with opaque markers. If pruning affects the answer, the server sets
 `limited` to `true`.
 
 If more than one pair is supplied, the server computes each requested graph fact
-for each pair independently. If either event in a pair is unknown, wrong-room,
-or not visible to the requester, the result for that pair is `null` and
-`limited` is set to `true`.
+for each pair independently. The `computed` object maps each requested compute
+name to a list of results aligned with `compute_event_pairs`. If either event in
+a pair is unknown, wrong-room, or not visible to the requester, the result for
+that pair is `null` and `limited` is set to `true`.
 
 These results are hints. They MUST NOT be used as proof that two branches are
 authentically related without fetching and verifying the relevant events, unless
@@ -246,7 +247,7 @@ PDUs. Instead, the room version would define a split canonicalization:
 The hash algorithm is SHA-256. Each hash input is domain-separated:
 
 - leaf hash:
-  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || canonical_value)`;
+  `SHA256("tk.nutra.msc45xx.leaf.v1" || field_name || "\x00" || canonical_value)`;
 - inner hash: `SHA256("tk.nutra.msc45xx.node.v1" || left_hash || right_hash)`;
 - root hash:
   `SHA256("tk.nutra.msc45xx.root.v1" || prev_events_hash || auth_events_hash || event_header_root || content_hash)`.
