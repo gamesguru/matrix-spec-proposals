@@ -611,9 +611,10 @@ passes normal Matrix authorization and event verification.
   for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
   authorization, and the existing PDU flow this proposal tries to avoid
   overusing.
-- [Matrix room version 11](https://spec.matrix.org/latest/rooms/v11/) for
-  current event ID hashing, `prev_events`, `auth_events`, `origin`, `depth`, and
-  event format behavior.
+- [Matrix room version 12](https://spec.matrix.org/latest/rooms/v12/) for the
+  current default room-version baseline, including event format behavior
+  inherited from room version 11, event IDs inherited from room versions 3 and
+  later, and v12-specific room ID and state-resolution changes.
 - [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
   art for selective, client-chosen field/query shapes in Matrix.
 - [MSC2836: Twitter-style Threading](https://github.com/matrix-org/matrix-spec-proposals/pull/2836),
