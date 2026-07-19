@@ -7,7 +7,7 @@ the shape of the graph we are traversing, or whether it is a dead end.
 This proposal seeks to remedy such inefficiencies and blockades by allowing
 homeservers to return customized queries of highly granular data, including:
 
-- `prev_event` edges, up to a recursion limit.
+- `prev_events` edges, up to a recursion limit.
 - `origin` for a missing event (potentially useful for retrieving it).
 
 ## Proposal
@@ -67,7 +67,7 @@ The initial query fields are:
 - `room_id`: the room being queried.
 - `start_event_ids`: event IDs to start from.
 - `edge_types`: one or more of `prev_events` or `auth_events`.
-- `depth`: the maximum number of recursive hops requested.
+- `depth`: the maximum number of recursive hops requested (not the event's `depth` field).
 - `fields`: the exact metadata fields requested.
 
 The initial response fields for each event are:
