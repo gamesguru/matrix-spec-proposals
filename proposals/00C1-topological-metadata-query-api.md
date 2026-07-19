@@ -30,7 +30,8 @@ For example:
     "start_event_ids": ["$missing_event"],
     "edge_types": ["prev_events"],
     "depth": 50,
-    "fields": ["prev_events", "origin"]
+    "fields": ["prev_events", "origin"],
+    "compute": ["common_ancestor", "delta_depth"]
 }
 ```
 
@@ -65,6 +66,7 @@ The initial query fields are:
 - `depth`: the maximum number of recursive hops requested (not the event's
   `depth` field).
 - `fields`: the exact metadata fields requested.
+- `compute`: optional graph facts to compute over the same bounded traversal.
 
 The initial response fields for each event are:
 
@@ -106,6 +108,30 @@ If any limit, visibility check, wrong-room event, unknown event, response-size
 cap, or timeout prevents the server from returning data it otherwise would have
 walked, it sets `limited` to `true`. If several conditions apply, `limited` is
 still just `true`; this proposal does not require exposing which limit was hit.
+
+### Optional graph queries
+
+Responding servers MAY support small computed graph queries in addition to raw
+metadata fields. These queries are bounded by the same recursion, record, time,
+authorization, and room-boundary limits as normal traversal.
+
+The initial computed query names are:
+
+- `common_ancestor`: given two event IDs, return the nearest event ID known to
+  the responding server which is reachable from both events by following the
+  selected edge types.
+- `delta_depth`: given two event IDs, return the shortest known hop distance
+  between them when following the selected edge types, or `null` if no path is
+  found within the effective recursion limit.
+
+Computed queries only walk events which belong to the requested room and are
+visible to the requester. Hidden history-visibility branches are pruned, not
+replaced with opaque markers. If pruning affects the answer, the server sets
+`limited` to `true`.
+
+These results are hints. They MUST NOT be used as proof that two branches are
+authentically related without fetching and verifying the relevant events, unless
+a future room version provides Merkleized topology proofs for the path.
 
 ### Limits
 
