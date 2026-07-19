@@ -112,17 +112,36 @@ canonical JSON, but a server must fetch the full event to verify its hash.
 This means the immediately deployable version of this API should treat returned
 metadata as authenticated but untrusted routing information.
 
-A future room version could make the metadata independently provable by
-splitting the event hash into Merkle-like leaves, for example:
+A future room version could make the metadata independently provable by changing
+the event hashing rules. This should not require adding proof objects to normal
+PDUs. Instead, the room version would define a split canonicalization:
 
-- one leaf for topology metadata such as `prev_events`, `auth_events`, `sender`,
-  and `depth`;
-- one leaf for content and other non-topological event data;
-- a root hash used as the event ID commitment.
+- `prev_events_hash`: canonical hash of the event's `prev_events`;
+- `auth_events_hash`: canonical hash of the event's `auth_events`;
+- `event_header_hash`: canonical hash of small routing/authorship fields such as
+  `room_id`, `sender`, `type`, `state_key`, `depth`, `origin`, and
+  `origin_server_ts`;
+- `content_hash`: canonical hash of the remaining event body;
+- `event_root`: root hash committing to the above leaves.
 
-In such a room version, a response could include the requested metadata leaf and
-the sibling hashes needed to prove that the metadata is committed to by the
-event ID, without revealing the full event content.
+The event ID would be derived from `event_root`. The origin server's Ed25519
+signature would cover the canonical signed envelope containing `event_root`
+rather than an unrelated metadata blob.
+
+This keeps normal federation lightweight. A `/send` PDU can still look
+functionally like an ordinary PDU; the receiving server computes the split
+hashes locally when verifying the event.
+
+The extra proof material only appears when a server asks this topology API for
+it. For example, a response proving `prev_events` would return the canonical
+`prev_events` leaf, the sibling hashes needed to reconstruct `event_root`, and
+the origin signature. The verifier hashes the leaf, reconstructs the root,
+checks that the event ID is derived from that root, and verifies the signature.
+
+`prev_events` and `auth_events` should be separate leaves. Bundling them into
+one `topology_hash` is simpler, but it forces a server asking only for timeline
+edges to also learn auth edges, and vice versa. Separate leaves better match the
+sparse fieldset shape of this proposal.
 
 ## Security considerations
 
