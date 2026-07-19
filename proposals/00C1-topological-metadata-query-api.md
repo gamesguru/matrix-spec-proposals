@@ -162,6 +162,13 @@ wrong-room event. Unknown, inaccessible, and hidden events are omitted rather
 than labelled, because distinguishing those cases can reveal room state or
 history-visibility information.
 
+Implementations SHOULD maintain indexes for `prev_events`, `auth_events`, and
+known forward extremities per room. These indexes allow the endpoint to answer
+bounded reverse-edge queries and help local repair logic choose useful starting
+events without scanning full event JSON. Forward extremities are not returned by
+this endpoint because they describe a server's local view of the room DAG
+boundary, not metadata committed to an individual event.
+
 ### Computed graph queries
 
 Responding servers MAY support small computed graph queries in addition to raw
