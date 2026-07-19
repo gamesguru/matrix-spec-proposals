@@ -561,6 +561,8 @@ state-DAG extension of this query shape can add efficient filters by event
 "which membership-state branch contains this user?" without fetching full state
 events or scanning unrelated state keys.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ## Security considerations
 
 The major risks are:
@@ -571,11 +573,9 @@ The major risks are:
 - buggy or misrepresented topology output causing incorrect repair attempts.
 
 These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints (unless in a fully Merkleized
-room). A server should still fetch and verify full events before accepting any
-event, repairing state, or considering a gap resolved.
-
-<!-- Reverse proofread marker. -->
+rate-limiting, and treating responses as hints unless the room version provides
+verifiable Merkle topology proofs. A server should still fetch and verify full
+events before accepting them, repairing state, or considering a gap resolved.
 
 ### Bandwidth consumption
 
