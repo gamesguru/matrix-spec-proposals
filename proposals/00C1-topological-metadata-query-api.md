@@ -41,15 +41,10 @@ The response is intentionally sparse:
 
 ```json
 {
+    "fields": ["prev_events", "origin"],
     "events": {
-        "$missing_event": {
-            "origin": "example.org",
-            "prev_events": ["$prev_1", "$prev_2"]
-        },
-        "$prev_1": {
-            "origin": "elsewhere.example",
-            "prev_events": ["$prev_0"]
-        }
+        "$missing_event": [["$prev_1", "$prev_2"], "example.org"],
+        "$prev_1": [["$prev_0"], "elsewhere.example"]
     },
     "limited": true
 }
@@ -80,6 +75,8 @@ The initial response fields for each event are:
 - `state_key`: the state key, if known and applicable.
 - `sender`: the sender, if known.
 
+The response repeats the returned `fields` order once, then maps each event ID
+to a list of values in that order. Unknown or unavailable values are `null`.
 Servers may omit fields they do not know, do not store efficiently, or are not
 willing to disclose to the requester.
 
