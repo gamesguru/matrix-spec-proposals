@@ -27,11 +27,12 @@ For example:
 ```json
 {
     "room_id": "!room:example.org",
-    "start_event_ids": ["$missing_event"],
+    "start_event_ids": ["$missing_event_A", "$missing_event_B"],
     "edge_types": ["prev_events"],
     "depth": 50,
     "fields": ["prev_events", "origin"],
-    "compute": ["common_ancestor", "delta_depth"]
+    "compute": ["common_ancestor", "delta_depth"],
+    "compute_event_pairs": [["$missing_event_A", "$missing_event_B"]]
 }
 ```
 
@@ -44,8 +45,12 @@ The response is intentionally sparse:
 {
     "fields": ["prev_events", "origin"],
     "events": {
-        "$missing_event": [["$prev_1", "$prev_2"], "example.org"],
-        "$prev_1": [["$prev_0"], "elsewhere.example"]
+        "$missing_event_A": [["$prev_1", "$prev_2"], "example.org"],
+        "$missing_event_B": [["$prev_1"], "elsewhere.example"]
+    },
+    "computed": {
+        "common_ancestor": "$prev_1",
+        "delta_depth": 3
     },
     "limited": true
 }
@@ -67,6 +72,7 @@ The initial query fields are:
   `depth` field).
 - `fields`: the exact metadata fields requested.
 - `compute`: optional graph facts to compute over the same bounded traversal.
+- `compute_event_pairs`: event ID pairs to use for computed graph facts.
 
 The initial response fields for each event are:
 
@@ -115,6 +121,12 @@ Responding servers MAY support small computed graph queries in addition to raw
 metadata fields. These queries are bounded by the same recursion, record, time,
 authorization, and room-boundary limits as normal traversal.
 
+Computed graph queries operate on `compute_event_pairs`. Each entry is a
+two-element list of event IDs. If `compute` is present, `compute_event_pairs`
+MUST also be present and non-empty. Malformed pairs, pairs with fewer or more
+than two event IDs, or pairs containing malformed event IDs cause the request to
+fail with `M_INVALID_PARAM`.
+
 The initial computed query names are:
 
 - `common_ancestor`: given two event IDs, return the nearest event ID known to
@@ -128,6 +140,11 @@ Computed queries only walk events which belong to the requested room and are
 visible to the requester. Hidden history-visibility branches are pruned, not
 replaced with opaque markers. If pruning affects the answer, the server sets
 `limited` to `true`.
+
+If more than one pair is supplied, the server computes each requested graph fact
+for each pair independently. If either event in a pair is unknown, wrong-room,
+or not visible to the requester, the result for that pair is `null` and
+`limited` is set to `true`.
 
 These results are hints. They MUST NOT be used as proof that two branches are
 authentically related without fetching and verifying the relevant events, unless
