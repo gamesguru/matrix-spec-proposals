@@ -391,7 +391,10 @@ A compatible future room version modifies event hashing to generate an
 - `auth_events_hash`: canonical hash of the event's `auth_events`;
 - `event_header_root`: Merkle root over routing and authorship fields:
   `room_id`, `sender`, `type`, `state_key`, `depth`, and `origin_server_ts`;
-- `content_hash`: canonical hash of the remaining event body;
+- `content_hash`: canonical hash of the remaining event body after the topology
+  and header components above are separated out. This is distinct from the
+  legacy event `hashes` field unless a future room-version MSC explicitly maps
+  them together;
 - `event_root`: the root hash committing to the above components.
 
 The hash algorithm is SHA3-256. Each hash input is domain-separated:
@@ -503,10 +506,12 @@ If a required hash is missing or any hash check fails, verification fails. By
 chaining hashes upward, the server only needs to send missing neighbor hashes in
 the proof, and the verifier recomputes the root locally.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ## Future extensions
 
 Future room versions may extend the proof fields, add more independently
-provable leaves, or alter the domain separators during stabilization.
+provable metadata fields, or alter the domain separators during stabilization.
 
 ## Performance characteristics and benchmarking
 
@@ -541,8 +546,6 @@ overhead. For a 2 KiB event, this raw hash material is approximately 7.8% of the
 event size; for a 5 KiB event, it is approximately 3.1%. Implementations can
 recompute proof paths on demand; caching intermediate Merkle nodes or proof
 indexes is optional and would increase this overhead.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
 
 ### Empirical benchmarking
 
