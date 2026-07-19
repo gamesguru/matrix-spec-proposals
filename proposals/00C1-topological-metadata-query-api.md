@@ -397,7 +397,9 @@ A compatible future room version modifies event hashing to generate an
   them together;
 - `event_root`: the root hash committing to the above components.
 
-The hash algorithm is SHA3-256. Each hash input is domain-separated:
+<!-- Reverse proofread marker. [bc3742f4] -->
+
+The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
 
 - Leaf hash:
   `SHA3-256("tk.nutra.msc45xx.topology_query.leaf.v1" || field_name || "\x00" || canonical_value)`.
@@ -430,7 +432,7 @@ above for the RFC's `0x00`- and `0x01`-prefixed hashes. Only the tree shape (the
 largest-power-of-two split rule and its recursion) is taken from RFC 6962; no
 padding leaves are used.
 
-<!-- Reverse proofread marker. [bc3742f4] -->
+<!-- RFC 6962 tree shape is a dyadic interval decomposition over the ordered leaf list. -->
 
 ### Event IDs and signatures
 
