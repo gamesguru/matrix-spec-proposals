@@ -136,3 +136,22 @@ These are mitigated by hard local limits, normal federation authorization,
 rate-limiting, and treating responses as hints. A server should still fetch and
 verify full events before accepting any event, repairing state, or considering a
 gap resolved.
+
+### Hint validation and reputation
+
+Because current room versions cannot independently verify topological hints
+without fetching the full event, requesting servers are exposed to potential
+misdirection from responding nodes. To mitigate this without strictly
+standardizing a global reputation system, implementations should rely on local
+heuristics.
+
+Requesting servers SHOULD track topology hints they later verify against full
+events. If a responding server repeatedly returns metadata contradicted by
+verified event payloads, the requester MAY deprioritize that server for future
+topology queries, apply local rate limits, or ignore its topology hints for a
+limited period.
+
+Implementations should decay these penalties over time to prevent transient
+corruption or partial-state desyncs from permanently poisoning a peer. Such
+reputation data MUST NOT cause the requester to reject a valid event which
+passes normal Matrix authorization and event verification.
