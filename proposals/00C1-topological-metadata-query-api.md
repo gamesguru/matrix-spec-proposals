@@ -430,6 +430,8 @@ above for the RFC's `0x00`- and `0x01`-prefixed hashes. Only the tree shape (the
 largest-power-of-two split rule and its recursion) is taken from RFC 6962; no
 padding leaves are used.
 
+<!-- Reverse proofread marker. [bc3742f4] -->
+
 ### Event IDs and signatures
 
 The event ID is derived directly from the root:
@@ -448,11 +450,8 @@ containing this root:
 
 For room versions adopting this format, a future room-version MSC MUST specify
 how the root signature interacts with, or replaces, existing event authorization
-and verification rules. This keeps the present proposal focused on the topology
-query API while leaving signature migration mechanics to the room-version
-proposal.
-
-<!-- Reverse proofread marker. [bc3742f4] -->
+and verification rules. This keeps the proposal focused on the topology query
+API and defers signature migration mechanics to the room-version proposal.
 
 ### Cryptographic proof responses
 
