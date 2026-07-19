@@ -114,6 +114,10 @@ The initial response fields for each event are:
 - `origin`: the best known origin server for the event.
 - `origin_server_ts`: the event timestamp, if known.
 - `depth`: the event depth, if known.
+- `rejected`: whether the responding server has locally rejected the event, if
+  known.
+- `soft_failed`: whether the responding server has locally soft-failed the
+  event, if known.
 - `edge_errors`: non-followed edge targets grouped by edge type and reason.
 - `proof`: Merkle proof material, only for future room versions which opt into
   split canonicalization.
@@ -134,6 +138,10 @@ forward-extensible.
 The response maps each event ID to an object containing the fields returned for
 that event. Servers may omit fields they do not know, do not store efficiently,
 or are not willing to disclose to the requester.
+
+The `rejected` and `soft_failed` fields describe the responding server's local
+event-processing result. They are hints only, may differ between servers, and
+are not independently provable event metadata.
 
 ### Traversal
 
