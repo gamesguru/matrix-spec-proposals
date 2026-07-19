@@ -586,6 +586,8 @@ limits, per-origin rate limits, and conservative defaults. If a deployment does
 not see federation repair value from this query shape, it can decline to expose
 the endpoint.
 
+<!-- Reverse proofread marker. -->
+
 ### Hint validation and reputation
 
 Because current room versions cannot independently verify topological hints
