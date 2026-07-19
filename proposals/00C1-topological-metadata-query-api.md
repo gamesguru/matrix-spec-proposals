@@ -252,9 +252,12 @@ hashes locally when verifying the event.
 
 The extra proof material only appears when a server asks this topology API for
 it. For example, a response proving `prev_events` would return the canonical
-`prev_events` leaf, the sibling hashes needed to reconstruct `event_root`, and
-the origin signature. The verifier hashes the leaf, reconstructs the root,
-checks that the event ID is derived from that root, and verifies the signature.
+`prev_events` leaf, the top-level sibling hashes needed to reconstruct
+`event_root`, and the origin signature. Those top-level siblings include
+`auth_events_hash`, `event_header_root`, and `content_hash` unless they are
+being separately proven in the same response. The verifier hashes the leaf,
+reconstructs the root, checks that the event ID is derived from that root, and
+verifies the signature.
 
 Sibling paths are represented from leaf to root as ordered pairs of side and
 hash, for example:
@@ -271,7 +274,8 @@ domain-separated leaf hash, applies each sibling in order to reconstruct either
 the header root or the event root, reconstructs `event_root` using the other
 provided top-level sibling hashes, checks that the event ID is derived from that
 root, then verifies the origin server's Ed25519 signature over the signed
-envelope.
+envelope. If a top-level sibling hash is not provided and not reconstructed from
+another proof in the same response, verification fails.
 
 `prev_events` and `auth_events` should be separate leaves. Bundling them into
 one `topology_hash` is simpler, but it forces a server asking only for timeline
