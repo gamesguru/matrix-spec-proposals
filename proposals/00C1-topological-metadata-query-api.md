@@ -234,8 +234,6 @@ earlier pair does not consume the budget for later pairs. If the search for any
 pair hits the effective cap, that pair's affected computed result is `null` and
 the response sets `limited` to `true`.
 
-<!-- Proofread marker. [e09a5b01] -->
-
 The initial computed query names are:
 
 - `common_ancestor`: given two event IDs, return the nearest event ID reachable
@@ -243,8 +241,11 @@ The initial computed query names are:
   event to the ancestor. If the search is limited before a common ancestor is
   found, the result is `null`; the server MUST NOT return a partial local
   ancestor as if it were final. If multiple ancestors tie for the minimal
-  combined hop distance, the server MUST return the lexicographically lowest
-  event ID.
+  combined hop distance, the server MUST return the bytewise lexicographically
+  lowest event ID. Future computed query names may return multiple ancestors or
+  richer path metadata, subject to their own result limits and deterministic
+  ordering rules.
+
 - `hop_distance`: given two event IDs, return the shortest directed hop distance
   from the first event to the second event following the selected edge types. If
   no directed path is found within the effective recursion limit, the result is
@@ -268,6 +269,8 @@ authentically related without fetching and verifying the relevant events, unless
 the room version provides Merkleized topology proofs for the path.
 
 ### Limits
+
+<!-- Proofread marker. [e09a5b01] -->
 
 Responding servers MUST enforce local limits regardless of what the requester
 asks for. The effective limit is the lower of the requester-provided limit and
