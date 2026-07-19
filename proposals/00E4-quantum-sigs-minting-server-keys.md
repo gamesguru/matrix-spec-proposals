@@ -67,11 +67,19 @@ signing operation. Subtle differences in encoding or signature mode can cause
 network divergence.
 
 Implementations SHOULD generate FN-DSA server keys from cryptographically secure
-system entropy and protect private keys at rest using an encrypted keystore.
-Human passphrases SHOULD protect stored key material, not directly derive server
-identity keys. Password-protected keystores SHOULD use a memory-hard KDF such as
-Argon2id to derive the wrapping key and MUST encrypt private key material with
-an AEAD construction such as ChaCha20-Poly1305 or AES-GCM.
+system entropy. Implementations MUST support encrypting FN-DSA private key
+material immediately after generation and before displaying, logging, or writing
+any export artifact. Whether a given deployment actually supplies a passphrase
+and enables this protection is a local operator decision; this MSC requires only
+that the capability be present in conformant implementations, not that operators
+use it. Human passphrases SHOULD protect stored key material, not directly
+derive server identity keys. Password-protected keystores SHOULD use a
+memory-hard KDF such as Argon2id to derive the wrapping key from a fresh random
+salt, and MUST encrypt private key material with an AEAD construction such as
+XChaCha20-Poly1305 or AES-GCM using a fresh random nonce. The encrypted private
+key export is operator-local secret material: it MUST NOT appear in
+`/_matrix/key/v2/server`, notary responses, signed observation records, or any
+canonical server-key package hash.
 
 The AEAD additional authenticated data (AAD) SHOULD bind the encrypted private
 key to its intended server-key context. The AAD SHOULD include at least the
@@ -127,6 +135,39 @@ the Matrix signing object, so the stamp is covered by the origin's server-key
 signatures, included in `server_key_package_sha256`, and preserved by notary
 redistribution without special handling.
 
+### Trusted notary historical keys
+
+An origin MAY include a top-level `trusted_notary_keys` array in its
+`/_matrix/key/v2/server` response. Each entry is a full content-addressed FN-DSA
+server-key identifier of the form `fn-dsa-512:<key_id>`, where `<key_id>` is the
+unpadded base64url encoding of the 32-byte SHA3-256 `key_id` defined in this
+MSC. The field is part of the Matrix signing object and therefore covered by the
+origin's server-key signatures. If present but empty, it explicitly authorizes
+no notary-supplied historical keys.
+
+`trusted_notary_keys` lets the origin extend its own signed publication without
+embedding every historical key body in `old_verify_keys`. A listed identifier is
+only a compact pointer: verifiers still need the full historical key object from
+their own cache, a notary cache, federation gossip, or some other retained
+archive before they can verify a signature made by that key. Because each listed
+identifier is content-addressed, a notary cannot fabricate a different FN-DSA
+key body to match it. Verifiers recompute the minting-bound `key_id` from the
+returned key body and proof, and the value MUST equal the listed full
+identifier. A verifier MUST NOT accept a notary-supplied historical key merely
+because its short key ID matches an allow-list entry.
+
+A notary returning a key because of `trusted_notary_keys` MUST return the full
+key object it retained, including the original `pow` field and any applicable
+retirement metadata or expiry claim. Receiving servers MUST validate the
+returned key object exactly as they validate a key from `verify_keys` or
+`old_verify_keys`: recompute the content-addressed `key_id`, verify the
+proof-of-work, check any signatures or expiry claims required for that object
+shape, and apply the First Seen Wins binding rules from MSC4499.
+`trusted_notary_keys` is not a notary attestation and does not relax collision
+handling; it only lets the origin name additional historical keys by content
+address without embedding all of their key material in every server-key
+response.
+
 **A valid `pow` does not, by itself, prove private-key possession.** The graph
 seed and every input to it — the public key body, `server_name`, and the nonce —
 are public values; anyone who has observed a public key (their own, or one
@@ -147,7 +188,7 @@ above.
 
 Unlike a plain hash of the public key, the key's identifier here is
 proof-of-work-bound. The Cuckoo graph is selected from the key body,
-`server_name`, and nonce. The final `key_id` is the Keccak-256 digest of the
+`server_name`, and nonce. The final `key_id` is the SHA3-256 digest of the
 canonical minting object, which includes the key body, server name, proof
 algorithm, nonce, and validated proof solution. This forces key minting and
 proof-of-work to happen together: an attacker cannot cheaply scan nonces for a
@@ -159,14 +200,14 @@ is unknown until the proof solution is known.
 ```text
 minting_object = {
     "action": "fn-dsa-minting-object",
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
     "nonce": nonce,
     "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "server_name": "example.com",
     "solution": [solution[0], ..., solution[41]]
 }
 
-key_id = Keccak-256(canonical_json(minting_object))
+key_id = SHA3-256(canonical_json(minting_object))
 ```
 
 where `canonical_json` is Matrix Canonical JSON serialization, `solution` is the
@@ -176,11 +217,12 @@ object is reconstructed by the verifier from the enclosing key object and the
 validated `pow` fields; it is not transmitted as a separate object and does not
 include `short_key_id`, signatures, `valid_until_ts`, `claims`, notary metadata,
 or unknown future extension fields. `key_id` — the identity digest used
-throughout this MSC family to name a specific key body — is the Keccak-256
-digest of this canonical minting object, not a plain hash of the public key and
-not the pre-solve Cuckoo graph selector. `short_key_id` is the first 20
-base64url characters of `key_id`, unpadded; it is not a separate digest.
-`key_id` is a Keccak-256 output under this proof class, not a SHA-256 output.
+throughout this MSC family to name a specific key body — is the SHA3-256 digest
+of this canonical minting object, not a plain hash of the public key and not the
+pre-solve Cuckoo graph selector. `short_key_id` is the first 20 base64url
+characters of `key_id`, unpadded; it is not a separate digest. `key_id` is a
+SHA3-256 output under this proof class, not a plain SHA-256 output — the two are
+distinct algorithms despite the similar name.
 
 The 20-character `short_key_id` is approximately a 120-bit prefix. This is not
 relied on as a standalone anti-grinding control: an attacker choosing public
@@ -195,7 +237,7 @@ colliding `short_key_id` candidates.
     "fn-dsa-512:<short_key_id>": {
         "key": "<unpadded-base64-fn-dsa-512-pubkey>",
         "pow": {
-            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
+            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
             "nonce": 8137226,
             "solution": [123, 456, 789, "..."]
         }
@@ -214,7 +256,7 @@ probability, so the prover iterates the nonce until the resulting graph is
 solvable. For each nonce, compute:
 
 ```text
-Keccak-256(
+SHA3-256(
     canonical_json({
         "action": "fn-dsa-key-graph",
         "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
@@ -249,14 +291,14 @@ bound. Implementations calibrating a different deployment's expected solve time
 MUST NOT do so by changing `edge_bits` without minting a new, explicitly
 identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
-`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting` names one fixed
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting` names one fixed
 parameterization so that all conforming implementations impose the same cost.
 
 The proof response is:
 
 ```json
 {
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
     "nonce": 8137226,
     "solution": [123, 456, 789, "..."]
 }
@@ -291,7 +333,7 @@ later step once a step has failed:
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
 2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
-   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-keccak256-key-minting`. Any other
+   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting`. Any other
    value fails validation here as unrecognized; do not fall back to treating it
    as the old plain-hash construction.
 3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned

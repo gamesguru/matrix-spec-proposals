@@ -20,7 +20,7 @@ Current protocol shape:
 
 - Server FN-DSA key IDs are `key_id`, with `short_key_id` as the first 20
   base64url characters of `key_id`.
-- Server `key_id` is minting-bound and Keccak-256-derived as defined by 00E4.
+- Server `key_id` is minting-bound and SHA3-256-derived as defined by 00E4.
 - Minting PoW is produced by the origin when the key body is generated. It is
   not a notary-issued challenge and not repeated for every notary acquisition.
 - Notary provenance is a detached asset that notaries keep and redistribute
@@ -31,12 +31,12 @@ Current protocol shape:
 Remaining work:
 
 1. 00E4 and implementation: align generators and vectors with `key_id`,
-   `short_key_id`, embedded `pow`, and Keccak-256 minting object derivation.
+   `short_key_id`, embedded `pow`, and SHA3-256 minting object derivation.
 2. 00E2: confirm the `canonical_sha256` event binding and PQC room enforcement
    rules still match the final room-version story.
 3. 00E5: finish MSC checklist, dependencies, and backwards-compatibility text.
 4. 00EA: keep the distinction explicit between E2EE cross-signing key IDs
    (SHA-256 over the raw public key) and server-key IDs (minting-bound
-   Keccak-derived `key_id`).
+   SHA3-256-derived `key_id`).
 5. Cross-doc: replace placeholder MSC numbers and unstable prefixes once final
    PR numbers exist.
