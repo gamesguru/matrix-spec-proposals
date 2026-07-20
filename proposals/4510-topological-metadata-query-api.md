@@ -125,7 +125,7 @@ The initial dense response fields available for the `events` rows are:
 
 The initial sparse response fields returned as sidecar maps are:
 
-- `edge_errors`: non-followed edge targets grouped by edge type and reason.
+- `edge_errors`: non-followed edge targets keyed by source event ID, grouped by edge type and reason.
 - `proofs`: Merkle proof material, only for future room versions which opt into
   split canonicalization. Requested via the `proof` field name.
 
@@ -169,10 +169,10 @@ Fields expected to be highly sparse or bulky, such as `proof` and `edge_errors`,
 are returned in sidecar maps (`proofs` and `edge_errors`) keyed by `event_id`
 rather than in the positional `events` rows. This ensures servers do not have to
 emit explicit `null` slots for sparse data. A server MUST only include a sidecar
-map if the corresponding field was requested in `fields`, and MUST only include
-entries for events with applicable data to return. A requester MUST ignore
-unrecognized field names while preserving positional alignment for fields it
-understands.
+map if the corresponding logical field was requested in `fields` (e.g. `proof`
+for `proofs`), and MUST only include entries for events with applicable data to
+return. A requester MUST ignore unrecognized field names while preserving positional
+alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
