@@ -62,12 +62,19 @@ The response is intentionally sparse:
 
 ```json
 {
-  "event_fields": ["event_id", "prev_events", "origin", "rejected"],
+  "event_fields": ["event_id", "prev_events", "origin"],
   "events": [
-    ["$missing_event_A", ["$prev_1", "$prev_2"], "example.org", false],
-    ["$missing_event_B", ["$prev_1"], "elsewhere.example", null],
-    ["$prev_1", ["$prev_0"], "example.org", null]
+    ["$missing_event_A", ["$prev_1", "$prev_2"], "example.org"],
+    ["$missing_event_B", ["$prev_1"], "elsewhere.example"],
+    ["$prev_1", ["$prev_0"], "example.org"]
   ],
+  "edge_errors": {
+    "$missing_event_A": {
+      "prev_events": {
+        "$foreign_event": "wrong_room"
+      }
+    }
+  },
   "computed": {
     "common_ancestor": ["$prev_1"],
     "hop_distance": [1]
@@ -99,7 +106,7 @@ The initial query fields are:
 - `compute_event_pairs`: ordered event ID pairs that each computed graph fact
   operates on.
 
-The initial response fields for each event are:
+The initial dense response fields available for the `events` rows are:
 
 - `event_id`: the event ID for the returned metadata row. This field is always
   returned.
@@ -115,9 +122,12 @@ The initial response fields for each event are:
   known.
 - `soft_failed`: whether the responding server has locally soft-failed the
   event, if known.
+
+The initial sparse response fields returned as sidecar maps are:
+
 - `edge_errors`: non-followed edge targets grouped by edge type and reason.
-- `proof`: Merkle proof material, only for future room versions which opt into
-  split canonicalization.
+- `proofs`: Merkle proof material, only for future room versions which opt into
+  split canonicalization. Requested via the `proof` field name.
 
 Unrecognized `edge_types` entries cause the request to fail with
 `M_INVALID_PARAM`, because silently ignoring them would change traversal
@@ -141,22 +151,28 @@ including field projection, predicates over event JSON, and recursive relations,
 provided the extension specifies deterministic evaluation, authorization
 behavior, resource limits, and failure semantics.
 
-The response encodes event metadata as `event_fields` plus `events`, not as
-bulky per-event objects. `event_fields` is a list of field names, and each entry
-in `events` is a list of values corresponding positionally to those names.
-`event_fields` MUST include `event_id`. An event entry MUST have exactly the
-same length as `event_fields`.
+To minimize parser allocations and uncompressed payload size for
+high-cardinality queries, the response encodes dense event metadata as
+`event_fields` plus `events`, not as bulky per-event objects. `event_fields` is
+a list of field names, and each entry in `events` is a list of values
+corresponding positionally to those names. `event_fields` MUST include
+`event_id`. An event entry MUST have exactly the same length as `event_fields`.
 
-The `event_fields` list contains all fields returned for the response. If a
-server does not know a value, does not store it efficiently, or is not willing
-to disclose it to the requester, it returns `null` in that field position for
-the affected event. Servers MUST NOT rely on per-event object-key omission
-semantics in `events`.
+If a server does not know a dense value, does not store it efficiently, or is
+not willing to disclose it to the requester, it returns `null` in that field
+position for the affected event. Dense fields that are unavailable for every
+returned event MAY be omitted entirely from `event_fields`, except for
+`event_id`. Servers MUST NOT rely on per-event object-key omission semantics in
+`events`.
 
-Fields that are unavailable for every returned event MAY be omitted from
-`event_fields`, except for `event_id`, which is always required. A requester
-MUST ignore unrecognized field names while preserving positional alignment for
-fields it understands.
+Fields expected to be highly sparse or bulky, such as `proof` and `edge_errors`,
+are returned in sidecar maps (`proofs` and `edge_errors`) keyed by `event_id`
+rather than in the positional `events` rows. This ensures servers do not have to
+emit explicit `null` slots for sparse data. A server MUST only include a sidecar
+map if the corresponding field was requested in `fields`, and MUST only include
+entries for events with applicable data to return. A requester MUST ignore
+unrecognized field names while preserving positional alignment for fields it
+understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
@@ -203,10 +219,14 @@ it is requested in `fields`. The initial reason codes are:
 For example:
 
 ```json
-"edge_errors": {
-    "prev_events": {
+{
+  "edge_errors": {
+    "$missing_event_A": {
+      "prev_events": {
         "$foreign_event": "wrong_room"
+      }
     }
+  }
 }
 ```
 
@@ -535,34 +555,37 @@ API and defers signature migration mechanics to the room-version proposal.
 
 When `proof` is requested in `fields` and the queried room version supports
 split canonicalization, a server MAY include proof material for provable
-requested fields inside a `proof` object. A room version adopting this format
-also extends the queryable `fields` set with the header leaves not exposed in
-hint-only mode (`sender`, `type`, `state_key`, `redacts`), since a field must be
-returnable to be provable.
+requested fields inside the `proofs` sidecar object keyed by the corresponding
+`event_id`. A room version adopting this format also extends the queryable
+`fields` set with the header leaves not exposed in hint-only mode (`sender`,
+`type`, `state_key`, `redacts`), since a field must be returnable to be
+provable.
 
-The `proof` object schema explicitly maps the proven fields to their Merkle
-paths, provides any required top-level component hashes needed to reconstruct
+Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
+provides any required top-level component hashes needed to reconstruct
 `event_root`, and includes the origin signature:
 
 ```json
-"proof": {
+"proofs": {
+  "$missing_event_A": {
     "leaf_paths": {
-        "prev_events": [],
-        "origin_server_ts": [
-            { "side": "right", "hash": "base64url_sha3_256_hash" },
-            { "side": "left", "hash": "base64url_sha3_256_hash" }
-        ]
+      "prev_events": [],
+      "origin_server_ts": [
+        { "side": "right", "hash": "base64url_sha3_256_hash" },
+        { "side": "left", "hash": "base64url_sha3_256_hash" }
+      ]
     },
     "top_level_hashes": {
-        "auth_events_hash": "base64url_sha3_256_hash",
-        "content_hash": "base64url_sha3_256_hash",
-        "other_signed_fields_hash": "base64url_sha3_256_hash"
+      "auth_events_hash": "base64url_sha3_256_hash",
+      "content_hash": "base64url_sha3_256_hash",
+      "other_signed_fields_hash": "base64url_sha3_256_hash"
     },
     "signatures": {
-        "example.org": {
-            "ed25519:key": "signature_base64"
-        }
+      "example.org": {
+        "ed25519:key": "signature_base64"
+      }
     }
+  }
 }
 ```
 
