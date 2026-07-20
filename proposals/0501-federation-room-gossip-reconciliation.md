@@ -78,14 +78,14 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 ```json
 {
-    "digest": "<opaque_base64_string>",
-    "digest_type": "xxh3_bloom",
-    "digest_bits": 32768,
-    "digest_window": 5000,
-    "event_count": 81247,
-    "pduleaves_id": ["$abc123", "$def456"],
-    "depth_range": [1, 93841],
-    "origin_server_ts_range": [1609459200000, 1716000000000]
+  "digest": "<opaque_base64_string>",
+  "digest_type": "xxh3_bloom",
+  "digest_bits": 32768,
+  "digest_window": 5000,
+  "event_count": 81247,
+  "pduleaves_id": ["$abc123", "$def456"],
+  "depth_range": [1, 93841],
+  "origin_server_ts_range": [1609459200000, 1716000000000]
 }
 ```
 
@@ -222,16 +222,18 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 ```json
 {
-    "mode": "extremity",
-    "local_pduleaves_id": ["$abc123", "$def456"],
-    "have_event_ids": [
-        "$known_depth_90000",
-        "$known_depth_89500",
-        "$known_depth_88000",
-        "$known_depth_84000"
-    ],
-    "local_event_count": 81000,
-    "limit": 1000
+  "mode": "extremity",
+  "from_extremities": ["$abc123", "$def456"],
+  "have_event_ids": [
+    "$known_depth_90000",
+    "$known_depth_89500",
+    "$known_depth_88000",
+    "$known_depth_84000"
+  ],
+  "local_event_count": 81000,
+  "max_depth_delta": 5000,
+  "max_events": 10000,
+  "limit": 1000
 }
 ```
 
@@ -239,35 +241,36 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 ```json
 {
-    "mode": "bloom",
-    "local_digest": "<base64_bloom_filter>",
-    "digest_type": "xxh3_bloom",
-    "local_event_count": 81000,
-    "limit": 1000
+  "mode": "bloom",
+  "local_digest": "<base64_bloom_filter>",
+  "digest_type": "xxh3_bloom",
+  "local_event_count": 81000,
+  "limit": 1000
 }
 ```
 
 **Fields (request):**
 
-| Field                | Type     | Required          | Description                                                                                                         |
-| -------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `mode`               | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
-| `local_pduleaves_id` | [string] | If mode=extremity | The requesting server's current forward extremities ("want" — what it's trying to reach).                           |
-| `have_event_ids`     | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
-| `local_digest`       | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
-| `digest_type`        | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
-| `local_event_count`  | integer  | Yes               | The requesting server's total event count for this room.                                                            |
-| `max_depth_walk`     | integer  | No                | Maximum events to walk in `extremity` mode before giving up. Default 10000, max 50000.                              |
-| `limit`              | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
+| Field               | Type     | Required          | Description                                                                                                         |
+| ------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `mode`              | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
+| `from_extremities`  | [string] | If mode=extremity | The event IDs where the requesting server's DAG currently terminates.                                               |
+| `have_event_ids`    | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
+| `local_digest`      | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
+| `digest_type`       | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
+| `local_event_count` | integer  | Yes               | The requesting server's total event count for this room.                                                            |
+| `max_depth_delta`   | integer  | If mode=extremity | The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                        |
+| `max_events`        | integer  | If mode=extremity | The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.           |
+| `limit`             | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
 
 **Response:**
 
 ```json
 {
-    "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
-    "remote_event_count": 81247,
-    "remote_pduleaves_id": ["$abc123", "$pqr678"],
-    "truncated": false
+  "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
+  "remote_event_count": 81247,
+  "remote_pduleaves_id": ["$abc123", "$pqr678"],
+  "truncated": false
 }
 ```
 
@@ -295,42 +298,61 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
 
 **Diff Computation — `extremity` mode:**
 
-In `extremity` mode, the responding server performs a **merge-base walk**
-modeled on Git's packfile negotiation protocol:
+Once two servers determine their event digests disagree, the protocol does not
+immediately request all missing data, which can lead to accidental backfill
+abuse. Instead, the protocol MUST determine where the DAG views diverged.
 
-1. **Topological Bounding Check ($O(1)$):** Before starting, the responder MUST
-   perform a pre-flight depth check to prevent CPU-exhaustion DoS attacks.
-    - The requester provides `have_event_ids` (a sparse sample of known
-      ancestors).
-    - The responder finds the `local_depth` of these events.
-    - `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`
-    - If `delta > max_depth_walk`, the responder MUST immediately return an
-      empty result with `truncated: true`. This guarantees the server only ever
-      walks bounded, recent history.
-2. Build the `have` set: the union of `local_pduleaves_id` and `have_event_ids`.
-   These represent events the requester already possesses. The combined `have`
-   set MUST NOT exceed 256 entries; requests exceeding this MUST be rejected
-   with HTTP 400.
-3. Identify forward extremities the responder has that are NOT in the `have` set
-   — these are the "want" events (unknown tips from the requester's
-   perspective).
-4. Walk backwards from those unknown extremities via `prev_events`, collecting
-   event IDs.
-5. **Stop condition:** For each branch of the walk, stop when the walk reaches
-   an event ID that IS in the `have` set. This event is the **merge-base** for
-   that branch — the most recent common ancestor between the two servers' DAGs.
-   Events at or before the merge-base are NOT included in the result (the
-   requester already has them).
-6. **Safety limit:** If the walk visits `max_depth_walk` events without finding
-   any event in the `have` set, the walk is terminated and the response MUST set
+This mode is modeled after Git's merge-base search. Each server starts from its
+current forward extremities and walks backward through `prev_events` to locate
+the highest-depth event IDs that are known to both servers. This shared frontier
+becomes the repair boundary: events above it are reconciliation candidates,
+while events below it are treated as stable history.
+
+Attempting this repair with an unbounded breadth-first search (BFS) over the
+room DAG is a Denial of Service (DoS) vector. A large room with partial state
+joins, rejected branches, and missing auth chains is not a clean tree; it is a
+damaged DAG with holes. Blind traversal wastes CPU rediscovering old history and
+allows hostile peers to trivially trigger expensive graph walks.
+
+To enforce strict boundaries, every merge-base query MUST include:
+
+- `from_extremities`: the event IDs where the requesting server's DAG currently
+  terminates.
+- `max_depth_delta`: the maximum topological depth distance the peer is allowed
+  to walk.
+- `max_events`: the maximum number of event IDs the peer is allowed to inspect
+  before stopping.
+
+A server MUST stop walking as soon as any bound is reached. If no shared event
+is found within the requested bounds, the response MUST indicate that the
+reconciliation window is insufficient rather than silently escalating to deeper
+history traversal. Reconciliation is allowed to be incomplete, but it MUST NEVER
+become unbounded.
+
+The responding server performs the bounded merge-base walk as follows:
+
+1. Perform a topological bounding check before starting the walk. The responder
+   finds the depth of the valid entries in `have_event_ids` and computes
+   `delta = max(from_extremity_depth) - max(depth_of_valid_have_events)`. If
+   `delta > max_depth_delta`, the responder MUST return an empty result with
    `truncated: true`.
-7. Returns the collected event IDs in reverse topological order, up to `limit`.
+2. Build the `have` set from `have_event_ids`. These represent events the
+   requester already possesses. The `have_event_ids` set MUST NOT exceed 256
+   entries; requests exceeding this MUST be rejected with HTTP 400.
+3. Walk backwards from `from_extremities` via `prev_events`, collecting event
+   IDs that the responder has and that are not in the `have` set.
+4. For each branch of the walk, stop when the walk reaches an event ID that is
+   in the `have` set. This event is the merge-base for that branch. Events at or
+   before the merge-base are not included in the result.
+5. If the walk visits `max_events` event IDs without finding any event in the
+   `have` set, the walk MUST stop and the response MUST set `truncated: true`.
+6. Return the collected event IDs in reverse topological order, up to `limit`.
 
-The `max_depth_walk` parameter prevents CPU exhaustion. Servers MUST enforce
-`max_depth_walk <= 50000`. The default is `5000`. Servers SHOULD also maintain a
-per-peer, per-room accounting of total walk depth consumed over a rolling window
-(e.g., 60 seconds) and reject requests that would exceed a cumulative budget
-(RECOMMENDED: 100,000 events per peer per room per minute).
+Servers MUST enforce `max_depth_delta <= 50000` and `max_events <= 50000`.
+Servers SHOULD also maintain per-peer, per-room accounting of total walk depth
+consumed over a rolling window (for example, 60 seconds) and reject requests
+that would exceed a cumulative budget (RECOMMENDED: 100,000 events per peer per
+room per minute).
 
 **Constructing the `have` set (requesting server):**
 
@@ -380,9 +402,9 @@ POST /_matrix/federation/v1/room_events/{roomId}
 
 ```json
 {
-    "event_ids": ["$ghi789", "$jkl012", "$mno345"],
-    "include_auth_chain": true,
-    "known_event_ids": ["$abc123", "$def456"]
+  "event_ids": ["$ghi789", "$jkl012", "$mno345"],
+  "include_auth_chain": true,
+  "known_event_ids": ["$abc123", "$def456"]
 }
 ```
 
@@ -452,7 +474,7 @@ The full reconciliation flow between two servers is:
          │                                         │
          │  POST /room_diff/{roomId}               │
          │  { mode: "extremity",                   │
-         │    local_pduleaves_id: [...] }          │
+         │    from_extremities: [...] }            │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { probably_missing: [...] }     │
@@ -489,19 +511,19 @@ The recommended strategy is:
 2. **Periodic anti-entropy:** Servers SHOULD periodically select a random subset
    of active rooms and a random peer for each, and perform the digest comparison
    phase. The recommended interval is:
-    - Every 60 seconds for rooms with recent activity (events in the last 5
-      minutes)
-    - Every 300 seconds for rooms with moderate activity (events in the last
-      hour)
-    - Every 3600 seconds for idle rooms
+   - Every 60 seconds for rooms with recent activity (events in the last 5
+     minutes)
+   - Every 300 seconds for rooms with moderate activity (events in the last
+     hour)
+   - Every 3600 seconds for idle rooms
 
 3. **Peer selection:** For each reconciliation round, the server SHOULD select
    peers using a weighted random strategy, preferring:
-    - Servers that originated the most recent events (most likely to be ahead)
-    - Servers that previously returned divergent digests (known to have
-      different data)
-    - Backbone/hub servers with high availability (most likely to have complete
-      DAGs)
+   - Servers that originated the most recent events (most likely to be ahead)
+   - Servers that previously returned divergent digests (known to have different
+     data)
+   - Backbone/hub servers with high availability (most likely to have complete
+     DAGs)
 
 4. **Back-off:** If a peer consistently returns identical digests (no
    divergence), the server SHOULD exponentially back off the reconciliation
@@ -626,6 +648,26 @@ This was rejected for the initial proposal because:
    implementation complexity
 4. Merkle tree reconciliation can be introduced as a future `digest_type`
    without changing the protocol structure
+
+### Why Not Invertible Bloom Filters?
+
+Invertible Bloom Lookup Tables (IBLTs) are an attractive alternative because
+they can recover missing event IDs directly from the digest exchange when the
+set difference is small. While this is a useful optimization, it is the wrong
+primitive to mandate for baseline room reconciliation.
+
+Matrix federation failures are rarely limited to small-delta events. The
+scenarios this proposal is designed to survive include spam storms, network
+partitions, rejected-event cascades, and partial-state resync failures. Under
+these conditions, the difference set can easily exceed the decode capacity of an
+invertible filter. Once the decode capacity is exceeded, the filter fails
+sharply, requiring the protocol to fall back to a bounded graph walk anyway.
+
+Therefore, this proposal relies on standard Bloom filters for cheap divergence
+detection and membership testing, followed by a bounded merge-base walk to
+locate the actual repair frontier. Future MSCs MAY define an `ibl_bloom` digest
+mode as an optimization for small differences, but baseline correctness MUST NOT
+depend on invertible-filter decoding success.
 
 ### Server-Initiated Push Reconciliation
 
