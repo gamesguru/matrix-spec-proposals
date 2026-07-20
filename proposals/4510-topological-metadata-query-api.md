@@ -62,21 +62,12 @@ The response is intentionally sparse:
 
 ```json
 {
-  "events": {
-    "$missing_event_A": {
-      "prev_events": ["$prev_1", "$prev_2"],
-      "origin": "example.org",
-      "rejected": false
-    },
-    "$missing_event_B": {
-      "prev_events": ["$prev_1"],
-      "origin": "elsewhere.example"
-    },
-    "$prev_1": {
-      "prev_events": ["$prev_0"],
-      "origin": "example.org"
-    }
-  },
+  "event_fields": ["event_id", "prev_events", "origin", "rejected"],
+  "events": [
+    ["$missing_event_A", ["$prev_1", "$prev_2"], "example.org", false],
+    ["$missing_event_B", ["$prev_1"], "elsewhere.example", null],
+    ["$prev_1", ["$prev_0"], "example.org", null]
+  ],
   "computed": {
     "common_ancestor": ["$prev_1"],
     "hop_distance": [1]
@@ -110,6 +101,8 @@ The initial query fields are:
 
 The initial response fields for each event are:
 
+- `event_id`: the event ID for the returned metadata row. This field is always
+  returned.
 - `room_id`: the room the event belongs to. This is always the requested room,
   since wrong-room events are never returned as records; it is a queryable field
   so that room versions with split canonicalization can prove it.
@@ -148,9 +141,22 @@ including field projection, predicates over event JSON, and recursive relations,
 provided the extension specifies deterministic evaluation, authorization
 behavior, resource limits, and failure semantics.
 
-The response maps each event ID to an object containing the fields returned for
-that event. Servers may omit fields they do not know, do not store efficiently,
-or are not willing to disclose to the requester.
+The response encodes event metadata as `event_fields` plus `events`, not as
+bulky per-event objects. `event_fields` is a list of field names, and each entry
+in `events` is a list of values corresponding positionally to those names.
+`event_fields` MUST include `event_id`. An event entry MUST have exactly the
+same length as `event_fields`.
+
+The `event_fields` list contains all fields returned for the response. If a
+server does not know a value, does not store it efficiently, or is not willing
+to disclose it to the requester, it returns `null` in that field position for
+the affected event. Servers MUST NOT rely on per-event object-key omission
+semantics in `events`.
+
+Fields that are unavailable for every returned event MAY be omitted from
+`event_fields`, except for `event_id`, which is always required. A requester
+MUST ignore unrecognized field names while preserving positional alignment for
+fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
