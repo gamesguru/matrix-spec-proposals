@@ -49,14 +49,15 @@ For example:
   "max_event_records": 1000,
   "max_nodes_visited": 5000,
   "max_compute_event_pairs": 10,
-  "fields": ["prev_events", "origin"],
+  "fields": ["prev_events", "origin", "edge_errors"],
   "compute": ["common_ancestor", "hop_distance"],
   "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
 }
 ```
 
 This asks the responding server to walk backwards through `prev_events`, up to
-50 hops, returning only previous-event edges and `origin` hints.
+50 hops, returning previous-event edges, `origin` hints, and requested edge
+errors.
 
 The response is intentionally sparse:
 
@@ -106,6 +107,9 @@ The initial query fields are:
 - `compute_event_pairs`: ordered event ID pairs that each computed graph fact
   operates on.
 
+The `fields` list MUST NOT contain duplicate field names. A server MUST reject a
+request with duplicate `fields` entries with `M_INVALID_PARAM` before traversal.
+
 The initial dense response fields available for the `events` rows are:
 
 - `event_id`: the event ID for the returned metadata row. This field is always
@@ -125,7 +129,8 @@ The initial dense response fields available for the `events` rows are:
 
 The initial sparse response fields returned as sidecar maps are:
 
-- `edge_errors`: non-followed edge targets keyed by source event ID, grouped by edge type and reason.
+- `edge_errors`: non-followed edge targets keyed first by source event ID, then
+  by edge type, then by target event ID to reason code.
 - `proofs`: Merkle proof material, only for future room versions which opt into
   split canonicalization. Requested via the `proof` field name.
 
@@ -156,7 +161,9 @@ high-cardinality queries, the response encodes dense event metadata as
 `event_fields` plus `events`, not as bulky per-event objects. `event_fields` is
 a list of field names, and each entry in `events` is a list of values
 corresponding positionally to those names. `event_fields` MUST include
-`event_id`. An event entry MUST have exactly the same length as `event_fields`.
+`event_id`. Each field name, including `event_id`, MUST appear at most once in
+`event_fields`. An event entry MUST have exactly the same length as
+`event_fields`.
 
 If a server does not know a dense value, does not store it efficiently, or is
 not willing to disclose it to the requester, it returns `null` in that field
@@ -171,8 +178,8 @@ rather than in the positional `events` rows. This ensures servers do not have to
 emit explicit `null` slots for sparse data. A server MUST only include a sidecar
 map if the corresponding logical field was requested in `fields` (e.g. `proof`
 for `proofs`), and MUST only include entries for events with applicable data to
-return. A requester MUST ignore unrecognized field names while preserving positional
-alignment for fields it understands.
+return. A requester MUST ignore unrecognized field names while preserving
+positional alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
@@ -571,8 +578,9 @@ provides any required top-level component hashes needed to reconstruct
     "leaf_paths": {
       "prev_events": [],
       "origin_server_ts": [
+        { "side": "left", "hash": "base64url_sha3_256_hash" },
         { "side": "right", "hash": "base64url_sha3_256_hash" },
-        { "side": "left", "hash": "base64url_sha3_256_hash" }
+        { "side": "right", "hash": "base64url_sha3_256_hash" }
       ]
     },
     "top_level_hashes": {
