@@ -21,29 +21,29 @@ This MSC defines the stable algorithm identifier `bls12-381-g2` for BLS
 signatures over the BLS12-381 curve using the IETF hash-to-curve suite for
 signatures in `G2` and public keys in `G1`.
 
-The exact ciphersuite is:
+The exact ciphersuite for event signatures and aggregate verification is:
 
 ```text
 BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_
 ```
 
-Event signatures and aggregate event-signature verification use that
-ciphersuite. Server-key proof-of-possession signatures use the same curve,
-hash-to-curve method, public-key group, signature group, and serialization
-rules, but with the following domain-separation tag:
+Server-key proof-of-possession signatures use a custom binding-signature profile
+built on the same BLS12-381 G2 parameters, hash-to-curve suite, public- key
+group, signature group, and serialization rules. That binding-signature profile
+uses the following domain-separation tag:
 
 ```text
 MATRIX_MSC00DA_BLS12381G2_POP_V1_
 ```
 
 To create `pop`, the server computes the BLS signing operation over the
-canonical proof-of-possession binding object below with its BLS private key and
-the proof-of-possession domain-separation tag. To verify `pop`, receivers run
-the BLS verification operation against the advertised BLS public key, the same
-canonical binding object, and the same tag. Implementations MUST verify `pop`
-before aggregating signatures from distinct public keys. This lets batch
-verifiers use proof of possession without altering Matrix's existing
-event-signing bytes.
+canonical proof-of-possession binding object below with its BLS private key
+using the `MATRIX_MSC00DA_BLS12381G2_POP_V1_` domain-separation tag. To verify
+`pop`, receivers run the corresponding BLS verification operation over the
+advertised BLS public key, the same canonical binding object, and the same tag.
+Implementations MUST verify `pop` before aggregating signatures from distinct
+public keys. This binding-signature profile is separate from the event-signature
+ciphersuite above and does not use the standard IETF POP ciphersuite.
 
 ### Server keys
 
@@ -119,7 +119,7 @@ Protocols that depend on this MSC may carry an aggregate signature object:
       "event_id": "$event1:example.com",
       "server_name": "example.com",
       "key_id": "bls12-381-g2:abc123",
-      "message_hash": "<base64url-sha256-canonical-event-signing-input>"
+      "message_hash": "<unpadded-standard-base64-sha256-canonical-event-signing-input>"
     }
   ],
   "aggregate": "<unpadded-base64-compressed-g2-aggregate-signature>"

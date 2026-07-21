@@ -87,8 +87,8 @@ The request body is:
 - `aggregate_policy`: Optional policy for `bls_aggregate`. If omitted, defaults
   to `preferred`. Valid values are `preferred` and `required`.
 - `state_commitments`: Ordered list of state commitment formats the receiver
-  accepts. If the sender includes `state_commitments`, its `algorithm` MUST be
-  selected from this list.
+  accepts. If the sender includes `state_commitments` in the response, its
+  `algorithm` MUST be selected from this list.
 
 If `aggregate_policy` is `required`, `include_bls_aggregate` MUST be `true`.
 Senders MUST reject a request with `400 M_INVALID_PARAM` if `aggregate_policy`
@@ -195,7 +195,7 @@ Advertising `org.matrix.msc00db.xzip` means the server supports the unstable
 wire profile below:
 
 ```text
-magic              = "MSC00DBXZIP"        ; 10 ASCII bytes
+magic              = "MSC00DBXZIP"        ; 11 ASCII bytes
 version            = uint16-le
 max_window_size    = uint32-le            ; bytes
 chunk_count        = uint32-le
