@@ -41,6 +41,7 @@ functioning correctly.
 | `POST /get_missing_events/{roomId}` | BFS walk with a hard depth limit (default 10); cannot bridge gaps larger than 10 events; requires knowing the boundary events |
 | `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); O(N) comparison; no incremental diffing                                   |
 | `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                                   |
+| `GET /make_join`                    | Does not meet latency requirements (20-100 ms); requests to lagging server can timeout (full index scan for unknown event)    |
 
 None of these endpoints answer the fundamental question: **"Am I missing events
 in this room, and if so, which ones?"**
