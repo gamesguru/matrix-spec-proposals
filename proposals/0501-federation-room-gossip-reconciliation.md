@@ -232,12 +232,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "mode": "extremity",
   "local_extremity_event_ids": ["$abc123", "$def456"],
-  "have_event_ids": [
-    "$known_depth_90000",
-    "$known_depth_89500",
-    "$known_depth_88000",
-    "$known_depth_84000"
-  ],
+  "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
   "local_event_count": 81000,
   "max_depth_delta": 5000,
   "max_events": 10000,
@@ -261,19 +256,19 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                                                                    |
-| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                            |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                       |
-| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.            |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                                   |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                                     |
-| `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                                      |
-| `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                           |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                                       |
-| `max_depth_delta`           | integer  | No                | Extremity mode only. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.              |
-| `max_events`                | integer  | No                | Extremity mode only. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000. |
-| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                                |
+| Field                       | Type     | Required          | Description                                                                                                                                      |
+| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                                              |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                         |
+| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                              |
+| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                                                     |
+| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                                                       |
+| `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                                                        |
+| `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                                             |
+| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                                                         |
+| `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.              |
+| `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000. |
+| `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                |
 
 **Response:**
 
@@ -327,12 +322,13 @@ An unbounded graph walk here is a denial-of-service vector. A large room with
 partial-state joins, rejected branches, and missing auth chains is not a clean
 tree; it is a damaged DAG with holes, and blind traversal lets a hostile peer
 trigger expensive walks that rediscover old history. Every walk is therefore
-bounded by two request parameters: `max_depth_delta` (the maximum topological
-depth distance the responder may walk) and `max_events` (the maximum number of
-event IDs it may inspect). A responder MUST stop as soon as any bound is reached
-and report `truncated: true` rather than silently escalating to deeper history
-traversal. Reconciliation is allowed to be incomplete, but it MUST NEVER become
-unbounded.
+bounded by two optional request parameters: `max_depth_delta` (the maximum
+topological depth distance the responder may walk) and `max_events` (the maximum
+number of event IDs it may inspect). If either field is omitted, the responder
+MUST apply the default from the request field table. A responder MUST stop as
+soon as any bound is reached and report `truncated: true` rather than silently
+escalating to deeper history traversal. Reconciliation is allowed to be
+incomplete, but it MUST NEVER become unbounded.
 
 The responding server computes the diff as follows:
 
@@ -364,7 +360,9 @@ The responding server computes the diff as follows:
    branches terminate, it MUST stop and the response MUST set `truncated: true`.
 8. Return the collected event IDs in reverse topological order, up to `limit`.
 
-Servers MUST enforce `max_depth_delta <= 50000` and `max_events <= 50000`.
+Servers MUST reject zero, negative, non-integer, or over-cap `max_depth_delta`,
+`max_events`, and `limit` values with HTTP 400. Servers MUST enforce
+`max_depth_delta <= 50000`, `max_events <= 50000`, and `limit <= 10000`.
 Servers SHOULD also maintain per-peer, per-room accounting of inspected events
 over a rolling window (for example, 60 seconds) and reject requests that would
 exceed a cumulative budget (RECOMMENDED: 100,000 inspected events per peer per
