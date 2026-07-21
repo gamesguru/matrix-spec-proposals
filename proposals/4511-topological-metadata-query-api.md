@@ -907,6 +907,40 @@ normative.
 Future room versions may extend the proof fields or add more independently
 provable metadata fields.
 
+### Forward recursive queries
+
+Future extensions might define forward recursive queries over the same event
+graph. In this context, "forward" means following the inverse of a stored edge:
+
+- forward `prev_events` recursion follows events whose `prev_events` list the
+  frontier event.
+- forward `auth_events` recursion follows events whose `auth_events` list the
+  frontier event.
+
+Because events store backward references, a responding server computes forward
+traversal from local indexes over `prev_events` and `auth_events`.
+Implementations might also use local forward-extremity indexes or equivalent
+adjacency caches to avoid performing full table walks or full event JSON scans.
+
+The practical motivation is cache-hunting and witness discovery when an origin
+server is unavailable: a forward walk helps identify the later events or peers
+most likely to have observed the referenced resource.
+
+Any forward recursive query extension would need to specify:
+
+- whether it walks one or more forward edge types, and how those types map to
+  the underlying stored relations, associations, or mentions;
+- whether traversal proceeds breadth-first, or via another deterministic order;
+- whether events can be revisited, and how cycles are handled;
+- visibility and room-boundary rules and authorization;
+- limits to recursion depth, returned records, and visited nodes;
+- how truncation is reported, including whether `limited` is set and whether an
+  `edge_errors` sidecar is offered.
+
+Absent such an extension, this MSC does not define forward recursion semantics.
+The current endpoint remains a reverse walk over `prev_events` and
+`auth_events`, plus bounded computed facts derived from that reverse walk.
+
 ## Performance characteristics and benchmarking
 
 Exact speedups depend on implementation, database layout, cache state, and
