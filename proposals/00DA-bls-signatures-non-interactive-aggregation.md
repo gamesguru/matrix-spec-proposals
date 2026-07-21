@@ -27,10 +27,23 @@ The exact ciphersuite is:
 BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_
 ```
 
-Implementations MUST use the proof-of-possession or augmentation defenses
-required by the selected BLS signature profile when aggregating signatures from
-distinct public keys. This MSC uses proof of possession for server keys so that
-batch verifiers do not need to alter Matrix's existing signed-message bytes.
+Event signatures and aggregate event-signature verification use that
+ciphersuite. Server-key proof-of-possession signatures use the same curve,
+hash-to-curve method, public-key group, signature group, and serialization
+rules, but with the following domain-separation tag:
+
+```text
+MATRIX_MSC00DA_BLS12381G2_POP_V1_
+```
+
+To create `pop`, the server computes the BLS signing operation over the
+canonical proof-of-possession binding object below with its BLS private key and
+the proof-of-possession domain-separation tag. To verify `pop`, receivers run
+the BLS verification operation against the advertised BLS public key, the same
+canonical binding object, and the same tag. Implementations MUST verify `pop`
+before aggregating signatures from distinct public keys. This lets batch
+verifiers use proof of possession without altering Matrix's existing
+event-signing bytes.
 
 ### Server keys
 
@@ -42,11 +55,15 @@ A BLS verify key object has the following additional fields:
 
 - `key`: The compressed BLS12-381 G1 public key, unpadded base64 encoded.
 - `pop`: A proof-of-possession signature over the canonical server-key binding
-  object (below), unpadded base64 encoded.
+  object (below), encoded as unpadded base64.
 
-BLS keys use the existing server-key validity semantics: the enclosing
-response’s `valid_until_ts` governs cache lifetime, and retired keys in
-`old_verify_keys` carry an `expired_ts`.
+BLS keys use the existing server-key validity semantics. BLS verify keys in
+`verify_keys` do not carry a separate expiry field; their effective `expires_ts`
+is the enclosing server-key response's `valid_until_ts`. BLS verify keys in
+`old_verify_keys` use that entry's `expired_ts` as their effective `expires_ts`.
+If an implementation encounters any additional per-key expiry field, it MUST
+ignore that field for BLS key acceptance and use the timestamp defined by the
+enclosing server-key structure.
 
 The signed proof-of-possession message is the standard canonical representation:
 

@@ -39,14 +39,14 @@ Servers advertise support in `/_matrix/federation/v1/version` feature flags:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc00db.bulk_backfill": true,
-    "xzip": true,
+    "org.matrix.msc00db.bulk_backfill": true,
+    "org.matrix.msc00db.xzip": true,
     "bls12-381-g2": true
   }
 }
 ```
 
-Support for `tk.nutra.msc00db.bulk_backfill` indicates that the endpoint shape
+Support for `org.matrix.msc00db.bulk_backfill` indicates that the endpoint shape
 is understood. Compression algorithms and aggregate signature algorithms are
 advertised separately so that future encodings can be added without replacing
 the endpoint.
@@ -56,7 +56,7 @@ the endpoint.
 This MSC defines:
 
 ```text
-POST /_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}
+POST /_matrix/federation/unstable/org.matrix.msc00db/bulk_backfill/{roomId}
 ```
 
 The request body is:
@@ -67,7 +67,7 @@ The request body is:
   "limit": 10000,
   "direction": "backwards",
   "min_depth": 1234,
-  "compression": ["xzip"],
+  "compression": ["org.matrix.msc00db.xzip"],
   "include_bls_aggregate": true,
   "aggregate_policy": "required",
   "state_commitments": ["lthash16"]
@@ -75,34 +75,47 @@ The request body is:
 ```
 
 - `start`: Event IDs at the known edge of the receiver's timeline.
-- `limit`: Maximum number of events requested.
+- `limit`: Maximum number of events requested. Receivers MUST abort decoding and
+  reject the response if the decoded event count exceeds `limit`.
 - `direction`: `backwards` in this MSC. Future extensions may define forward
   historical repair.
 - `min_depth`: Optional lower depth bound.
-- `compression`: Ordered list of compression encodings the receiver accepts.
+- `compression`: Ordered list of compression encodings the receiver accepts. The
+  sender MUST choose `encoding` from this list.
 - `include_bls_aggregate`: Whether the receiver wants an MSC00DA aggregate proof
   over the returned PDUs.
 - `aggregate_policy`: Optional policy for `bls_aggregate`. If omitted, defaults
   to `preferred`. Valid values are `preferred` and `required`.
 - `state_commitments`: Ordered list of state commitment formats the receiver
-  accepts.
+  accepts. If the sender includes `state_commitments`, its `algorithm` MUST be
+  selected from this list.
+
+If `aggregate_policy` is `required`, `include_bls_aggregate` MUST be `true`.
+Senders MUST reject a request with `400 M_INVALID_PARAM` if `aggregate_policy`
+is `required` and `include_bls_aggregate` is omitted or `false`.
+
+If no mutually supported compression encoding exists, the sender MUST fail the
+request with `400 M_INVALID_PARAM` and the receiver SHOULD fall back to ordinary
+backfill. If no mutually supported state-commitment format exists, the sender
+MUST omit `state_commitments` unless a future profile makes state commitments
+mandatory.
 
 The response body is:
 
 ```json
 {
   "room_id": "!room:example.com",
-  "encoding": "xzip",
+  "encoding": "org.matrix.msc00db.xzip",
   "chunk_id": "01J2Y4J3M2HG6N6WDFN8H8X3EB",
-  "events": "<unpadded-base64-compressed-event-stream>",
+  "events": "<unpadded-standard-base64-compressed-event-stream>",
   "event_count": 9481,
   "edges": {
     "requested_start": ["$eventA:example.com"],
     "oldest": ["$eventZ:example.org"],
     "newest": ["$eventA:example.com"]
   },
-  "content_sha256": "<base64url-sha256-compressed-events>",
-  "canonical_events_sha256": "<base64url-sha256-decoded-canonical-event-stream>",
+  "content_sha256": "<unpadded-standard-base64-sha256-compressed-event-stream>",
+  "canonical_events_sha256": "<unpadded-standard-base64-sha256-decoded-canonical-event-stream>",
   "state_commitments": {
     "algorithm": "lthash16",
     "before_oldest": {
@@ -133,32 +146,43 @@ sender MUST include a valid `bls_aggregate` covering every returned PDU. If the
 sender cannot produce such a proof, it MUST fail the request with
 `400 M_INVALID_PARAM`.
 
+Receivers MUST reject a response before admitting any events if `encoding` is
+not one of the requested `compression` values, if a supplied
+`state_commitments.algorithm` is not one of the requested `state_commitments`
+values, or if `aggregate_policy` is `required` and `bls_aggregate` is absent.
+
 ### Event stream
 
-After decompression, the event stream is a deterministic sequence of Matrix PDU
-JSON objects. Events MUST be serialized as Matrix Canonical JSON, length
-prefixed with an unsigned 32-bit little-endian byte count, and ordered from
-newest to oldest for `direction: backwards`.
+The `events` field is encoded as unpadded standard Base64 using the RFC 4648
+section 4 alphabet. After Base64 decoding and decompression, the event stream is
+a deterministic sequence of Matrix PDU JSON objects. Events MUST be serialized
+as Matrix Canonical JSON, length prefixed with an unsigned 32-bit little-endian
+byte count, and ordered from newest to oldest for `direction: backwards`.
 
 The decoded canonical event stream is the concatenation of those length-prefixed
 canonical JSON byte strings. `canonical_events_sha256` is computed over that
-decoded stream.
+decoded stream and encoded as unpadded standard Base64. `content_sha256` is
+computed over the decoded compressed event-stream bytes, not over the Base64
+text, and encoded as unpadded standard Base64.
 
 Receivers MUST verify both `content_sha256` and `canonical_events_sha256` before
-parsing events for authorization.
+parsing events for authorization. Receivers MUST count events while decoding,
+abort if the decoded event count exceeds the request `limit`, and verify that
+the final decoded count equals `event_count` and is less than or equal to
+`limit` before persisting any event from the response.
 
 ### `xzip` compression profile
 
-This MSC uses the name `xzip` for the initial experimental homomorphic
-compression profile.
+This MSC uses the identifier `org.matrix.msc00db.xzip` for the initial
+experimental homomorphic compression profile.
 
-The `xzip` profile is intentionally scoped to transport encoding. It MUST NOT
-change Matrix event JSON, event IDs, event hashes, room DAG semantics, or event
-authorization. A receiver that does not understand `xzip` simply cannot decode
-that response and MUST retry with another advertised encoding or fall back to
-ordinary backfill.
+The `org.matrix.msc00db.xzip` profile is intentionally scoped to transport
+encoding. It MUST NOT change Matrix event JSON, event IDs, event hashes, room
+DAG semantics, or event authorization. A receiver that does not understand
+`org.matrix.msc00db.xzip` simply cannot decode that response and MUST retry with
+another advertised encoding or fall back to ordinary backfill.
 
-An `xzip` stream is required to be:
+An `org.matrix.msc00db.xzip` stream is required to be:
 
 - deterministic for a given decoded event stream and encoder version;
 - splittable into independently verifiable chunks;
@@ -166,9 +190,27 @@ An `xzip` stream is required to be:
 - non-authoritative for protocol semantics, meaning decoded Matrix PDUs remain
   the only objects admitted to the room DAG.
 
-The byte-level `xzip` coding tables are intentionally left unstable in this
-draft. Implementations experimenting with `xzip` MUST version the encoder inside
-the compressed stream and MUST reject unknown encoder versions.
+The byte-level coding tables are intentionally left unstable in this draft.
+Advertising `org.matrix.msc00db.xzip` means the server supports the unstable
+wire profile below:
+
+```text
+magic              = "MSC00DBXZIP"        ; 10 ASCII bytes
+version            = uint16-le
+max_window_size    = uint32-le            ; bytes
+chunk_count        = uint32-le
+chunk              = decoded_size uint32-le
+                   compressed_size uint32-le
+                   decoded_sha256 32 bytes
+                   compressed_bytes
+```
+
+The only version defined by this draft is `1`. Senders MUST put the encoder
+version and maximum decompression window size in the stream header. Receivers
+MUST reject streams with an unknown `version`, a `max_window_size` greater than
+their local configured limit, malformed chunk framing, or a chunk whose decoded
+bytes do not match its `decoded_sha256`. Each chunk is decoded and verified
+independently before its events are passed to the event-stream decoder.
 
 ### Receiver contract
 
@@ -177,11 +219,15 @@ processing, not as a new trust path. After validating the response envelope, the
 receiver MUST:
 
 1. Decode the event stream.
-2. Verify event IDs and content hashes according to the room version.
-3. Verify required event signatures according to the room version.
-4. If `bls_aggregate` is present, verify it according to MSC00DA.
-5. Run normal authorization rules for every event before admitting it.
-6. Persist only events that pass the same acceptance rules as ordinary
+2. Abort if more than `limit` events are decoded, or if the final decoded count
+   does not equal `event_count`.
+3. Verify event IDs and content hashes according to the room version.
+4. Verify required event signatures according to the room version.
+5. If `aggregate_policy` is `required`, reject responses without
+   `bls_aggregate`; if `bls_aggregate` is present, verify it according to
+   MSC00DA.
+6. Run normal authorization rules for every event before admitting it.
+7. Persist only events that pass the same acceptance rules as ordinary
    federation backfill.
 
 A valid bulk commitment, compression checksum, or BLS aggregate MUST NOT cause
@@ -206,8 +252,9 @@ A receiver MUST reject a response with `M_INVALID_SIGNATURE` if a supplied
 `bls_aggregate` is malformed, is inconsistent with the returned PDUs, or fails
 aggregate signature verification. The receiver SHOULD retry with a smaller
 `limit` to localize the invalid subset. If decoding fails, hashes do not match,
-or the sender cannot serve the range, the receiver SHOULD fall back to existing
-backfill endpoints.
+the decoded event count exceeds `limit`, no mutually supported response format
+is available, or the sender cannot serve the range, the receiver SHOULD fall
+back to existing backfill endpoints.
 
 Senders SHOULD cap `limit`, compressed response size, decoded response size, and
 CPU time per request. If a request is too large, the sender SHOULD return
@@ -259,8 +306,9 @@ allowed to request the same events through existing federation APIs.
 Until accepted into the Matrix specification, implementations MUST use:
 
 - Endpoint prefix:
-  `/_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}`
-- Feature flag: `tk.nutra.msc00db.bulk_backfill`
+  `/_matrix/federation/unstable/org.matrix.msc00db/bulk_backfill/{roomId}`
+- Feature flag: `org.matrix.msc00db.bulk_backfill`
+- Compression identifier: `org.matrix.msc00db.xzip`
 
 ## Dependencies
 
