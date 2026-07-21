@@ -705,23 +705,34 @@ limitations while remaining lightweight enough for periodic polling.
 
 ### Full Merkle tree synchronization
 
-A more sophisticated approach would use Merkle trees over the event ID space
-(similar to Cassandra's anti-entropy repair). Each server would maintain a
-Merkle tree where leaves are event IDs and internal nodes are hashes of their
-children. Two servers could then efficiently identify divergent subtrees in
-O(log N) rounds.
+A more sophisticated design would use a full Merkle tree over the event ID
+space, similar to the anti-entropy repair schemes used by some distributed
+databases. In that model, each server would maintain a persistent tree whose
+leaves are event IDs and whose internal nodes commit to child hashes. Two
+servers could then compare roots and recursively descend into divergent
+subtrees.
 
-This was rejected for the initial proposal because:
+That design was rejected for this MSC because Matrix room reconciliation is a
+graph repair problem, not just a set-membership problem. A Merkle tree can tell
+the peers which event IDs differ, but it does not preserve the DAG structure
+needed to understand how a missing event attaches to the room history, what its
+`prev_events` are, or which auth-chain/state-resolution inputs are relevant.
+After a Merkle comparison identifies a missing event, the protocol would still
+need a graph walk to recover the topology around it.
 
-1. It requires persistent auxiliary data structures (the Merkle tree) that must
-   be maintained across restarts
-2. The interactive multi-round protocol is more complex to implement and reason
-   about
-3. The Bloom filter + extremity-walk approach achieves similar practical
-   efficiency for the common case (small divergences) with much lower
-   implementation complexity
-4. Merkle tree reconciliation can be introduced as a future `digest_type`
-   without changing the protocol structure
+This approach was also rejected because:
+
+1. It requires persistent auxiliary state that must be maintained, indexed, and
+   recovered across restarts.
+2. Every new event would need to update the tree, adding write amplification and
+   more contention to already I/O-bound homeservers.
+3. The protocol would become interactive and multi-round even for the common
+   case of small divergences.
+4. The proposed Bloom filter plus bounded extremity walk already captures the
+   common-case benefit of quickly narrowing the repair frontier, without
+   mandating a full room-level Merkle structure.
+5. Merkle-based reconciliation can still be introduced later as a separate
+   `digest_type` or related optimization if there is a strong need for it.
 
 ### Why not invertible bloom filters?
 
