@@ -1,4 +1,4 @@
-# MSC0501: Gossip-Based Federation Room Reconciliation
+# MSC0501: Gossip-based room federation PDU reconciliation
 
 Matrix federation is "push and hope" — servers send events via `/send`
 transactions and assume delivery. When delivery fails (rate limiting, network
@@ -13,7 +13,7 @@ room versions.
 
 ## Background
 
-### The Problem: Silent Data Loss
+### The problem: federation gaps, silent data loss
 
 Federation data loss occurs through several well-documented mechanisms:
 
@@ -33,7 +33,7 @@ leading to membership divergence, missing messages, and inconsistent state
 resolution outputs — even when the state resolution algorithm itself is
 functioning correctly.
 
-### Why Existing Endpoints Are Insufficient
+### Why existing endpoints are insufficient
 
 | Endpoint                            | Limitation                                                                                                                    |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +45,7 @@ functioning correctly.
 None of these endpoints answer the fundamental question: **"Am I missing events
 in this room, and if so, which ones?"**
 
-### Design Principles
+### Design philosophy
 
 This proposal follows the gossip protocol literature (Demers et al., 1987;
 Birman, 1999) and adapts three core mechanisms to Matrix's federated DAG model:
@@ -62,7 +62,7 @@ Birman, 1999) and adapts three core mechanisms to Matrix's federated DAG model:
 Three new federation endpoints are introduced under the
 `/_matrix/federation/v1/` namespace.
 
-### 1. Room Digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
+### Room digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
 event graph. Two servers can compare digests in O(1) to determine whether their
@@ -102,7 +102,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                               |
 | `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                              |
 
-**Digest Construction (`xxh3_bloom`):**
+**Digest construction (`xxh3_bloom`):**
 
 The digest is a dynamically-sized Bloom filter constructed as follows:
 
@@ -168,7 +168,7 @@ the negative cache MUST NOT be re-requested for a configurable cooldown period
 peer reports the same rejected event again because of stale state, inconsistent
 filter parameters, or implementation error.
 
-### Dynamic Filter Folding
+#### Dynamic filter "folding"
 
 To allow comparison of Bloom filters of different sizes (e.g., if Server A uses
 $W_a = 5000$, resulting in $m_a = 32,768$ bits, and Server B uses $W_b = 10000$,
@@ -192,7 +192,7 @@ joined member). The receiving server MUST verify this before responding. If the
 requesting server is not in the room, the server MUST respond with HTTP 403 and
 error code `M_FORBIDDEN`.
 
-### 2. Room Diff: `POST /_matrix/federation/v1/room_diff/{roomId}`
+### Room diff: `POST /_matrix/federation/v1/room_diff/{roomId}`
 
 Given a requesting server's event ID set (or a compact representation thereof),
 returns the set of event IDs that the responding server has but the requester
@@ -232,7 +232,12 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "mode": "extremity",
   "local_extremity_event_ids": ["$abc123", "$def456"],
-  "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
+  "have_event_ids": [
+    "$known_depth_90000",
+    "$known_depth_89500",
+    "$known_depth_88000",
+    "$known_depth_84000"
+  ],
   "local_event_count": 81000,
   "max_depth_delta": 5000,
   "max_events": 10000,
@@ -362,12 +367,12 @@ The responding server computes the diff as follows:
 
 Servers MUST reject zero, negative, non-integer, or over-cap `max_depth_delta`,
 `max_events`, and `limit` values with HTTP 400. Servers MUST enforce
-`max_depth_delta <= 50000`, `max_events <= 50000`, and `limit <= 10000`.
-Servers SHOULD also maintain per-peer, per-room accounting of inspected events
-over a rolling window (for example, 60 seconds) and reject requests that would
-exceed a cumulative budget (RECOMMENDED: 100,000 inspected events per peer per
-room per minute). The cumulative budget prevents an attacker from issuing many
-small requests that each walk just under the per-request limit.
+`max_depth_delta <= 50000`, `max_events <= 50000`, and `limit <= 10000`. Servers
+SHOULD also maintain per-peer, per-room accounting of inspected events over a
+rolling window (for example, 60 seconds) and reject requests that would exceed a
+cumulative budget (RECOMMENDED: 100,000 inspected events per peer per room per
+minute). The cumulative budget prevents an attacker from issuing many small
+requests that each walk just under the per-request limit.
 
 **Handling Truncation (requesting server):**
 
@@ -423,7 +428,7 @@ In `bloom` mode, the responding server:
 
 Same as `room_digest` — the requesting server MUST be a participant in the room.
 
-### 3. Bulk Event Fetch: `POST /_matrix/federation/v1/room_events/{roomId}`
+### Bulk event fetch: `POST /_matrix/federation/v1/room_events/{roomId}`
 
 Given a set of event IDs, returns the full events and their auth chain events in
 topological order, suitable for direct insertion into the local store.
@@ -490,7 +495,7 @@ events that the requesting server would not be allowed to see (e.g., events sent
 after the requesting server's last member left the room, per existing history
 visibility rules).
 
-### Reconciliation Protocol
+### Reconciliation protocol
 
 The full reconciliation flow between two servers is:
 
@@ -535,7 +540,7 @@ The full reconciliation flow between two servers is:
 `extremity_event_ids` and `event_count` values, the requesting server MAY skip
 the diff and event fetch phases entirely.
 
-### Gossip Scheduling
+#### Gossip scheduling
 
 Servers SHOULD implement periodic gossip-based reconciliation for active rooms.
 To prevent cluster-wide "thundering herd" reconciliation waves after large
@@ -570,7 +575,7 @@ intervals. The recommended strategy is:
    reconciliation interval for that peer/room pair, up to a maximum of 24 hours.
    Any new event received in the room resets the back-off.
 
-### ETag Optimization for Digest Polling
+#### `ETag` optimization (for digest polling)
 
 To minimize bandwidth for digest polling, the `room_digest` endpoint supports
 conditional requests:
@@ -626,10 +631,9 @@ regardless of its topological structure, triggering the appropriate diff mode.
 
 ## Potential issues
 
-### Performance Under Adversarial Conditions
+### Performance resilience
 
-A malicious server could abuse the reconciliation endpoints to cause resource
-exhaustion:
+As with any federation endpoint, execution time and resource usage are concerns.
 
 - **Digest computation cost:** Computing the Bloom filter requires iterating
   over all event IDs in the room. For rooms with 100K+ events, this could be
@@ -645,7 +649,7 @@ exhaustion:
   could be large. The 500-event-per-request cap and standard federation rate
   limiting mitigate this.
 
-### Active Window Trade-offs
+### Active window trade-offs
 
 The active window approach (digesting only the top `W` events by depth) means
 that divergence in old history is invisible to the Bloom filter. This is an
@@ -660,7 +664,7 @@ intentional trade-off:
   false positive rate regardless of window size, preventing the saturation
   problem entirely
 
-### Consistency During Active Rooms
+### Consistency in active/hot rooms
 
 If a room is actively receiving events during reconciliation, the
 digest/diff/fetch sequence may return stale data. This is acceptable — gossip
@@ -668,7 +672,7 @@ protocols are inherently eventually consistent, and the next reconciliation
 round will catch up. Servers MUST NOT block event processing during
 reconciliation.
 
-### Interaction with Partial State Joins
+### Interaction with "Partial State" joins
 
 Servers in the process of a partial state join (MSC3706) SHOULD NOT initiate
 reconciliation for that room until the full state resync is complete. They MAY
@@ -678,7 +682,7 @@ their digest/diff is incomplete.
 
 ## Alternatives
 
-### Using `/make_join` as a Reconciliation Probe
+### Using `/make_join` as a reconciliation probe
 
 An alternative approach is to abuse the existing `/make_join` endpoint as a
 zero-mutation DAG probe. By calling `/make_join` with a throwaway user ID, a
@@ -699,7 +703,7 @@ This approach has the advantage of requiring no spec changes. However:
 The gossip reconciliation protocol proposed here addresses all of these
 limitations while remaining lightweight enough for periodic polling.
 
-### Full Merkle Tree Synchronization
+### Full Merkle tree synchronization
 
 A more sophisticated approach would use Merkle trees over the event ID space
 (similar to Cassandra's anti-entropy repair). Each server would maintain a
@@ -719,7 +723,7 @@ This was rejected for the initial proposal because:
 4. Merkle tree reconciliation can be introduced as a future `digest_type`
    without changing the protocol structure
 
-### Why Not Invertible Bloom Filters?
+### Why not invertible bloom filters?
 
 Invertible Bloom Lookup Tables (IBLTs) are an attractive alternative because
 they can recover missing event IDs directly from the digest exchange when the
@@ -739,7 +743,7 @@ locate the actual repair frontier. Future MSCs MAY define an `ibl_bloom`
 `digest_type` value as an optimization for small differences, but baseline
 correctness MUST NOT depend on invertible-filter decoding success.
 
-### Server-Initiated Push Reconciliation
+### Server-initiated push reconciliation
 
 Instead of pull-based reconciliation, servers could proactively push digests to
 peers when their DAG advances (rumor-mongering). This was rejected because:
@@ -752,7 +756,7 @@ peers when their DAG advances (rumor-mongering). This was rejected because:
 
 ## Security considerations
 
-### Information Disclosure
+### Information disclosure
 
 The `room_digest` endpoint reveals metadata about a server's event store: event
 count, depth range, timestamp range, and forward extremities. This metadata
@@ -765,7 +769,7 @@ patterns. However:
 - The Bloom filter digest does not reveal individual event IDs (only membership
   in the set)
 
-### Denial of Service
+### Denial of service
 
 The reconciliation endpoints add new attack surface for resource exhaustion.
 Mitigations:
@@ -779,7 +783,7 @@ Mitigations:
 - **Response caps:** The `limit` parameter on `room_diff` and the 500-event cap
   on `room_events` bound the maximum response size.
 
-### Replay and Poisoning
+### Replay and "poisoning"
 
 A malicious server could return fabricated events in `room_events` responses.
 This is mitigated by the same mechanisms that protect existing federation
@@ -791,7 +795,7 @@ endpoints:
 - Events that fail any of these checks MUST be discarded without affecting local
   state
 
-### Amplification Attacks via Bloom Filter Manipulation
+### Amplification attacks (via bloom filter modification)
 
 A malicious requesting server could send a Bloom filter with all bits set to 0,
 causing the responding server to believe the requester has no events and return
@@ -800,7 +804,7 @@ Additionally, servers SHOULD compare the `local_event_count` in the request with
 the filter's apparent fullness — a count of 80,000 events with an empty filter
 is clearly inconsistent and SHOULD be rejected with HTTP 400.
 
-### Depth Manipulation
+### Depth manipulation
 
 The topological bounding checks and the active window rely on event depth, which
 is derived from attacker-influenced event content. When evaluating
@@ -808,7 +812,7 @@ is derived from attacker-influenced event content. When evaluating
 locally computed topological ordering (e.g., stream ordering or recomputed
 depth) rather than trusting the `depth` field of received events.
 
-### Interaction with Server ACLs
+### Interaction with server ACLs
 
 Servers MUST respect `m.room.server_acl` when responding to reconciliation
 requests. If the requesting server is denied by the room's ACL, the responding

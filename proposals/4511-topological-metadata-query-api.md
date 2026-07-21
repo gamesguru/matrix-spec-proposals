@@ -732,6 +732,11 @@ The sample inputs are:
   },
   "other_signed_fields": {
     "origin": "example.org"
+  },
+  "signature_envelope": {
+    "event_root": "734aaf66da440dfbbe445bfe7874014983beafe7682b456f40973f7e8e0a2e4d",
+    "room_id": "!room:example.org",
+    "room_version": "msc4511-v1"
   }
 }
 ```
@@ -739,6 +744,10 @@ The sample inputs are:
 The `origin` value above is included only as sample signed input for the test
 vector's `other_signed_fields_hash`. It does not define `origin` as a queryable
 field for this MSC.
+
+The `signature_envelope` value above is the sample canonical signed envelope for
+the stated `event_root`. It is signed with the sample Ed25519 key below to make
+the draft vector self-contained.
 
 The generated outputs are:
 
@@ -752,6 +761,8 @@ content_hash_hex = 8bfc6857f7a86d45b263c551057d052dfa73ef29dee6e842c90d12143abec
 other_signed_fields_hash_hex = 272428680275d80a8b02254dbbbe13e93af0153a6e8d80746d7d95dd1df48d59
 event_root_hex = 734aaf66da440dfbbe445bfe7874014983beafe7682b456f40973f7e8e0a2e4d
 event_id = $c0qvZtpEDfu-RFv-eHQBSYO-r-doK0VvQJc_fo4KLk0
+event_signature_public_key_base64 = Hz++sWVZdUNFUKYNyvMKBhY007TPU8W6LE0W3+Y+BjQ
+event_signature_base64 = xlYBZNgzGZZ2s8lyR/W7FUs7rt2oS30Gbg3qaq+/lQNbabLdrehpiyU5jTg7E0PEGXtbBV3PWEfJCLfj1eeHAg
 ```
 
 ### Cryptographic proof responses
@@ -832,6 +843,35 @@ can therefore strip signatures or append additional signatures without changing
 the event ID. The signature map keys identify which server keys to try for
 verification, but entitlement still comes from the expected server name implied
 by a proven or disclosed `sender` field.
+
+The following side-by-side example DAG shows the short-circuiting opportunity.
+The left side illustrates the legacy fetch-and-verify path over the chain. The
+right side shows the same DAG shape when Merkle proofs let the verifier stop
+after proving the branch back to a trusted anchor:
+
+```text
+Legacy: fetch-and-verify each hop         Merkleized: prove branch, stop early
+
+    [known anchor]                                [known anchor]
+          |                                             |
+         e1                                            e1
+        /  \                                          /  \
+      e2    e3                                      e2    e3
+        \   /                                        \    /
+         e4                                            e4
+          |                                             |
+         e6 tip                                        e6 tip
+          |                                             |
+          v                                             v
+  fetch full PDU / event                  fetch sparse metadata + Merkle proof
+  verify Ed25519 signature                recompute root locally from sibling hashes
+  verify hashes + auth rules              if root matches, stop here
+  repeat for every ancestor               no need to fetch every ancestor
+```
+
+If you prefer Mermaid, the same comparison can be rendered as two separate
+subgraphs, but the ASCII layout above is the least ambiguous when the goal is a
+literal left-right comparison.
 
 Redaction semantics are deferred to the future room-version MSC that adopts
 split canonicalization. That room version MUST define whether `content_hash`
