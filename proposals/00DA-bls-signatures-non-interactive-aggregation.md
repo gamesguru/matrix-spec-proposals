@@ -1,22 +1,17 @@
-# MSC00DA: BLS Signatures and Non-Interactive Aggregation
+# MSC00DA: BLS signatures and non-interactive aggregation
 
 Matrix federation currently verifies each required event signature
-independently. That model is simple and robust, but it scales poorly for
-workflows that move or audit large batches of historical events. Backfill, room
-import, and future state-summary protocols often need to prove that many origin
-signatures were checked without forcing every receiver to repeat every pairing
-or signature verification step immediately.
+independently. This model, while easy and reliable, scales poorly for massive
+workflows. Backfill, full room import, and future state-summary protocols often
+need to prove that many origin signatures were checked without forcing every
+receiver to repeat every pairing or signature verification step immediately.
 
-This MSC introduces BLS signatures as a foundational federation signing
-capability for room versions that opt in to aggregated verification. The primary
-capability is **non-interactive aggregation**: multiple independently produced
+This MSC introduces BLS signature aggregation as a key federation signing
+capability for room versions that opt in.
+
+Definition: (**non-interactive aggregation**) multiple independently produced
 signatures can be combined into compact proofs that a receiver can verify
 against the corresponding public keys and messages.
-
-This proposal deliberately does not define any new backfill transport. Bulk
-historical ingestion is specified separately in
-[MSC00DB](./00DB-bulk-backfill-over-homomorphic-compression.md), which depends
-on the primitives defined here.
 
 ## Proposal
 
@@ -24,10 +19,7 @@ on the primitives defined here.
 
 This MSC defines the stable algorithm identifier `bls12-381-g2` for BLS
 signatures over the BLS12-381 curve using the IETF hash-to-curve suite for
-signatures in G2 and public keys in G1.
-
-Until this MSC is accepted, implementations MUST use the unstable algorithm
-identifier `tk.nutra.msc00da.bls12-381-g2`.
+signatures in `G2` and public keys in `G1`.
 
 The exact ciphersuite is:
 
@@ -48,13 +40,12 @@ structures used for existing server signing keys.
 
 A BLS verify key object has the following additional fields:
 
-- `key`: The compressed BLS12-381 G1 public key, encoded as unpadded base64.
+- `key`: The compressed BLS12-381 G1 public key, base64 unpadded encoded.
 - `pop`: A proof-of-possession signature over the canonical server-key binding
-  object described below, encoded as unpadded base64.
-- `expires_ts`: The expiry timestamp for this key, following existing server-key
-  semantics.
+  object (below), unpadded base64 encoded.
+- `expires_ts`: The expiry timestamp for this key.
 
-The proof-of-possession message is the Matrix Canonical JSON representation of:
+The signed proof-of-possession message is the standard canonical representation:
 
 ```json
 {
@@ -75,9 +66,8 @@ proof of possession MUST be treated as unusable.
 Room versions that opt in to this MSC MAY allow origin servers to sign PDUs with
 BLS. Legacy room versions are unchanged.
 
-For a BLS-signed PDU, the message signed is the UTF-8 byte sequence of the
-Matrix Canonical JSON representation of the event after removing `signatures`
-and `unsigned`, matching existing Matrix event-signing conventions.
+For a BLS-signed PDU, the message is the UTF-8 byte sequence of the standard
+canonical event JSON (e.g., after removing `signatures` and `unsigned`).
 
 The `signatures` object uses the algorithm key identifier as usual:
 
@@ -188,15 +178,6 @@ verification proves that a set of signatures is valid; it does not prove that
 the events are authorized, ordered, non-conflicting, or acceptable under room
 state.
 
-## Unstable prefix
-
-Until accepted into the Matrix specification, implementations MUST use:
-
-- Algorithm identifier: `tk.nutra.msc00da.bls12-381-g2`
-- Aggregate object key, where embedded in another protocol:
-  `org.matrix.msc00da.bls_aggregate`
-
 ## Dependencies
 
-None. Transport and bulk-ingestion uses are intentionally specified in dependent
-MSCs.
+None. Dependent companion MSCs are strictly descendants, not ancestors.
