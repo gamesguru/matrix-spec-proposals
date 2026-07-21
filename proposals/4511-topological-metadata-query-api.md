@@ -1,4 +1,4 @@
-# MSC4511: Topological peek/query API with sparse fieldsets
+# MSC4511: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -20,12 +20,16 @@ granular metadata and bounded graph facts, including:
 - graph shape hints and bounded computed facts, such as common ancestors, hop
   distances, and per-event branching factor from returned edges.
 
-Returned metadata remains a hint that must be verified by fetching full events.
-This is the intended security model, not a weaker fallback: gap repair needs the
-full PDU at the end anyway in order to validate `content`, `auth_events`, event
-hashes, signatures, auth rules, and state resolution. The query response helps a
-server decide which event IDs and peer servers to try next, but accepting or
-repairing history still happens through the existing verified-event path.
+For room versions 3 and later, returned metadata remains a hint that must be
+verified by fetching full events. This is the intended security model, not a
+weaker fallback: gap repair needs the full PDU at the end anyway in order to
+validate `content`, `auth_events`, event hashes, signatures, auth rules, and
+state resolution. The query response helps a server decide which event IDs and
+peer servers to try next, but accepting or repairing history still happens
+through the existing verified-event path. This proposal also sketches an opt-in
+future room-version extension for Merkleized event metadata, allowing selected
+metadata fields to be independently verified without fetching the full event
+payload.
 
 ## Proposal
 
@@ -50,31 +54,65 @@ For example:
   "max_event_records": 1000,
   "max_nodes_visited": 5000,
   "max_compute_event_pairs": 10,
-  "fields": ["prev_events", "candidate_servers", "edge_errors"],
+  "max_common_ancestors": 10,
+  "max_candidate_servers_per_event": 5,
+  "fields": [
+    "event_id",
+    "prev_events",
+    "sender",
+    "type",
+    "candidate_servers",
+    "edge_errors"
+  ],
   "compute": ["common_ancestor", "hop_distance"],
   "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
 }
 ```
 
 This asks the responding server to walk backwards through `prev_events`, up to
-50 hops, returning previous-event edges, candidate-server routing hints, and
-requested edge errors.
+50 hops, returning previous-event edges, sender/type hints, candidate-server
+routing hints, and requested edge errors.
 
 The response is intentionally sparse:
 
 ```json
 {
-  "event_fields": ["event_id", "prev_events", "candidate_servers"],
+  "event_fields": [
+    "event_id",
+    "prev_events",
+    "sender",
+    "type",
+    "candidate_servers"
+  ],
   "events": [
-    ["$missing_event_A", ["$prev_1", "$prev_2"], ["example.org"]],
-    ["$missing_event_B", ["$prev_1"], ["elsewhere.example", "example.net"]],
-    ["$prev_1", ["$prev_0"], ["example.org"]]
+    [
+      "$missing_event_A",
+      ["$prev_1", "$prev_2"],
+      "@alice:example.org",
+      "m.room.message",
+      ["example.org"]
+    ],
+    [
+      "$missing_event_B",
+      ["$prev_1"],
+      "@bob:elsewhere.example",
+      "m.room.member",
+      ["elsewhere.example", "example.net"]
+    ],
+    [
+      "$prev_1",
+      ["$prev_0"],
+      "@alice:example.org",
+      "m.room.message",
+      ["example.org"]
+    ]
   ],
   "edge_errors": {
     "$missing_event_A": {
       "prev_events": {
         "$foreign_event": "wrong_room",
-        "$unavailable_event": "not_available"
+        "$unavailable_event": "not_available",
+        "$later_event": "truncated"
       }
     }
   },
@@ -104,22 +142,31 @@ The initial query fields are:
   serving raw traversal and all computed graph query pairs in the request.
 - `max_compute_event_pairs`: the maximum number of event ID pairs accepted in
   `compute_event_pairs`.
-- `fields`: the exact metadata fields requested.
+- `max_common_ancestors`: the maximum number of `common_ancestor` results
+  returned for each event pair.
+- `max_candidate_servers_per_event`: the maximum number of candidate server
+  names returned for each event.
+- `fields`: the exact metadata fields requested. This list MUST include
+  `event_id`.
 - `compute`: optional graph facts to compute over the same bounded traversal.
 - `compute_event_pairs`: ordered event ID pairs that each computed graph fact
   operates on.
 
-The `fields` list MUST NOT contain duplicate field names. A server MUST reject a
-request with duplicate `fields` entries with `M_INVALID_PARAM` before traversal.
+The `fields` list MUST include `event_id` and MUST NOT contain duplicate field
+names. A server MUST reject a request which omits `event_id` from `fields`, or
+which contains duplicate `fields` entries, with `M_INVALID_PARAM` before
+traversal.
 
 The initial dense response fields available for the `events` rows are:
 
-- `event_id`: the event ID for the returned metadata row. This field is always
-  returned.
+- `event_id`: the event ID for the returned metadata row. This field is required
+  in `fields` and is always returned.
 - `room_id`: the room the event belongs to. This is always the requested room,
   since wrong-room events are never returned as records.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
+- `sender`: the event sender, if known.
+- `type`: the event type, if known.
 - `candidate_servers`: a list of server names which the responding server
   believes may have useful data for this event or branch.
 - `origin_server_ts`: the event timestamp, if known.
@@ -133,6 +180,8 @@ The initial sparse response fields returned as sidecar maps are:
 
 - `edge_errors`: non-followed edge targets keyed first by source event ID, then
   by edge type, then by target event ID to reason code.
+- `start_event_errors`: non-returned start events keyed by start event ID to
+  reason code.
 - `proofs`: Merkle proof material, only for future room versions which opt into
   split canonicalization. Requested via the `proof` field name.
 
@@ -163,7 +212,8 @@ high-cardinality queries, the response encodes dense event metadata as
 `event_fields` plus `events`, not as bulky per-event objects. `event_fields` is
 a list of field names, and each entry in `events` is a list of values
 corresponding positionally to those names. `event_fields` MUST include
-`event_id`. Each field name, including `event_id`, MUST appear at most once in
+`event_id`, because valid requests are required to include `event_id` in
+`fields`. Each field name, including `event_id`, MUST appear at most once in
 `event_fields`. An event entry MUST have exactly the same length as
 `event_fields`.
 
@@ -174,14 +224,14 @@ returned event MAY be omitted entirely from `event_fields`, except for
 `event_id`. Servers MUST NOT rely on per-event object-key omission semantics in
 `events`.
 
-Fields expected to be highly sparse or bulky, such as `proof` and `edge_errors`,
-are returned in sidecar maps (`proofs` and `edge_errors`) keyed by `event_id`
-rather than in the positional `events` rows. This ensures servers do not have to
-emit explicit `null` slots for sparse data. A server MUST only include a sidecar
-map if the corresponding logical field was requested in `fields` (e.g. `proof`
-for `proofs`), and MUST only include entries for events with applicable data to
-return. A requester MUST ignore unrecognized field names while preserving
-positional alignment for fields it understands.
+Fields expected to be highly sparse or bulky, such as `proof`, `edge_errors`,
+and `start_event_errors`, are returned in sidecar maps (`proofs`, `edge_errors`,
+and `start_event_errors`) rather than in the positional `events` rows. This
+ensures servers do not have to emit explicit `null` slots for sparse data. A
+server MUST only include a sidecar map if the corresponding logical field was
+requested in `fields` (e.g. `proof` for `proofs`), and MUST only include entries
+with applicable data to return. A requester MUST ignore unrecognized field names
+while preserving positional alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
@@ -189,8 +239,8 @@ are not independently provable event metadata.
 
 This MSC deliberately does not define an `origin` event field. Modern room
 versions do not retain `origin` as committed event metadata, and for current
-room versions the sender domain is already available once the full event is
-fetched. Routing advice is represented by `candidate_servers` instead, because
+room versions the sender domain is available through the queryable `sender`
+field. Routing advice is represented by `candidate_servers` instead, because
 that field is explicitly a local belief about where repair requests may be
 productive.
 
@@ -224,10 +274,15 @@ The server applies limits in this order:
   maximum number of distinct events;
 - stop before exceeding the server's response-size or processing-time limits.
 
-If any limit, visibility check, wrong-room event, unknown event, response-size
-cap, or timeout prevents the server from returning data it otherwise would have
-walked, it sets `limited` to `true`. If several conditions apply, `limited` is
-still just `true`.
+If a traversal, response-size, time, or work budget prevents the server from
+returning data it otherwise would have walked, it sets `limited` to `true`. If
+several such conditions apply, `limited` is still just `true`. Unknown,
+inaccessible, hidden, and wrong-room edge targets do not by themselves set
+`limited` when `edge_errors` is requested; those conditions are represented by
+the applicable edge error code. If `edge_errors` was not requested and an
+unknown, inaccessible, hidden, or wrong-room edge target causes a row to be
+omitted, the server MUST set `limited` to `true` to signal that the response is
+not a complete walk.
 
 When requested via `fields`, a server MAY include `edge_errors` explaining why
 certain edge targets were not followed. Servers MUST omit `edge_errors` unless
@@ -239,6 +294,12 @@ it is requested in `fields`. The initial reason codes are:
   conflates unknown, locally missing, inaccessible, and hidden events.
 - `truncated`: the target event was not inspected or followed because the
   traversal, response-size, time, or work budget was exhausted.
+
+The same reason codes are used for `start_event_errors`. A server SHOULD return
+`start_event_errors` when requested and one or more `start_event_ids` cannot be
+returned as event records. If `start_event_errors` was not requested and a start
+event is omitted for being unknown, wrong-room, inaccessible, or hidden, the
+server MUST set `limited` to `true`.
 
 For example:
 
@@ -278,8 +339,10 @@ been eligible for traversal but were not inspected because an effective limit or
 local work budget was reached. This distinguishes "ask a different server" from
 "ask the same server with a deeper or less expensive query".
 
-If `edge_errors` is not requested, these distinctions are unavailable and the
-requester must treat missing rows plus `limited: true` as ambiguous.
+If `edge_errors` or `start_event_errors` are not requested, availability
+distinctions are unavailable. The requester can still use `limited: true` to
+detect that traversal was cut short by an effective limit or local work budget,
+or that the server omitted an event without returning a detailed reason code.
 
 Implementations SHOULD maintain indexes for `prev_events`, `auth_events`, and
 known forward extremities per room. These indexes allow the endpoint to answer
@@ -334,16 +397,19 @@ The initial computed query names are:
 
 - `common_ancestor`: given two event IDs, return the common ancestors which are
   maximal in the selected edge graph. A common ancestor is maximal if it is not
-  reachable from another common ancestor by following the selected edge types
-  backwards through the DAG. This follows Git's merge-base semantics: a pair may
-  have more than one best common ancestor, and returning a non-maximal ancestor
-  can mislead repair by pointing behind the useful merge base. The result is a
-  list ordered by `(depth descending, event_id ascending)` where depth is known,
-  with unknown-depth entries ordered after known-depth entries by event ID. If
-  no common ancestor is found within the effective recursion limit, the result
-  is an empty list. If the search is limited before the set of maximal common
-  ancestors can be determined, the result is `null`; the server MUST NOT return
-  a partial local ancestor set as if it were final.
+  reachable from another common ancestor by following the selected edge types.
+  This follows Git's merge-base semantics: a pair may have more than one best
+  common ancestor, and returning a non-maximal ancestor can mislead repair by
+  pointing behind the useful merge base. The result is a list ordered by
+  `(depth descending, event_id ascending)` where depth is known, with
+  unknown-depth entries ordered after known-depth entries by event ID. If more
+  maximal common ancestors are found than the effective `max_common_ancestors`
+  limit allows, the server returns the first `max_common_ancestors` entries in
+  that order and sets `limited` to `true`. If no common ancestor is found within
+  the effective recursion limit, the result is an empty list. If the search is
+  limited before any bounded maximal set can be determined, the result is
+  `null`; the server MUST NOT return a partial ancestor set as if maximality had
+  been established.
 
 - `hop_distance`: given two event IDs, return the shortest directed hop distance
   from the first event to the second event following the selected edge types. If
@@ -368,7 +434,7 @@ If more than one pair is supplied, the server computes each requested graph fact
 for each pair independently. The `computed` object maps each requested compute
 name to a list of results aligned with `compute_event_pairs`. If either event in
 a pair is unknown, wrong-room, or not visible to the requester, the result for
-that pair is `null` and `limited` is set to `true`.
+that pair is `null`. This does not by itself set `limited`.
 
 These results are hints. They MUST NOT be used as proof that two branches are
 authentically related without fetching and verifying the relevant events, unless
@@ -387,6 +453,8 @@ At minimum, implementations MUST enforce these limits:
 - maximum returned event records;
 - maximum distinct events visited while serving raw or computed graph queries;
 - maximum number of computed graph query pairs;
+- maximum common ancestors returned per computed graph query pair;
+- maximum candidate servers returned per event;
 - maximum number of start events;
 - maximum response body size;
 - maximum processing time;
@@ -398,7 +466,9 @@ integers:
 - `max_depth`;
 - `max_event_records`;
 - `max_nodes_visited`;
-- `max_compute_event_pairs`.
+- `max_compute_event_pairs`;
+- `max_common_ancestors`;
+- `max_candidate_servers_per_event`.
 
 Omitting a limit uses the server's configured default, which may be lower than
 its configured maximum. There is no request syntax for unlimited traversal;
@@ -428,6 +498,8 @@ Implementations SHOULD use conservative defaults no higher than:
 - `max_event_records`: 1000;
 - `max_nodes_visited`: 5000;
 - `max_compute_event_pairs`: 20;
+- `max_common_ancestors`: 20;
+- `max_candidate_servers_per_event`: 10;
 - maximum start events: 20;
 - maximum response body size: 1 MiB;
 - maximum processing time: 3 seconds.
@@ -454,8 +526,10 @@ events and wrong-room events are omitted from the response as event records. If
 as `wrong_room` on the source event, subject to the disclosure restriction in
 the traversal section, but MUST NOT follow that edge or return metadata from the
 wrong-room event. If any requested or discovered event is omitted for being
-unknown, wrong-room, or not visible to the requester, the response MUST set
-`limited` to `true`.
+unknown, wrong-room, or not visible to the requester, the server SHOULD describe
+the omission with `start_event_errors` or `edge_errors` when the applicable
+field was requested. If the applicable error field was not requested, the server
+MUST set `limited` to `true`.
 
 The responding server MUST NOT return event metadata if it would not be allowed
 to serve the corresponding full event to the requester.
@@ -466,10 +540,23 @@ server MAY derive candidate servers from sources such as the event sender's
 domain, servers which transmitted the event to this server, servers which
 previously answered for nearby events in the branch, or servers known to be in
 the room around the event's depth. A server SHOULD return only a small ordered
-set of candidates it considers useful for repair, and SHOULD omit candidates
-whose disclosure would reveal private membership or history information beyond
-what the requester could otherwise learn. The field is a routing belief, not
-event metadata committed by the PDU, and requesters MUST treat it as advisory.
+set of candidates it considers useful for repair, bounded by
+`max_candidate_servers_per_event`, and SHOULD omit candidates whose disclosure
+would reveal private membership or history information beyond what the requester
+could otherwise learn. The sender domain is a useful candidate, but it only
+identifies who is expected to sign the event; it does not prove that server
+still has the event, is reachable, or is the best repair source. The field is a
+routing belief, not event metadata committed by the PDU, and requesters MUST
+treat it as advisory.
+
+Servers SHOULD order `candidate_servers` by descending local confidence. The
+field earns its place when it reflects who is likely to have the data, not
+merely who signed the event. A response which always returns only the sender
+domain is likely to reproduce common backfill dead ends when that server is
+dead, defederated, or has purged history. Future extensions may add provenance
+tags for candidate entries, such as whether a candidate is the sender domain, a
+server which transmitted the event to this server, or a server known to be in
+the room around the event's depth.
 
 This means the answer can differ by room and event. A joined server can normally
 query visible history for the room. An invited server should only receive
@@ -489,9 +576,11 @@ If the requester is not allowed to access the room at all, for example because
 no user on the requesting server is joined or otherwise permitted by the room's
 federation rules, the server MUST reject the request with `M_FORBIDDEN`. If the
 requester is allowed to access the room but some branches, events, or fields are
-not visible, the server omits those branches, events, or fields and sets
-`limited` to `true`. Hidden branches are not replaced with opaque markers,
-because such markers would still leak graph shape.
+not visible, the server omits those branches, events, or fields. When the
+omission affects a requested start event or traversed edge and the applicable
+error field was not requested, the server sets `limited` to `true`. Hidden
+branches are not replaced with opaque markers, because such markers would still
+leak graph shape.
 
 ### Room versions
 
@@ -671,9 +760,8 @@ When `proof` is requested in `fields` and the queried room version supports
 split canonicalization, a server MAY include proof material for provable
 requested fields inside the `proofs` sidecar object keyed by the corresponding
 `event_id`. A room version adopting this format also extends the queryable
-`fields` set with the header leaves not exposed in hint-only mode (`sender`,
-`type`, `state_key`, `redacts`), since a field must be returnable to be
-provable.
+`fields` set with header leaves not exposed in hint-only mode, such as
+`state_key` and `redacts`, since a field must be returnable to be provable.
 
 Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
 provides any required top-level component hashes needed to reconstruct
@@ -738,6 +826,13 @@ entitled to sign for the event's sender. This distinction matters for proof
 consumers outside the backwards-DAG walk, where the event ID may not have been
 learned from a previously verified event.
 
+The `signatures` object is not committed to `event_root`; like existing Matrix
+signed JSON, signatures are excluded from the signed hash input. Intermediaries
+can therefore strip signatures or append additional signatures without changing
+the event ID. The signature map keys identify which server keys to try for
+verification, but entitlement still comes from the expected server name implied
+by a proven or disclosed `sender` field.
+
 Redaction semantics are deferred to the future room-version MSC that adopts
 split canonicalization. That room version MUST define whether `content_hash`
 commits to the full unredacted content, the redacted event representation, or
@@ -760,8 +855,12 @@ hint-reputation heuristics.
 
 The stronger motivation for this sketch is selective disclosure: proving one
 field to a party who is not entitled to the whole event, proving topology
-without revealing `content`, or proving a field's absence. Those use cases need
-their own room-version work before they can become normative.
+without revealing `content`, or proving absence for fixed header leaves where a
+missing optional field is committed as canonical `null` at a known leaf
+position. This construction does not prove absence for arbitrary fields folded
+into `other_signed_fields_hash` without revealing the corresponding signed-field
+set. Those use cases need their own room-version work before they can become
+normative.
 
 ## Future extensions
 
@@ -888,6 +987,12 @@ events. If a responding server repeatedly returns metadata contradicted by
 verified event payloads, the requester MAY deprioritize that server for future
 topology queries, apply local rate limits, or ignore its topology hints for a
 limited period.
+
+Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
+falsifiable when the full PDU is eventually fetched, and are therefore useful
+inputs to these heuristics. `candidate_servers` is not directly falsifiable in
+the same way; a poor candidate may simply be stale or unavailable rather than
+provably false.
 
 Implementations should decay these penalties over time to prevent transient
 corruption or partial-state desyncs from permanently poisoning a peer. Such
