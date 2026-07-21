@@ -146,9 +146,9 @@ if their windows overlap, bit differences in the overlapping region indicate
 missing events.
 
 The Bloom filter gives O(1) equality comparison, approximate difference
-estimation (for example, the popcount of `remote AND NOT local` correlates with the number of
-events the local server is missing from the window), and a compact ~4 KB representation
-regardless of total room size.
+estimation (for example, the popcount of `remote AND NOT local` correlates with
+the number of events the local server is missing from the window), and a compact
+~4 KB representation regardless of total room size.
 
 **Rejected Event Handling:**
 
@@ -178,8 +178,8 @@ implementations MUST support dynamic filter folding.
 Because $m$ is strictly constrained to be a power of two, a larger Bloom filter
 of size $2m$ can be folded in half to match a target size $m$ simply by dividing
 the bit-array into two equal halves and performing a bitwise `OR` operation on
-them: `folded[i] = filter[i] | filter[i + m]` (indexing in bits, or
-equivalently over the byte array with an `m/8` byte offset)
+them: `folded[i] = filter[i] | filter[i + m]` (indexing in bits, or equivalently
+over the byte array with an `m/8` byte offset)
 
 This mathematical projection is perfectly sound because $hash \pmod m$ maps to
 the exact same bit position as $(hash \pmod{2m}) \pmod m$. This enables instant,
@@ -822,13 +822,13 @@ behavior for other federation endpoints.
 The following mapping will be used for identifiers in this MSC during
 development:
 
-| Proposed final identifier                     | Purpose         | Development identifier                                                 |
-| --------------------------------------------- | --------------- | ---------------------------------------------------------------------- |
-| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0501/room_digest/{roomId}` |
-| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0501/room_diff/{roomId}`   |
-| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/org.matrix.msc0501/room_events/{roomId}` |
-| `xxh3_bloom`                                  | digest type     | `org.matrix.msc0501.xxh3_bloom`                                        |
-| `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                      |
+| Proposed final identifier                     | Purpose         | Development identifier                                               |
+| --------------------------------------------- | --------------- | -------------------------------------------------------------------- |
+| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_digest/{roomId}` |
+| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_diff/{roomId}`   |
+| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_events/{roomId}` |
+| `xxh3_bloom`                                  | digest type     | `xxh3_bloom`                                                         |
+| `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                    |
 
 ## Dependencies
 
