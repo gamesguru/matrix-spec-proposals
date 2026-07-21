@@ -28,7 +28,7 @@ BLS_SIG_BLS12381G2_XMD:SHA-256_SSWU_RO_NUL_
 ```
 
 Server-key proof-of-possession signatures use a custom binding-signature profile
-built on the same BLS12-381 G2 parameters, hash-to-curve suite, public- key
+built on the same BLS12-381 G2 parameters, hash-to-curve suite, public-key
 group, signature group, and serialization rules. That binding-signature profile
 uses the following domain-separation tag:
 
@@ -119,7 +119,7 @@ Protocols that depend on this MSC may carry an aggregate signature object:
       "event_id": "$event1:example.com",
       "server_name": "example.com",
       "key_id": "bls12-381-g2:abc123",
-      "message_hash": "<unpadded-standard-base64-sha256-canonical-event-signing-input>"
+      "message_hash": "<unpadded-base64-sha256-canonical-event-signing-input>"
     }
   ],
   "aggregate": "<unpadded-base64-compressed-g2-aggregate-signature>"
