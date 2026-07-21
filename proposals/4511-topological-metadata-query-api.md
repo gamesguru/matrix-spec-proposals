@@ -1,4 +1,4 @@
-# MSC4511: Topological peek/query API with sparse fieldsets
+# MSC4511: Topological peek/query API with sparse fieldsets and Merkleized metadata
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -14,18 +14,17 @@ allowing homeservers to return routing hints as customized queries of highly
 granular metadata and bounded graph facts, including:
 
 - `prev_events` / `auth_events` edge event IDs, up to a recursion limit.
-- candidate servers which may have useful data for the returned event or branch.
-- whether a known edge target is outside the requested room, unavailable from
-  this server, or not followed because the response was truncated.
+- `origin` for a missing event, plus derivative or referencing events and their
+  likely servers.
+- whether a known edge target is outside the requested room.
 - graph shape hints and bounded computed facts, such as common ancestors, hop
   distances, and per-event branching factor from returned edges.
 
-Returned metadata remains a hint that must be verified by fetching full events.
-This is the intended security model, not a weaker fallback: gap repair needs the
-full PDU at the end anyway in order to validate `content`, `auth_events`, event
-hashes, signatures, auth rules, and state resolution. The query response helps a
-server decide which event IDs and peer servers to try next, but accepting or
-repairing history still happens through the existing verified-event path.
+For current room versions 3 and later, returned metadata remains a hint that
+must be verified by fetching full events. This proposal also sketches an opt-in
+future room-version extension for Merkleized event metadata, allowing selected
+metadata fields to be independently verified without fetching the full event
+payload.
 
 ## Proposal
 
@@ -50,36 +49,35 @@ For example:
   "max_event_records": 1000,
   "max_nodes_visited": 5000,
   "max_compute_event_pairs": 10,
-  "fields": ["prev_events", "candidate_servers", "edge_errors"],
+  "fields": ["prev_events", "origin", "edge_errors"],
   "compute": ["common_ancestor", "hop_distance"],
   "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
 }
 ```
 
 This asks the responding server to walk backwards through `prev_events`, up to
-50 hops, returning previous-event edges, candidate-server routing hints, and
-requested edge errors.
+50 hops, returning previous-event edges, `origin` hints, and requested edge
+errors.
 
 The response is intentionally sparse:
 
 ```json
 {
-  "event_fields": ["event_id", "prev_events", "candidate_servers"],
+  "event_fields": ["event_id", "prev_events", "origin"],
   "events": [
-    ["$missing_event_A", ["$prev_1", "$prev_2"], ["example.org"]],
-    ["$missing_event_B", ["$prev_1"], ["elsewhere.example", "example.net"]],
-    ["$prev_1", ["$prev_0"], ["example.org"]]
+    ["$missing_event_A", ["$prev_1", "$prev_2"], "example.org"],
+    ["$missing_event_B", ["$prev_1"], "elsewhere.example"],
+    ["$prev_1", ["$prev_0"], "example.org"]
   ],
   "edge_errors": {
     "$missing_event_A": {
       "prev_events": {
-        "$foreign_event": "wrong_room",
-        "$unavailable_event": "not_available"
+        "$foreign_event": "wrong_room"
       }
     }
   },
   "computed": {
-    "common_ancestor": [["$prev_1"]],
+    "common_ancestor": ["$prev_1"],
     "hop_distance": [1]
   },
   "limited": true
@@ -117,11 +115,11 @@ The initial dense response fields available for the `events` rows are:
 - `event_id`: the event ID for the returned metadata row. This field is always
   returned.
 - `room_id`: the room the event belongs to. This is always the requested room,
-  since wrong-room events are never returned as records.
+  since wrong-room events are never returned as records; it is a queryable field
+  so that room versions with split canonicalization can prove it.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
-- `candidate_servers`: a list of server names which the responding server
-  believes may have useful data for this event or branch.
+- `origin`: the best known origin server for the event.
 - `origin_server_ts`: the event timestamp, if known.
 - `depth`: the event depth, if known.
 - `rejected`: whether the responding server has locally rejected the event, if
@@ -133,6 +131,8 @@ The initial sparse response fields returned as sidecar maps are:
 
 - `edge_errors`: non-followed edge targets keyed first by source event ID, then
   by edge type, then by target event ID to reason code.
+- `proofs`: Merkle proof material, only for future room versions which opt into
+  split canonicalization. Requested via the `proof` field name.
 
 Unrecognized `edge_types` entries cause the request to fail with
 `M_INVALID_PARAM`, because silently ignoring them would change traversal
@@ -172,24 +172,18 @@ returned event MAY be omitted entirely from `event_fields`, except for
 `event_id`. Servers MUST NOT rely on per-event object-key omission semantics in
 `events`.
 
-Fields expected to be highly sparse or bulky, such as `edge_errors`, are
-returned in sidecar maps keyed by `event_id` rather than in the positional
-`events` rows. This ensures servers do not have to emit explicit `null` slots
-for sparse data. A server MUST only include a sidecar map if the corresponding
-logical field was requested in `fields`, and MUST only include entries for
-events with applicable data to return. A requester MUST ignore unrecognized
-field names while preserving positional alignment for fields it understands.
+Fields expected to be highly sparse or bulky, such as `proof` and `edge_errors`,
+are returned in sidecar maps (`proofs` and `edge_errors`) keyed by `event_id`
+rather than in the positional `events` rows. This ensures servers do not have to
+emit explicit `null` slots for sparse data. A server MUST only include a sidecar
+map if the corresponding logical field was requested in `fields` (e.g. `proof`
+for `proofs`), and MUST only include entries for events with applicable data to
+return. A requester MUST ignore unrecognized field names while preserving
+positional alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
 are not independently provable event metadata.
-
-This MSC deliberately does not define an `origin` event field. Modern room
-versions do not retain `origin` as committed event metadata, and for current
-room versions the sender domain is already available once the full event is
-fetched. Routing advice is represented by `candidate_servers` instead, because
-that field is explicitly a local belief about where repair requests may be
-productive.
 
 ### Traversal
 
@@ -201,14 +195,11 @@ Each event ID is visited at most once, even if it is reachable through multiple
 paths or multiple edge types. This also prevents cycles from causing repeated
 work: an already-seen event is not queued again.
 
-Within the same recursion depth, servers SHOULD process events with known event
-`depth` in `(depth descending, event_id ascending)` order. Events without known
-depth are ordered after events with known depth, by event ID ascending. This
-keeps the frontier near the query tips when a walk is truncated, which is the
-part most likely to help find a merge base or a useful repair path. The event ID
-tiebreaker is bytewise lexicographic over the UTF-8 encoding of the event ID
-string. This is a deterministic truncation rule over a hint field; requesters
-still verify fetched events before relying on them.
+Within the same recursion depth, events MUST be processed in bytewise
+lexicographic order by the UTF-8 encoding of the event ID string. This gives
+stable results when a response is limited. Because event IDs may be hashes, this
+is not intended to prefer the most recent or most useful branch. It is only a
+deterministic truncation rule.
 
 The server applies limits in this order:
 
@@ -231,11 +222,6 @@ certain edge targets were not followed. Servers MUST omit `edge_errors` unless
 it is requested in `fields`. The initial reason codes are:
 
 - `wrong_room`: the target event is known to belong to a different room.
-- `not_available`: the target event appears to be an in-room edge target, but
-  the responding server will not return it to this requester. This deliberately
-  conflates unknown, locally missing, inaccessible, and hidden events.
-- `truncated`: the target event was not inspected or followed because the
-  traversal, response-size, time, or work budget was exhausted.
 
 For example:
 
@@ -244,9 +230,7 @@ For example:
   "edge_errors": {
     "$missing_event_A": {
       "prev_events": {
-        "$foreign_event": "wrong_room",
-        "$unavailable_event": "not_available",
-        "$later_event": "truncated"
+        "$foreign_event": "wrong_room"
       }
     }
   }
@@ -259,24 +243,9 @@ if it would be allowed to serve the target event to the requester under the
 target event's own room's authorization and history-visibility rules; otherwise
 the edge target is treated as unknown and omitted. Without this restriction, the
 label would disclose whether the responding server holds an arbitrary event ID
-from an unrelated, possibly private, room.
-
-For in-room edge targets, the server SHOULD return `not_available` rather than
-silently omitting the edge target when it cannot or will not return that target
-to the requester. The code intentionally does not distinguish local absence
-from history-visibility denial or other access restrictions. The requester
-learns only that this branch is unproductive from this responding server. The
-edge target's event ID was already disclosed by a visible source event's
-`prev_events` or `auth_events` list, so this does not disclose a new unrelated
-room identifier.
-
-Servers SHOULD return `truncated` for edge targets which would otherwise have
-been eligible for traversal but were not inspected because an effective limit or
-local work budget was reached. This distinguishes "ask a different server" from
-"ask the same server with a deeper or less expensive query".
-
-If `edge_errors` is not requested, these distinctions are unavailable and the
-requester must treat missing rows plus `limited: true` as ambiguous.
+from an unrelated, possibly private, room. Unknown, inaccessible, and hidden
+events are omitted rather than labelled, because distinguishing those cases can
+reveal room state or history-visibility information.
 
 Implementations SHOULD maintain indexes for `prev_events`, `auth_events`, and
 known forward extremities per room. These indexes allow the endpoint to answer
@@ -329,18 +298,15 @@ and sets `limited` to `true`.
 
 The initial computed query names are:
 
-- `common_ancestor`: given two event IDs, return the common ancestors which are
-  maximal in the selected edge graph. A common ancestor is maximal if it is not
-  reachable from another common ancestor by following the selected edge types
-  backwards through the DAG. This follows Git's merge-base semantics: a pair may
-  have more than one best common ancestor, and returning a non-maximal ancestor
-  can mislead repair by pointing behind the useful merge base. The result is a
-  list ordered by `(depth descending, event_id ascending)` where depth is known,
-  with unknown-depth entries ordered after known-depth entries by event ID. If
-  no common ancestor is found within the effective recursion limit, the result
-  is an empty list. If the search is limited before the set of maximal common
-  ancestors can be determined, the result is `null`; the server MUST NOT return
-  a partial local ancestor set as if it were final.
+- `common_ancestor`: given two event IDs, return the nearest event ID reachable
+  from both. Distance is measured as the sum of directed hops from each start
+  event to the ancestor. If the search is limited before a common ancestor is
+  found, the result is `null`; the server MUST NOT return a partial local
+  ancestor as if it were final. If multiple ancestors tie for the minimal
+  combined hop distance, the server MUST return the bytewise lexicographically
+  lowest event ID. Future computed query names may return multiple ancestors or
+  richer path metadata, subject to their own result limits and deterministic
+  ordering rules.
 
 - `hop_distance`: given two event IDs, return the shortest directed hop distance
   from the first event to the second event following the selected edge types. If
@@ -368,7 +334,8 @@ a pair is unknown, wrong-room, or not visible to the requester, the result for
 that pair is `null` and `limited` is set to `true`.
 
 These results are hints. They MUST NOT be used as proof that two branches are
-authentically related without fetching and verifying the relevant events.
+authentically related without fetching and verifying the relevant events, unless
+the room version provides Merkleized topology proofs for the path.
 
 ### Limits
 
@@ -456,17 +423,6 @@ unknown, wrong-room, or not visible to the requester, the response MUST set
 The responding server MUST NOT return event metadata if it would not be allowed
 to serve the corresponding full event to the requester.
 
-The `candidate_servers` field is also governed by this rule, but it requires
-additional care because it can reveal participation and routing metadata. A
-server MAY derive candidate servers from sources such as the event sender's
-domain, servers which transmitted the event to this server, servers which
-previously answered for nearby events in the branch, or servers known to be in
-the room around the event's depth. A server SHOULD return only a small ordered
-set of candidates it considers useful for repair, and SHOULD omit candidates
-whose disclosure would reveal private membership or history information beyond
-what the requester could otherwise learn. The field is a routing belief, not
-event metadata committed by the PDU, and requesters MUST treat it as advisory.
-
 This means the answer can differ by room and event. A joined server can normally
 query visible history for the room. An invited server should only receive
 metadata that would already be visible through invite-stripped state or other
@@ -499,15 +455,236 @@ Servers MUST reject requests for older room versions with
 `M_UNSUPPORTED_ROOM_VERSION` to avoid version-specific response shapes and lossy
 hash stripping.
 
-The metadata returned by this endpoint for room versions 3 and later is
-strictly a **hint**. A server must still fetch the full event payload to verify
-the claimed topology against the event hash, validate signatures, run auth
-rules, and perform state resolution. This endpoint therefore provides the same
-final verification guarantees as existing federation repair flows while reducing
-round trips and wasted full-PDU fetches.
+The metadata returned by this endpoint for current room versions is strictly a
+**hint**. A server must still fetch the full event payload to verify the claimed
+topology against the event hash. Cryptographic proofs of topology without
+fetching the payload require a future room version that explicitly opts into
+split canonicalization.
 
-Future extensions may also add more queryable fields, edge types, computed
-graph queries, or room-version-specific proof formats.
+## Split canonicalization and Merkleized metadata (opt-in sketch)
+
+To make selected event metadata independently verifiable, this MSC sketches a
+split canonicalization design for future room versions to opt into.
+
+A compatible future room version modifies event hashing to generate an
+`event_root` from isolated metadata leaves:
+
+- `prev_events_hash`: canonical hash of the event's `prev_events`;
+- `auth_events_hash`: canonical hash of the event's `auth_events`;
+- `event_header_root`: Merkle root over routing and authorship fields:
+  `room_id`, `sender`, `type`, `state_key`, `redacts`, `depth`, and
+  `origin_server_ts`;
+- `content_hash`: canonical hash of the remaining event body after the topology
+  and header components above are separated out. This is distinct from the
+  legacy event `hashes` field unless a future room-version MSC explicitly maps
+  them together;
+- `other_signed_fields_hash`: canonical hash of every remaining signed event
+  field that is not included in `prev_events_hash`, `auth_events_hash`,
+  `event_header_root`, or `content_hash`, strictly excluding the `signatures`
+  and `unsigned` dictionaries;
+- `event_root`: the root hash committing to the above components.
+
+The future room version MUST define this partition so every signed,
+identity-relevant event field is committed to exactly once. Two events which
+differ in any signed field that contributes to event identity, including
+`redacts`, MUST NOT derive the same `event_root` or event ID.
+
+The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
+
+```text
+leaf_hash =
+  SHA3-256("msc4511:leaf:v1" || field_name || "\x00" || canonical_value)
+
+inner_hash =
+  SHA3-256("msc4511:node:v1" || left_hash || right_hash)
+
+event_root =
+  SHA3-256("msc4511:root:v1" || prev_events_hash || auth_events_hash ||
+           event_header_root || content_hash || other_signed_fields_hash)
+```
+
+All concatenations above are byte concatenations: domain-separation strings and
+`field_name` are UTF-8 bytes; `\x00` is a single `0x00` byte; `canonical_value`
+is the UTF-8 encoding of the canonical JSON value; and
+`left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
+
+The top-level component hashes (`prev_events_hash`, `auth_events_hash`,
+`content_hash`, and `other_signed_fields_hash`) are computed with the leaf-hash
+construction above, using the field names `prev_events`, `auth_events`,
+`content`, and `other_signed_fields` respectively.
+
+The domain-separation strings use the stable MSC identifier `msc4511` and are
+part of the event ID derivation. Implementations MUST NOT use the unstable
+endpoint namespace or an implementation-local identifier for these domain
+separators, because changing the identifier changes the derived `event_root` and
+event ID.
+
+### Header tree construction
+
+The `event_header_root` is constructed as a binary Merkle tree. Header leaves
+are ordered bytewise by field name. Missing optional fields, such as `redacts`,
+use the canonical JSON value `null`; present fields use their standard Matrix
+canonical JSON encoding.
+
+Because the number of header leaves is not guaranteed to be a power of two,
+implementations MUST construct `event_header_root` using the Merkle tree
+algorithm defined in
+[RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1),
+substituting the domain-separated leaf and inner hash constructions defined
+above for the RFC's `0x00`- and `0x01`-prefixed hashes. Only the tree shape (the
+largest-power-of-two split rule and its recursion) is taken from RFC 6962; no
+padding leaves are used.
+
+<!-- RFC 6962 tree shape: dyadic interval decomp over ordered leaves. -->
+
+### Event IDs and signatures
+
+The event ID is derived directly from the root:
+`"$" || unpadded_base64url(event_root)`.
+
+The origin server's Ed25519 signature covers the canonical signed envelope
+containing this root:
+
+```json
+{
+  "room_id": "!room:example.org",
+  "room_version": "<room_version>",
+  "event_root": "unpadded_base64url_sha3_256_hash"
+}
+```
+
+For room versions adopting this format, a future room-version MSC MUST specify
+how the root signature interacts with, or replaces, existing event authorization
+and verification rules. This keeps the proposal focused on the topology query
+API and defers signature migration mechanics to the room-version proposal.
+
+### Draft test vectors
+
+The following vectors are non-normative implementation regression vectors for
+the split-canonicalization sketch above. They are generated by
+`cmd/merkle-vectors` in the `gomatrixlib` reference repository and are included
+to make the `msc4511:*:v1` domain-separation strings, Matrix Canonical JSON
+inputs, RFC 6962 tree shape, component ordering, missing optional header fields,
+and unpadded base64url event ID encoding easy to cross-check while this MSC is
+still unstable.
+
+The sample inputs are:
+
+```json
+{
+  "field_root_fields": {
+    "event_id": "$b:example.org",
+    "depth": 7,
+    "rejected": false,
+    "prev_events_hash": "sha256:abc"
+  },
+  "event_header_root_fields": {
+    "room_id": "!room:example.org",
+    "sender": "@alice:example.org",
+    "type": "m.room.message",
+    "state_key": null,
+    "redacts": null,
+    "depth": 42,
+    "origin_server_ts": 123456789
+  },
+  "prev_events": ["$a:example.org"],
+  "auth_events": ["$auth:example.org"],
+  "content": {
+    "body": "hello",
+    "msgtype": "m.text"
+  },
+  "other_signed_fields": {
+    "origin": "example.org"
+  }
+}
+```
+
+The generated outputs are:
+
+```text
+[msc4511-merkle]
+field_root_hex = 08e7c748acbe75a855a5c1420ea3d5948a765509f27d132796bfbaecbe8c3fae
+event_header_root_hex = f4f5f542c8adb6ba354328dfeda66fd069b77981a5514bb86cb22072d5117324
+prev_events_hash_hex = fe8934c852d5a646390f3734f99911606c40f4f8ca7fe4065814081e2fb1faef
+auth_events_hash_hex = 2309b8433c96de36d4a55cfb263f3f3131a0874324a9bda59bfd9e73e3846ea1
+content_hash_hex = 8bfc6857f7a86d45b263c551057d052dfa73ef29dee6e842c90d12143abec729
+other_signed_fields_hash_hex = 272428680275d80a8b02254dbbbe13e93af0153a6e8d80746d7d95dd1df48d59
+event_root_hex = 734aaf66da440dfbbe445bfe7874014983beafe7682b456f40973f7e8e0a2e4d
+event_id = $c0qvZtpEDfu-RFv-eHQBSYO-r-doK0VvQJc_fo4KLk0
+```
+
+### Cryptographic proof responses
+
+When `proof` is requested in `fields` and the queried room version supports
+split canonicalization, a server MAY include proof material for provable
+requested fields inside the `proofs` sidecar object keyed by the corresponding
+`event_id`. A room version adopting this format also extends the queryable
+`fields` set with the header leaves not exposed in hint-only mode (`sender`,
+`type`, `state_key`, `redacts`), since a field must be returnable to be
+provable.
+
+Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
+provides any required top-level component hashes needed to reconstruct
+`event_root`, and includes the origin signature:
+
+```json
+"proofs": {
+  "$missing_event_A": {
+    "leaf_paths": {
+      "prev_events": [],
+      "origin_server_ts": [
+        { "side": "left", "hash": "base64url_sha3_256_hash" },
+        { "side": "right", "hash": "base64url_sha3_256_hash" },
+        { "side": "right", "hash": "base64url_sha3_256_hash" }
+      ]
+    },
+    "top_level_hashes": {
+      "auth_events_hash": "base64url_sha3_256_hash",
+      "content_hash": "base64url_sha3_256_hash",
+      "other_signed_fields_hash": "base64url_sha3_256_hash"
+    },
+    "signatures": {
+      "example.org": {
+        "ed25519:key": "signature_base64"
+      }
+    }
+  }
+}
+```
+
+To verify the authenticity of a field all the way to the root, the requester
+performs the following steps:
+
+1. Canonicalize the returned field and compute its domain-separated leaf hash.
+2. Apply each step in `leaf_paths`, computing the parent inner hash using the
+   provided left or right sibling, to reconstruct `event_header_root` or the
+   relevant top-level component hash. For top-level components (`prev_events`,
+   `auth_events`, content, and other signed fields), the path list is empty and
+   the leaf hash is used directly.
+3. Combine the reconstructed component with the remaining hashes in
+   `top_level_hashes` to compute the master `event_root`. `top_level_hashes`
+   MUST contain every component hash not reconstructed from a proof in the same
+   response.
+4. Verify that the event ID matches `"$" || unpadded_base64url(event_root)`.
+5. Verify the origin server's Ed25519 signature over the canonical signed
+   envelope containing the `event_root`.
+
+If a required hash is missing or any hash check fails, verification fails. By
+chaining hashes upward, the server only needs to send missing neighbor hashes in
+the proof, and the verifier recomputes the root locally.
+
+Redaction semantics are deferred to the future room-version MSC that adopts
+split canonicalization. That room version MUST define whether `content_hash`
+commits to the full unredacted content, the redacted event representation, or
+separate full and redacted content commitments. This topology proof format only
+proves the selected metadata leaves and their inclusion in `event_root`; it does
+not by itself authorize disclosure of redacted content or change Matrix
+redaction rules.
+
+## Future extensions
+
+Future room versions may extend the proof fields or add more independently
+provable metadata fields.
 
 ## Performance characteristics and benchmarking
 
@@ -520,22 +697,29 @@ quantified.
 For a traversal visiting `N` events:
 
 - full-event retrieval transfers `O(N * S_event)` bytes;
-- sparse topology query transfers `O(N * S_meta)` bytes, where `S_meta` is the
-  size of the requested metadata fieldset.
+- sparse topology query transfers `O(N * S_meta + P)` bytes, where `S_meta` is
+  the size of the requested metadata fieldset and `P` is the size of optional
+  proof material.
 
-The bandwidth reduction approaches `1 - (S_meta / S_event)`. As an illustrative
-range, if a full event is 1 to 5 KiB and the requested topology metadata is 80
-to 300 bytes per event, the bandwidth reduction is roughly 70% to 98%.
-Implementations MUST NOT rely on these illustrative percentages as protocol
-guarantees.
+When proofs are not requested, the bandwidth reduction approaches
+`1 - (S_meta / S_event)`. As an illustrative range, if a full event is 1 to 5
+KiB and the requested topology metadata is 80 to 300 bytes per event, the
+bandwidth reduction is roughly 70% to 98%. Implementations MUST NOT rely on
+these illustrative percentages as protocol guarantees.
 
-### Cacheability
+### Storage overhead
 
-Event topology is immutable. Once an event's `prev_events`, `auth_events`,
-`depth`, and event ID are known, those values do not change. Responses for
-stable, authorization-equivalent queries are therefore cacheable in a way that
-linear `/backfill` responses are not: a cached sparse topology answer can remain
-useful even when later room history advances.
+The split-canonicalization sketch introduces storage overhead if a server stores
+the top-level hashes `prev_events_hash`, `auth_events_hash`,
+`event_header_root`, `content_hash`, `other_signed_fields_hash`, and
+`event_root`.
+
+Using SHA3-256, each hash is 32 bytes, so storing these six hashes adds 192
+bytes of raw hash material per event before database row, index, and encoding
+overhead. For a 2 KiB event, this raw hash material is approximately 9.4% of the
+event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
+recompute proof paths on demand; caching intermediate Merkle nodes or proof
+indexes is optional and would increase this overhead.
 
 ### Empirical benchmarking
 
@@ -565,40 +749,6 @@ state-DAG extension of this query shape can add efficient filters by event
 "which membership-state branch contains this user?" without fetching full state
 events or scanning unrelated state keys.
 
-## Alternatives
-
-### Merkleized topology proofs
-
-Merkleized topology proofs were considered for this API. Such a construction
-can be cryptographically sound: a future room version could derive the event ID
-from a root which commits separately to fields such as `prev_events`,
-`auth_events`, and selected header fields, with domain-separated leaves and
-Merkle paths allowing a verifier to check one disclosed field against a known
-event ID.
-
-That capability is not needed for this endpoint's gap-repair workflow. A
-requester must still fetch the full PDU before accepting an event, because it
-needs `content`, `auth_events`, event hashes, signatures, auth rules, and
-state-resolution inputs. A proof of `prev_events` therefore adds proof bytes and
-verification work without removing the eventual full-event fetch. The remaining
-malicious-peer case is early abandonment of a fabricated branch, which this MSC
-handles with request work budgets, `limited`, `edge_errors`, and local
-hint-reputation heuristics.
-
-Field-level proofs are better motivated by selective disclosure use cases: for
-example, proving one field to a party who is not entitled to the whole event,
-proving topology without revealing `content`, or proving a field's absence.
-Those capabilities require a room-version MSC covering canonicalization, event
-IDs, signature migration, redaction semantics, domain separation, test vectors,
-and proof response formats.
-
-One authorship caveat follows from such a design. A proof which discloses
-`prev_events` but not `sender` can authenticate the disclosed topology against a
-known event ID, but it does not by itself prove that the signing server is the
-server entitled to sign for the event's sender. A proof format which asks the
-verifier to check the event signature as authorship evidence would also need to
-disclose, or otherwise prove, the `sender` leaf.
-
 ## Security considerations
 
 The major risks are:
@@ -609,9 +759,9 @@ The major risks are:
 - buggy or misrepresented topology output causing incorrect repair attempts.
 
 These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints. A server should still fetch and
-verify full events before accepting them, repairing state, or considering a gap
-resolved.
+rate-limiting, and treating responses as hints unless the room version provides
+verifiable Merkle topology proofs. A server should still fetch and verify full
+events before accepting them, repairing state, or considering a gap resolved.
 
 ### Bandwidth consumption
 
@@ -626,9 +776,9 @@ surfaces.
 
 The intended use case here is real-world gap repair: inbound transactions,
 backfill attempts, and auth-chain recovery often need to know a few edges or
-candidate servers before deciding which full events to fetch. Returning compact
-metadata can reduce total bandwidth compared to fetching full PDUs or state sets
-blindly. This can also support operator-initiated repair tooling.
+origins before deciding which full events to fetch. Returning compact metadata
+can reduce total bandwidth compared to fetching full PDUs or state sets blindly.
+This can also support operator-initiated repair tooling.
 
 Servers should still treat this as an optional endpoint with hard response-size
 limits, per-origin rate limits, and conservative defaults. If a deployment does
@@ -674,3 +824,16 @@ passes normal Matrix authorization and event verification.
 - [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
   as related work for representing state progression separately from the message
   event DAG.
+- [Polkadot Fellowship RFC-0078: Merkleized Metadata][polkadot-rfc-0078] as
+  prior art for committing to metadata with a root hash while revealing only the
+  pieces needed by the verifier.
+- [Crosby and Wallach, Efficient Data Structures for Tamper-Evident
+  Logging][crosby-wallach] as foundational work on the security model and proof
+  semantics for tamper-evident logs, including logarithmic membership and
+  consistency proofs and authenticated query results over logged event
+  attributes.
+- [RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1)
+  for the Merkle tree construction used by `event_header_root`.
+
+[polkadot-rfc-0078]: https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html
+[crosby-wallach]: https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf
