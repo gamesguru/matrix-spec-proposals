@@ -182,7 +182,7 @@ DAG semantics, or event authorization. A receiver that does not understand
 `tk.nutra.msc00db.xzip` simply cannot decode that response and MUST retry with
 another advertised encoding or fall back to ordinary backfill.
 
-An `tk.nutra.msc00db.xzip` stream is required to be:
+A `tk.nutra.msc00db.xzip` stream is required to be:
 
 - deterministic for a given decoded event stream and encoder version;
 - splittable into independently verifiable chunks;
@@ -202,8 +202,7 @@ chunk_count        = uint32-le
 chunk              = decoded_size uint32-le
                    compressed_size uint32-le
                    decoded_sha256 32 bytes
-                   compressed_bytes
-```
+                   compressed_bytes compressed_size bytes
 
 The only version defined by this draft is `1`. Senders MUST put the encoder
 version and maximum decompression window size in the stream header. Receivers
