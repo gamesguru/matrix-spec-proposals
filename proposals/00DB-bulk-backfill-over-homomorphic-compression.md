@@ -34,15 +34,14 @@ receiver cannot verify.
 
 ### Capability discovery
 
-Servers advertise support in `/_matrix/federation/v1/version` under unstable
-feature flags:
+Servers advertise support in `/_matrix/federation/v1/version` feature flags:
 
 ```json
 {
   "unstable_features": {
     "tk.nutra.msc00db.bulk_backfill": true,
     "tk.nutra.msc00db.xzip": true,
-    "tk.nutra.msc00da.bls12-381-g2": true
+    "bls12-381-g2": true
   }
 }
 ```
@@ -70,6 +69,7 @@ The request body is:
   "min_depth": 1234,
   "compression": ["xzip"],
   "include_bls_aggregate": true,
+  "aggregate_policy": "required",
   "state_commitments": ["lthash16"]
 }
 ```
@@ -81,7 +81,9 @@ The request body is:
 - `min_depth`: Optional lower depth bound.
 - `compression`: Ordered list of compression encodings the receiver accepts.
 - `include_bls_aggregate`: Whether the receiver wants an MSC00DA aggregate proof
-  when the sender can produce one.
+  over the returned PDUs.
+- `aggregate_policy`: Optional policy for `bls_aggregate`. If omitted, defaults
+  to `preferred`. Valid values are `preferred` and `required`.
 - `state_commitments`: Ordered list of state commitment formats the receiver
   accepts.
 
@@ -121,8 +123,15 @@ The response body is:
 ```
 
 The `bls_aggregate` field uses the aggregate signature object defined by
-MSC00DA. It MAY be omitted if no aggregate proof is available or if the request
-did not ask for one.
+MSC00DA. If `include_bls_aggregate` is omitted or `false`, `bls_aggregate` MAY
+be omitted. If `include_bls_aggregate` is `true` and `aggregate_policy` is
+`preferred`, the sender SHOULD include `bls_aggregate` when it can produce a
+valid aggregate proof over the returned PDUs.
+
+If `include_bls_aggregate` is `true` and `aggregate_policy` is `required`, the
+sender MUST include a valid `bls_aggregate` covering every returned PDU. If the
+sender cannot produce such a proof, it MUST fail the request with
+`400 M_INVALID_PARAM`.
 
 ### Event stream
 
@@ -194,10 +203,12 @@ or internally inconsistent with the decoded events.
 
 ### Failure recovery
 
-If aggregate signature verification fails, the receiver SHOULD retry with a
-smaller `limit` to localize the invalid subset. If decoding fails, hashes do not
-match, or the sender cannot serve the range, the receiver SHOULD fall back to
-existing backfill endpoints.
+A receiver MUST reject a response with `M_INVALID_SIGNATURE` if a supplied
+`bls_aggregate` is malformed, is inconsistent with the returned PDUs, or fails
+aggregate signature verification. The receiver SHOULD retry with a smaller
+`limit` to localize the invalid subset. If decoding fails, hashes do not match,
+or the sender cannot serve the range, the receiver SHOULD fall back to existing
+backfill endpoints.
 
 Senders SHOULD cap `limit`, compressed response size, decoded response size, and
 CPU time per request. If a request is too large, the sender SHOULD return
@@ -252,7 +263,6 @@ Until accepted into the Matrix specification, implementations MUST use:
   `/_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}`
 - Feature flag: `tk.nutra.msc00db.bulk_backfill`
 - Compression identifier: `tk.nutra.msc00db.xzip`
-- Response field for aggregate signatures: `org.matrix.msc00da.bls_aggregate`
 
 ## Dependencies
 
