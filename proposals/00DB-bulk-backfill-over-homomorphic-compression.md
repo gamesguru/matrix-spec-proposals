@@ -129,7 +129,9 @@ The response body is:
   },
   "bls_aggregate": {
     "algorithm": "bls12-381-g2",
-    "signatures": [],
+    "signatures": [
+      {"event_id": "$eventA:example.com", "server_name": "example.com", "key_id": "bls12-381-g2:abc123", "message_hash": "<unpadded-base64-sha256-canonical-event-signing-input>"}
+    ],
     "aggregate": "<unpadded-base64-compressed-g2-aggregate-signature>"
   }
 }
