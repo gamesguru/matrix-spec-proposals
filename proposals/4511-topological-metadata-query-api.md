@@ -506,13 +506,6 @@ rules, and perform state resolution. This endpoint therefore provides the same
 final verification guarantees as existing federation repair flows while reducing
 round trips and wasted full-PDU fetches.
 
-Future room versions may define independently verifiable topology metadata, for
-example by changing event ID derivation to commit separately to `prev_events`,
-`auth_events`, and selected header fields. Such a design requires a separate
-room-version MSC covering canonicalization, event IDs, signatures, redaction
-semantics, domain separation, test vectors, and proof response formats. It is
-intentionally out of scope for this API MSC.
-
 Future extensions may also add more queryable fields, edge types, computed
 graph queries, or room-version-specific proof formats.
 
@@ -571,6 +564,40 @@ state-DAG extension of this query shape can add efficient filters by event
 `type` and `state_key`, allowing a server to ask targeted questions such as
 "which membership-state branch contains this user?" without fetching full state
 events or scanning unrelated state keys.
+
+## Alternatives
+
+### Merkleized topology proofs
+
+Merkleized topology proofs were considered for this API. Such a construction
+can be cryptographically sound: a future room version could derive the event ID
+from a root which commits separately to fields such as `prev_events`,
+`auth_events`, and selected header fields, with domain-separated leaves and
+Merkle paths allowing a verifier to check one disclosed field against a known
+event ID.
+
+That capability is not needed for this endpoint's gap-repair workflow. A
+requester must still fetch the full PDU before accepting an event, because it
+needs `content`, `auth_events`, event hashes, signatures, auth rules, and
+state-resolution inputs. A proof of `prev_events` therefore adds proof bytes and
+verification work without removing the eventual full-event fetch. The remaining
+malicious-peer case is early abandonment of a fabricated branch, which this MSC
+handles with request work budgets, `limited`, `edge_errors`, and local
+hint-reputation heuristics.
+
+Field-level proofs are better motivated by selective disclosure use cases: for
+example, proving one field to a party who is not entitled to the whole event,
+proving topology without revealing `content`, or proving a field's absence.
+Those capabilities require a room-version MSC covering canonicalization, event
+IDs, signature migration, redaction semantics, domain separation, test vectors,
+and proof response formats.
+
+One authorship caveat follows from such a design. A proof which discloses
+`prev_events` but not `sender` can authenticate the disclosed topology against a
+known event ID, but it does not by itself prove that the signing server is the
+server entitled to sign for the event's sender. A proof format which asks the
+verifier to check the event signature as authorship evidence would also need to
+disclose, or otherwise prove, the `sender` leaf.
 
 ## Security considerations
 
