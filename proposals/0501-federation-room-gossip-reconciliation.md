@@ -164,8 +164,9 @@ security model — rejected events are only included in the _digest_, not in the
 _resolved state_. Additionally, servers MUST maintain a negative cache of event
 IDs that were fetched via reconciliation and subsequently rejected. Events in
 the negative cache MUST NOT be re-requested for a configurable cooldown period
-(RECOMMENDED: 24 hours). This provides defense-in-depth against fetch loops even
-if the Bloom filter test produces a false negative for a rejected event ID.
+(RECOMMENDED: 24 hours). This provides defense-in-depth against fetch loops if a
+peer reports the same rejected event again because of stale state, inconsistent
+filter parameters, or implementation error.
 
 ### Dynamic Filter Folding
 
@@ -260,19 +261,19 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                                                         |
-| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                 |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.            |
-| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below. |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                        |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                          |
-| `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                           |
-| `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                            |
-| `max_depth_delta`           | integer  | If mode=extremity | The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                        |
-| `max_events`                | integer  | If mode=extremity | The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.           |
-| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                     |
+| Field                       | Type     | Required          | Description                                                                                                                    |
+| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                            |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                       |
+| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.            |
+| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                                   |
+| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                                     |
+| `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                                      |
+| `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                           |
+| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                                       |
+| `max_depth_delta`           | integer  | No                | Extremity mode only. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.              |
+| `max_events`                | integer  | No                | Extremity mode only. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000. |
+| `limit`                     | integer  | No                | Maximum number of event IDs to return. Default 1000, max 10000.                                                                |
 
 **Response:**
 
@@ -287,12 +288,12 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (response):**
 
-| Field                        | Type     | Required | Description                                                                                                                                                                 |
-| ---------------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `probably_missing_event_ids` | [string] | Yes      | Event IDs that the responding server has but the requesting server likely does not. In `bloom` mode these may include false positives; in `extremity` mode these are exact. |
-| `remote_event_count`         | integer  | Yes      | The responding server's total event count.                                                                                                                                  |
-| `remote_extremity_event_ids` | [string] | Yes      | The responding server's current forward extremities.                                                                                                                        |
-| `truncated`                  | bool     | Yes      | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling Truncation.                           |
+| Field                        | Type     | Required | Description                                                                                                                                                                                                             |
+| ---------------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `probably_missing_event_ids` | [string] | Yes      | Event IDs that the responding server has but the requesting server likely does not. In `bloom` mode, Bloom false positives can hide some missing events from this list; in `extremity` mode the returned IDs are exact. |
+| `remote_event_count`         | integer  | Yes      | The responding server's total event count.                                                                                                                                                                              |
+| `remote_extremity_event_ids` | [string] | Yes      | The responding server's current forward extremities.                                                                                                                                                                    |
+| `truncated`                  | bool     | Yes      | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling Truncation.                                                                       |
 
 **Diff Computation — Mode Selection:**
 
@@ -364,21 +365,21 @@ The responding server computes the diff as follows:
 8. Return the collected event IDs in reverse topological order, up to `limit`.
 
 Servers MUST enforce `max_depth_delta <= 50000` and `max_events <= 50000`.
-Servers SHOULD also maintain per-peer, per-room accounting of total walk depth
-consumed over a rolling window (for example, 60 seconds) and reject requests
-that would exceed a cumulative budget (RECOMMENDED: 100,000 events per peer per
+Servers SHOULD also maintain per-peer, per-room accounting of inspected events
+over a rolling window (for example, 60 seconds) and reject requests that would
+exceed a cumulative budget (RECOMMENDED: 100,000 inspected events per peer per
 room per minute). The cumulative budget prevents an attacker from issuing many
 small requests that each walk just under the per-request limit.
 
 **Handling Truncation (requesting server):**
 
 On `truncated: true`, the requester MUST NOT immediately retry an identical
-request. If the response is non-empty, `limit` was the binding constraint: the
-requester SHOULD fetch and persist the returned events, then re-run the diff —
-its extremities and `have` sample will have advanced. If the response is empty,
-the bounds were insufficient: the requester MAY retry with larger
-`max_depth_delta`/`max_events` (up to the caps), and otherwise SHOULD fall back
-to `bloom` mode or existing `/backfill`, applying back-off between attempts.
+request. If the response is non-empty, the requester SHOULD fetch and persist
+the returned events, then re-run the diff with an updated `have` sample. If
+progress stalls or the response is empty, the bounds were insufficient: the
+requester MAY retry with larger `max_depth_delta`/`max_events` (up to the caps),
+and otherwise SHOULD fall back to `bloom` mode or existing `/backfill`, applying
+back-off between attempts.
 
 **Constructing the `have` set (requesting server):**
 
@@ -509,7 +510,10 @@ The full reconciliation flow between two servers is:
          │                                         │
          │  POST /room_diff/{roomId}               │
          │  { mode: "extremity",                   │
-         │    local_extremity_event_ids: [...] }   │
+         │    local_extremity_event_ids: [...],    │
+         │    have_event_ids: [...],               │
+         │    max_depth_delta: 5000,               │
+         │    max_events: 10000 }                  │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { probably_missing: [...] }     │
@@ -733,9 +737,9 @@ sharply, requiring the protocol to fall back to a bounded graph walk anyway.
 
 Therefore, this proposal relies on standard Bloom filters for cheap divergence
 detection and membership testing, followed by a bounded merge-base walk to
-locate the actual repair frontier. Future MSCs MAY define an `ibl_bloom` digest
-mode as an optimization for small differences, but baseline correctness MUST NOT
-depend on invertible-filter decoding success.
+locate the actual repair frontier. Future MSCs MAY define an `ibl_bloom`
+`digest_type` value as an optimization for small differences, but baseline
+correctness MUST NOT depend on invertible-filter decoding success.
 
 ### Server-Initiated Push Reconciliation
 
