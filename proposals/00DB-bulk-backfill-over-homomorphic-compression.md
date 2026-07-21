@@ -41,7 +41,7 @@ Servers advertise support in `/_matrix/federation/v1/version` feature flags:
   "unstable_features": {
     "tk.nutra.msc00db.bulk_backfill": true,
     "tk.nutra.msc00db.xzip": true,
-    "bls12-381-g2": true
+    "tk.nutra.msc00da.bls12-381-g2": true
   }
 }
 ```
@@ -203,6 +203,7 @@ chunk              = decoded_size uint32-le
                    compressed_size uint32-le
                    decoded_sha256 32 bytes
                    compressed_bytes compressed_size bytes
+```
 
 The only version defined by this draft is `1`. Senders MUST put the encoder
 version and maximum decompression window size in the stream header. Receivers
