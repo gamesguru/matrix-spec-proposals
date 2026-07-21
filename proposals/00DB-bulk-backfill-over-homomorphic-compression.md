@@ -130,7 +130,12 @@ The response body is:
   "bls_aggregate": {
     "algorithm": "bls12-381-g2",
     "signatures": [
-      {"event_id": "$eventA:example.com", "server_name": "example.com", "key_id": "bls12-381-g2:abc123", "message_hash": "<unpadded-base64-sha256-canonical-event-signing-input>"}
+      {
+        "event_id": "$eventA:example.com",
+        "server_name": "example.com",
+        "key_id": "bls12-381-g2:abc123",
+        "message_hash": "<unpadded-base64-sha256-canonical-event-signing-input>"
+      }
     ],
     "aggregate": "<unpadded-base64-compressed-g2-aggregate-signature>"
   }
@@ -149,9 +154,10 @@ sender cannot produce such a proof, it MUST fail the request with
 `400 M_INVALID_PARAM`.
 
 Receivers MUST reject a response before admitting any events if `encoding` is
-not one of the requested `compression` values, if a supplied
-`state_commitments.algorithm` is not one of the requested `state_commitments`
-values, or if `aggregate_policy` is `required` and `bls_aggregate` is absent.
+not one of the `compression` values requested in the request, if a supplied
+`state_commitments.algorithm` is not one of the `state_commitments` values
+requested in the request, or if the request's `aggregate_policy` is `required`
+and `bls_aggregate` is absent.
 
 ### Event stream
 
@@ -225,7 +231,7 @@ receiver MUST:
    does not equal `event_count`.
 3. Verify event IDs and content hashes according to the room version.
 4. Verify required event signatures according to the room version.
-5. If `aggregate_policy` is `required`, reject responses without
+5. If the request's `aggregate_policy` is `required`, reject responses without
    `bls_aggregate`; if `bls_aggregate` is present, verify it according to
    MSC00DA.
 6. Run normal authorization rules for every event before admitting it.
