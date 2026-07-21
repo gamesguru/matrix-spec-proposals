@@ -40,10 +40,13 @@ structures used for existing server signing keys.
 
 A BLS verify key object has the following additional fields:
 
-- `key`: The compressed BLS12-381 G1 public key, base64 unpadded encoded.
+- `key`: The compressed BLS12-381 G1 public key, unpadded base64 encoded.
 - `pop`: A proof-of-possession signature over the canonical server-key binding
   object (below), unpadded base64 encoded.
-- `expires_ts`: The expiry timestamp for this key.
+
+BLS keys use the existing server-key validity semantics: the enclosing response’s
+`valid_until_ts` governs cache lifetime, and retired keys in `old_verify_keys`
+carry an `expired_ts`.
 
 The signed proof-of-possession message is the standard canonical representation:
 
