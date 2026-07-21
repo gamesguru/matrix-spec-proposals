@@ -40,7 +40,7 @@ Servers advertise support in `/_matrix/federation/v1/version` feature flags:
 {
   "unstable_features": {
     "tk.nutra.msc00db.bulk_backfill": true,
-    "tk.nutra.msc00db.xzip": true,
+    "xzip": true,
     "bls12-381-g2": true
   }
 }
@@ -150,8 +150,7 @@ parsing events for authorization.
 ### `xzip` compression profile
 
 This MSC uses the name `xzip` for the initial experimental homomorphic
-compression profile. Until stabilized, the identifier is
-`tk.nutra.msc00db.xzip`.
+compression profile.
 
 The `xzip` profile is intentionally scoped to transport encoding. It MUST NOT
 change Matrix event JSON, event IDs, event hashes, room DAG semantics, or event
@@ -262,7 +261,6 @@ Until accepted into the Matrix specification, implementations MUST use:
 - Endpoint prefix:
   `/_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}`
 - Feature flag: `tk.nutra.msc00db.bulk_backfill`
-- Compression identifier: `tk.nutra.msc00db.xzip`
 
 ## Dependencies
 

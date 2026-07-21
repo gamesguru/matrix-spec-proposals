@@ -44,9 +44,9 @@ A BLS verify key object has the following additional fields:
 - `pop`: A proof-of-possession signature over the canonical server-key binding
   object (below), unpadded base64 encoded.
 
-BLS keys use the existing server-key validity semantics: the enclosing response’s
-`valid_until_ts` governs cache lifetime, and retired keys in `old_verify_keys`
-carry an `expired_ts`.
+BLS keys use the existing server-key validity semantics: the enclosing
+response’s `valid_until_ts` governs cache lifetime, and retired keys in
+`old_verify_keys` carry an `expired_ts`.
 
 The signed proof-of-possession message is the standard canonical representation:
 
