@@ -39,14 +39,14 @@ Servers advertise support in `/_matrix/federation/v1/version` feature flags:
 ```json
 {
   "unstable_features": {
-    "org.matrix.msc00db.bulk_backfill": true,
-    "org.matrix.msc00db.xzip": true,
+    "tk.nutra.msc00db.bulk_backfill": true,
+    "tk.nutra.msc00db.xzip": true,
     "bls12-381-g2": true
   }
 }
 ```
 
-Support for `org.matrix.msc00db.bulk_backfill` indicates that the endpoint shape
+Support for `tk.nutra.msc00db.bulk_backfill` indicates that the endpoint shape
 is understood. Compression algorithms and aggregate signature algorithms are
 advertised separately so that future encodings can be added without replacing
 the endpoint.
@@ -56,7 +56,7 @@ the endpoint.
 This MSC defines:
 
 ```text
-POST /_matrix/federation/unstable/org.matrix.msc00db/bulk_backfill/{roomId}
+POST /_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}
 ```
 
 The request body is:
@@ -67,7 +67,7 @@ The request body is:
   "limit": 10000,
   "direction": "backwards",
   "min_depth": 1234,
-  "compression": ["org.matrix.msc00db.xzip"],
+  "compression": ["tk.nutra.msc00db.xzip"],
   "include_bls_aggregate": true,
   "aggregate_policy": "required",
   "state_commitments": ["lthash16"]
@@ -105,7 +105,7 @@ The response body is:
 ```json
 {
   "room_id": "!room:example.com",
-  "encoding": "org.matrix.msc00db.xzip",
+  "encoding": "tk.nutra.msc00db.xzip",
   "chunk_id": "01J2Y4J3M2HG6N6WDFN8H8X3EB",
   "events": "<unpadded-standard-base64-compressed-event-stream>",
   "event_count": 9481,
@@ -173,16 +173,16 @@ the final decoded count equals `event_count` and is less than or equal to
 
 ### `xzip` compression profile
 
-This MSC uses the identifier `org.matrix.msc00db.xzip` for the initial
+This MSC uses the identifier `tk.nutra.msc00db.xzip` for the initial
 experimental homomorphic compression profile.
 
-The `org.matrix.msc00db.xzip` profile is intentionally scoped to transport
+The `tk.nutra.msc00db.xzip` profile is intentionally scoped to transport
 encoding. It MUST NOT change Matrix event JSON, event IDs, event hashes, room
 DAG semantics, or event authorization. A receiver that does not understand
-`org.matrix.msc00db.xzip` simply cannot decode that response and MUST retry with
+`tk.nutra.msc00db.xzip` simply cannot decode that response and MUST retry with
 another advertised encoding or fall back to ordinary backfill.
 
-An `org.matrix.msc00db.xzip` stream is required to be:
+An `tk.nutra.msc00db.xzip` stream is required to be:
 
 - deterministic for a given decoded event stream and encoder version;
 - splittable into independently verifiable chunks;
@@ -191,8 +191,8 @@ An `org.matrix.msc00db.xzip` stream is required to be:
   the only objects admitted to the room DAG.
 
 The byte-level coding tables are intentionally left unstable in this draft.
-Advertising `org.matrix.msc00db.xzip` means the server supports the unstable
-wire profile below:
+Advertising `tk.nutra.msc00db.xzip` means the server supports the unstable wire
+profile below:
 
 ```text
 magic              = "MSC00DBXZIP"        ; 11 ASCII bytes
@@ -306,9 +306,9 @@ allowed to request the same events through existing federation APIs.
 Until accepted into the Matrix specification, implementations MUST use:
 
 - Endpoint prefix:
-  `/_matrix/federation/unstable/org.matrix.msc00db/bulk_backfill/{roomId}`
-- Feature flag: `org.matrix.msc00db.bulk_backfill`
-- Compression identifier: `org.matrix.msc00db.xzip`
+  `/_matrix/federation/unstable/tk.nutra.msc00db/bulk_backfill/{roomId}`
+- Feature flag: `tk.nutra.msc00db.bulk_backfill`
+- Compression identifier: `tk.nutra.msc00db.xzip`
 
 ## Dependencies
 
