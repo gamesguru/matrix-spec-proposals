@@ -9,6 +9,7 @@ OTKs = "OTKs"
 OTK = "OTK"
 OTKs = "OTKs"
 Iy = "Iy"
+fo = "fo"
 
 [files]
 extend-exclude = [
