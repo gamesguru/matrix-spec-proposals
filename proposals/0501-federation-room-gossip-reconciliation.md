@@ -103,8 +103,8 @@ document.
 ```json
 {
   "unstable_features": {
-    "org.matrix.msc0501.reconciliation": true,
-    "org.matrix.msc0501.digest.algebraic_v1": true
+    "tk.nutra.msc0501.reconciliation": true,
+    "tk.nutra.msc0501.digest.algebraic_v1": true
   }
 }
 ```
@@ -891,10 +891,10 @@ Servers in the process of a partial state join (MSC3706) SHOULD NOT initiate
 reconciliation for that room until the full state resync is complete. They MAY
 respond to incoming reconciliation requests with the events they have, but MUST
 NOT advertise a normal `algebraic_v1` digest for the fully joined frame. They
-SHOULD either omit `org.matrix.msc0501.digest.algebraic_v1` for that room,
-return HTTP 409 with `M_PARTIAL_STATE`, or advertise a distinct partial-state
-frame and set a response header `X-Matrix-Partial-State: true` to indicate that
-their digest/diff is incomplete.
+SHOULD either omit `tk.nutra.msc0501.digest.algebraic_v1` for that room, return
+HTTP 409 with `M_PARTIAL_STATE`, or advertise a distinct partial-state frame and
+set a response header `X-Matrix-Partial-State: true` to indicate that their
+digest/diff is incomplete.
 
 ## Alternatives
 
