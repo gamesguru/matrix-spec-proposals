@@ -191,6 +191,10 @@ The initial sparse response fields returned as sidecar maps are:
   reason code.
 - `proofs`: Merkle proof material, only for future room versions which opt into
   split canonicalization. Requested via the `proof` field name.
+- `overlay_proofs`: signed responder attestations for room-version-agnostic
+  metadata commitments. Requested via the `overlay_proof` field name and only
+  available when the responder advertises
+  `tk.nutra.msc4511.overlay_attestations` in `/_matrix/federation/v1/version`.
 
 Unrecognized `edge_types` entries cause the request to fail with
 `M_INVALID_PARAM`, because silently ignoring them would change traversal
@@ -231,14 +235,15 @@ returned event MAY be omitted entirely from `event_fields`, except for
 `event_id`. Servers MUST NOT rely on per-event object-key omission semantics in
 `events`.
 
-Fields expected to be highly sparse or bulky, such as `proof`, `edge_errors`,
-and `start_event_errors`, are returned in sidecar maps (`proofs`, `edge_errors`,
-and `start_event_errors`) rather than in the positional `events` rows. This
-ensures servers do not have to emit explicit `null` slots for sparse data. A
-server MUST only include a sidecar map if the corresponding logical field was
-requested in `fields` (e.g. `proof` for `proofs`), and MUST only include entries
-with applicable data to return. A requester MUST ignore unrecognized field names
-while preserving positional alignment for fields it understands.
+Fields expected to be highly sparse or bulky, such as `proof`, `overlay_proof`,
+`edge_errors`, and `start_event_errors`, are returned in sidecar maps (`proofs`,
+`overlay_proofs`, `edge_errors`, and `start_event_errors`) rather than in the
+positional `events` rows. This ensures servers do not have to emit explicit
+`null` slots for sparse data. A server MUST only include a sidecar map if the
+corresponding logical field was requested in `fields` (e.g. `proof` for
+`proofs`, or `overlay_proof` for `overlay_proofs`), and MUST only include
+entries with applicable data to return. A requester MUST ignore unrecognized
+field names while preserving positional alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
@@ -315,9 +320,9 @@ unknown, inaccessible, hidden, or wrong-room edge target causes a row to be
 omitted, the server MUST set `limited` to `true` to signal that the response is
 not a complete walk.
 
-When requested via `fields`, a server SHOULD include `edge_errors` explaining why
-certain edge targets were not followed. Servers MUST omit `edge_errors` unless
-it is requested in `fields`. The initial reason codes are:
+When requested via `fields`, a server SHOULD include `edge_errors` explaining
+why certain edge targets were not followed. Servers MUST omit `edge_errors`
+unless it is requested in `fields`. The initial reason codes are:
 
 - `wrong_room`: the target event is known to belong to a different room.
 - `not_available`: the target event appears to be an in-room edge target, but
@@ -630,56 +635,115 @@ and perform state resolution. This endpoint therefore provides the same final
 verification guarantees as existing federation repair flows while reducing round
 trips and wasted full-PDU fetches.
 
-## Sidecar commitment sketch
+## Signed overlay attestation sketch
 
 One room-agnostic option is to leave the PDU format and `event_id` derivation
-unchanged, and attach a separate commitment only to the sparse fields returned
-by this query. The commitment would live alongside the query response, not
-inside the event itself, so current room versions would keep their existing
-hashing and signature rules.
+unchanged, and attach a signed responder attestation to the metadata known by
+the responding server. The attestation lives alongside the query response, not
+inside the event itself, so current room versions keep their existing hashing
+and signature rules.
 
-A responder that supports this overlay returns the sparse metadata requested by
-`fields` and a sidecar commitment proving that the returned slice is exactly the
-slice it committed to. This does not make the PDU self-splitting and does not
-change event identity. It only gives the requester a way to verify the sparse
-response without waiting for a full-event fetch.
+This is not an event-authenticity proof. The responder chooses the values it
+attests to, so an adversarial responder can still lie about an event it claims
+to know. The useful property is narrower: a requester can obtain a transferable
+statement that "server X asserts these topology values for event E", compare the
+same fixed commitment root across multiple responders, and later present a
+signed contradiction to other servers or operators. Native event authenticity
+requires the split-canonicalization design below, where the metadata commitment
+is part of event identity.
 
 ### Overlay commitment construction
 
-The overlay commitment is computed per returned event as follows:
+The overlay commitment is computed per returned event over a fixed leaf set,
+independent of the subset disclosed in the query response. The initial fixed
+leaf set is:
 
-- canonicalize the disclosed response fields as a map from field name to Matrix
-  canonical JSON value;
-- order the field names bytewise;
-- compute a leaf hash for each disclosed field with
+- `event_id`
+- `room_id`
+- `prev_events`
+- `auth_events`
+- `sender_localpart`
+- `sender_domain`
+- `type`
+- `state_key`
+- `depth`
+- `origin_server_ts`
+
+For each field in the fixed set, the responder canonicalizes the value it holds
+as Matrix canonical JSON. If the server does not know a field or does not store
+it, the canonical value is `null`. Declining to disclose a known value does not
+change the committed value: the server omits that field from `leaf_paths` and
+the positional response, but still commits to the value it knows. A server MUST
+NOT omit a field from the committed set merely because the requester did not ask
+to disclose it.
+
+The fixed set intentionally excludes responder-local processing results such as
+`rejected` and `soft_failed`. Those fields remain queryable hints, but including
+them in the overlay root would make two honest servers produce different roots
+for the same event whenever their local processing results differ.
+
+`sender_localpart` and `sender_domain` are derived from the `sender` field using
+the same split rule as the native sketch. The fixed overlay set does not include
+a redundant full `sender` leaf; a consumer that needs the full MXID can
+reconstruct it as `"@" || sender_localpart || ":" || sender_domain` when both
+leaves are disclosed.
+
+The commitment is then computed as follows:
+
+- order the fixed field names bytewise;
+- compute a leaf hash for each fixed field with
   `SHA3-256("msc4511:overlay-leaf:v1" || field_name || "\x00" || canonical_value)`;
 - combine the ordered leaf hashes into a binary Merkle tree using
   `SHA3-256("msc4511:overlay-node:v1" || left_hash || right_hash)` for inner
   nodes;
 - compute the sidecar commitment root as
-  `SHA3-256("msc4511:overlay-root:v1" || event_id || field_count || merkle_root)`,
-  where `event_id` is the returned event ID, `field_count` is the number of
-  disclosed fields encoded as an unsigned integer in network byte order, and
-  `merkle_root` is the root hash of the disclosed-field tree.
+  `SHA3-256("msc4511:overlay-root:v1" || event_id || leaf_count || merkle_root)`,
+  where `event_id` is the returned event ID, `leaf_count` is the number of fixed
+  leaves encoded as an unsigned 32-bit integer in network byte order, and
+  `merkle_root` is the root hash of the fixed-field tree.
 
 All concatenations above are byte concatenations: domain-separation strings and
 `field_name` are UTF-8 bytes; `\x00` is a single `0x00` byte; `canonical_value`
 is the UTF-8 encoding of the canonical JSON value; and
 `left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
 
-The disclosed-field tree uses the same binary Merkle shape as the native sketch
+The fixed-field tree uses the same binary Merkle shape as the native sketch
 below: the largest-power-of-two split rule at each level, with no padding
-leaves.
+leaves. A one-leaf tree's root is that leaf hash, though this overlay version
+defines more than one fixed leaf and therefore never uses the degenerate shape.
+
+The responder signs the canonical attestation envelope with its existing
+federation signing key:
+
+```json
+{
+  "room_id": "!room:example.org",
+  "event_id": "$event:example.org",
+  "overlay_commitment": "base64url_sha3_256_hash",
+  "fields_version": "msc4511.overlay.v1"
+}
+```
+
+The signature proves only that the responder made the assertion. It does not
+prove that the asserted values are true, that the event exists, or that the
+event ID is bound to those values by the room version.
+
+`fields_version` identifies the fixed overlay leaf set, tree construction, and
+domain-separation strings together. A verifier MUST reject an overlay proof with
+an unknown `fields_version`, because it cannot otherwise know the field set,
+leaf ordering, or root preimage. The only `fields_version` defined by this MSC
+is `msc4511.overlay.v1`, which uses the `msc4511:overlay-*:v1` domain-separation
+strings above.
 
 ### Overlay proof responses
 
-The response can carry a per-event sidecar map such as `proofs`, where each
-entry contains the disclosed field values, the sibling hashes needed to
-recompute the disclosed-field Merkle root, and the final `overlay_commitment`
-for that event:
+The response can carry a per-event sidecar map named `overlay_proofs`, where
+each entry contains the sibling hashes needed to recompute the fixed-field
+Merkle root for disclosed fields, the final `overlay_commitment`, and the
+responder's signature over the attestation envelope:
 
 ```json
-"proofs": {
+"overlay_proofs": {
   "$missing_event_A": {
     "leaf_paths": {
       "prev_events": [],
@@ -691,66 +755,71 @@ for that event:
         { "side": "left", "hash": "base64url_sha3_256_hash" }
       ]
     },
-    "overlay_commitment": "base64url_sha3_256_hash"
+    "overlay_commitment": "base64url_sha3_256_hash",
+    "fields_version": "msc4511.overlay.v1",
+    "signatures": {
+      "example.org": {
+        "ed25519:key": "signature_base64"
+      }
+    }
   }
 }
 ```
 
 The `leaf_paths` object maps each disclosed field name to the sibling hashes
-needed to rebuild the Merkle root for that field set. For fields committed
-directly at the top level, the path is empty and the leaf hash is used as-is.
-For fields inside the disclosed slice, the sibling list is ordered from the leaf
-level upward to the root.
+needed to rebuild the fixed-field Merkle root. For a field whose leaf is the
+tree root, the path is empty and the leaf hash is used as-is. Otherwise, the
+sibling list is ordered from the leaf level upward to the root.
 
-Because the overlay commits only to whichever fields the responder chose to
-disclose in a given response, it already gets sender-domain-only selective
-disclosure for free by disclosing `sender_domain` instead of `sender` — no
-room-version change is required. This is unlike the native
-split-canonicalization sketch below, where `sender_localpart` and
-`sender_domain` must be fixed as separate committed leaves ahead of time,
-because the leaf set there is part of event identity rather than chosen per
-response.
+Selective disclosure is meaningful only because the committed leaf set is fixed
+independently of the disclosed subset. For example, a responder can disclose and
+prove `sender_domain` while withholding `sender_localpart`; the sibling hashes
+commit to whatever value, or `null`, the responder placed in the
+`sender_localpart` leaf. This is still an attestation by that responder, not an
+event-intrinsic proof.
 
 ### Overlay verification
 
-To verify the authenticity of the disclosed slice, the requester performs the
-following steps:
+To verify an overlay attestation, the requester performs the following steps:
 
 1. Canonicalize each returned field and compute its domain-separated leaf hash.
 2. Apply each step in `leaf_paths`, computing the parent inner hash using the
-   provided left or right sibling, to reconstruct the disclosed-field
-   `merkle_root`.
-3. Combine the reconstructed root with `event_id` and the field count to compute
-   the master `overlay_commitment`.
+   provided left or right sibling, to reconstruct the fixed-field `merkle_root`.
+3. Combine the reconstructed root with `event_id` and the fixed leaf count to
+   compute the master `overlay_commitment`.
 4. Verify that the computed commitment matches the `overlay_commitment` in the
    response.
+5. Verify that `fields_version` is recognized.
+6. Verify the responder's signature over the attestation envelope using normal
+   Matrix federation signing-key rules. The signing server MUST be the
+   responding server, not the event's `sender_domain`.
 
 If a required hash is missing or any hash check fails, verification fails. By
 chaining hashes upward, the server only needs to send missing sibling hashes in
 the proof, and the requester recomputes the commitment locally.
 
-This makes the overlay useful in two places:
+This makes the overlay useful for accountability and corroboration:
 
-- for room versions that want stronger verification of sparse query replies
-  without changing event identity;
-- for deployments that want to evaluate a proof layer before deciding whether a
-  later room-version MSC is worth standardizing.
+- an attestation can be forwarded to a third party, unlike local hint suspicion;
+- two honest servers answering about the same event can produce the same
+  `overlay_commitment` even if they disclose different subsets;
+- contradictory signed roots for the same `(room_id, event_id, fields_version)`
+  tuple are useful evidence for debugging or reputation.
 
 The overlay also preserves the current repair workflow. If a server only needs
 to find likely bridge points, candidate peers, or a merge base, it can still use
-the sparse query as a hint. If it also wants cryptographic assurance about the
-returned slice, it can verify the sidecar commitment without waiting for a full
-event fetch.
+the sparse query as a hint. If it needs authenticity before accepting an event,
+it must still fetch and verify the full PDU through existing mechanisms.
 
-The important part here is the boundary: commitment over disclosed query output,
-not commitment that redefines the event itself.
+The important part here is the boundary: signed commitment over a responder's
+asserted metadata, not commitment that redefines the event itself.
 
-The main trade-off is that this is response-scoped rather than event-intrinsic.
-That makes it easy to deploy incrementally, but it also means the proof is only
-as durable and cacheable as the query response that carried it. It is a good fit
-for sparse repair and operator workflows, but it does not replace a native
-event-level commitment model if the protocol later wants the proof to be part of
-event identity.
+The main trade-off is that this is responder-scoped rather than event-intrinsic.
+That makes it easy to deploy incrementally, but it also means the attestation is
+only as trustworthy as the server that signed it. It is a good fit for sparse
+repair and operator workflows, but it does not replace a native event-level
+commitment model if the protocol later wants the proof to be part of event
+identity.
 
 ## Split canonicalization and Merkleized metadata (opt-in sketch)
 
@@ -879,12 +948,6 @@ The sample inputs are:
 
 ```json
 {
-  "field_root_fields": {
-    "event_id": "$b:example.org",
-    "depth": 7,
-    "rejected": false,
-    "prev_events_hash": "sha256:abc"
-  },
   "event_header_root_fields": {
     "room_id": "!room:example.org",
     "sender_localpart": "alice",
@@ -905,7 +968,7 @@ The sample inputs are:
     "origin": "example.org"
   },
   "signature_envelope": {
-    "event_root": "734aaf66da440dfbbe445bfe7874014983beafe7682b456f40973f7e8e0a2e4d",
+    "event_root": "4ccc880527fe5f97d27a04105bb55e6c6e75d87928e54a6cd2973c224802ce91",
     "room_id": "!room:example.org",
     "room_version": "tk.nutra.msc4511.12"
   }
@@ -924,7 +987,6 @@ The generated outputs are:
 
 ```text
 [msc4511-merkle]
-field_root_hex = 08e7c748acbe75a855a5c1420ea3d5948a765509f27d132796bfbaecbe8c3fae
 event_header_root_hex = db91cc8e8d3eb0d13885c32f28dbd4215a111081383e25263749c65d9bf8bc37
 prev_events_hash_hex = fe8934c852d5a646390f3734f99911606c40f4f8ca7fe4065814081e2fb1faef
 auth_events_hash_hex = 2309b8433c96de36d4a55cfb263f3f3131a0874324a9bda59bfd9e73e3846ea1
@@ -937,12 +999,12 @@ event_signature_public_key_base64 = LYZrYjxYptzTRzEYBZzYMMEfX/2yYYqQ+RCw62Hmsz4
 event_signature_base64 = 592xXLqbyExpxL1Te7zobls1Gh+IYYbliYCN3jTTn2Ny0kRnFGCEc22Sh/ifTCh/IDsJWVnmRFgrWA7JAqchBA
 ```
 
-`field_root_hex`, `prev_events_hash_hex`, `auth_events_hash_hex`,
-`content_hash_hex`, and `other_signed_fields_hash_hex` are unchanged from the
-pre-split vectors, since none of those inputs reference `sender`.
-`event_header_root_hex`, `event_root_hex`, `event_id`, and the signature values
-change because `event_header_root` now commits `sender_localpart` and
-`sender_domain` as separate leaves instead of a single `sender` leaf.
+`prev_events_hash_hex`, `auth_events_hash_hex`, `content_hash_hex`, and
+`other_signed_fields_hash_hex` are unchanged from the pre-split vectors, since
+none of those inputs reference `sender`. `event_header_root_hex`,
+`event_root_hex`, `event_id`, and the signature values change because
+`event_header_root` now commits `sender_localpart` and `sender_domain` as
+separate leaves instead of a single `sender` leaf.
 
 ### Cryptographic proof responses
 
@@ -1032,13 +1094,13 @@ the event ID. The signature map keys identify which server keys to try for
 verification, but entitlement still comes from the expected server name given by
 a proven or disclosed `sender_domain` field, not from `sender_localpart`.
 
-The following side-by-side example DAG shows the short-circuiting opportunity.
-The left side illustrates the legacy fetch-and-verify path over the chain. The
-right side shows the same DAG shape when Merkle proofs let the verifier stop
-after proving the branch back to a trusted anchor:
+The following side-by-side example DAG shows the metadata-query opportunity. The
+left side illustrates the legacy fetch-and-verify path over the chain. The right
+side shows the same DAG shape when Merkle proofs let the verifier check topology
+metadata before deciding which full PDUs to fetch:
 
 ```text
-Legacy: fetch-and-verify each hop         Merkleized: prove branch, stop early
+Legacy: fetch-and-verify each hop         Merkleized: prove metadata first
 
     [known anchor]                                [known anchor]
           |                                             |
@@ -1053,8 +1115,8 @@ Legacy: fetch-and-verify each hop         Merkleized: prove branch, stop early
           v                                             v
   fetch full PDU / event                  fetch sparse metadata + Merkle proof
   verify Ed25519 signature                recompute root locally from sibling hashes
-  verify hashes + auth rules              if root matches, stop here
-  repeat for every ancestor               no need to fetch every ancestor
+  verify hashes + auth rules              if root matches, choose next fetches
+  repeat for every ancestor               fetch full PDUs before acceptance
 ```
 
 If you prefer Mermaid, the same comparison can be rendered as two separate
@@ -1166,6 +1228,16 @@ event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
 recompute proof paths on demand; caching intermediate Merkle nodes or proof
 indexes is optional and would increase this overhead.
 
+The signed overlay attestation sketch has a different cost profile. With the
+initial fixed leaf set, a responder computes one fixed-field Merkle root per
+attested event and signs one attestation envelope per event. Each disclosed
+field proof carries roughly `ceil(log2(leaf_count))` sibling hashes, and each
+event carries at least one federation signature. This is acceptable for operator
+tools and small corroboration queries, but expensive for large responses. A
+future extension could reduce this cost by building a per-response tree over
+per-event overlay commitments and signing the response root once; that would
+trade simpler independent per-event attestations for cheaper batch verification.
+
 ### Cacheability
 
 Event topology is immutable. Once an event's `prev_events`, `auth_events`,
@@ -1173,6 +1245,12 @@ Event topology is immutable. Once an event's `prev_events`, `auth_events`,
 stable, authorization-equivalent queries are therefore cacheable in a way that
 linear `/backfill` responses are not: a cached sparse topology answer can remain
 useful even when later room history advances.
+
+Signed overlay attestations are likewise replayable by design: the attested
+field set is restricted to event-intrinsic metadata, so a valid old attestation
+should remain valid evidence that the responder made that assertion. Responder-
+local hint fields such as `rejected` and `soft_failed` are excluded from the
+overlay root precisely because their values can change over time.
 
 ### Empirical benchmarking
 
@@ -1272,6 +1350,13 @@ events. If a responding server repeatedly returns metadata contradicted by
 verified event payloads, the requester MAY deprioritize that server for future
 topology queries, apply local rate limits, or ignore its topology hints for a
 limited period.
+
+Signed overlay attestations make this evidence transferable. A requester that
+obtains an `overlay_proofs` entry can show a third party that the responding
+server signed a particular commitment for `(room_id, event_id, fields_version)`.
+This still does not prove the attested metadata is true, but it does make
+contradictions between responders, or contradictions with a later fetched PDU,
+auditable outside the original requester's local logs.
 
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
 falsifiable when the full PDU is eventually fetched, and are therefore useful
