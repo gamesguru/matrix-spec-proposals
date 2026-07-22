@@ -63,6 +63,26 @@ Birman, 1999) and adapts three core mechanisms to Matrix's federated DAG model:
 Three new federation endpoints are introduced under the
 `/_matrix/federation/v1/` namespace.
 
+### Capability discovery
+
+Servers advertise support for this MSC via `GET /_matrix/federation/v1/version`.
+Support is advertised in `unstable_features` so that additional `digest_type`
+values or endpoint revisions can be added without changing the stable version
+document.
+
+```json
+{
+  "unstable_features": {
+    "org.matrix.msc0501.reconciliation": true,
+    "org.matrix.msc0501.digest.xxh3_bloom": true
+  }
+}
+```
+
+A server that receives HTTP 404 or 501 from a reconciliation endpoint MUST cache
+that peer as unsupported for at least 24 hours and MUST NOT retry during that
+period unless an operator explicitly overrides the cache.
+
 ### Room digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
@@ -81,8 +101,11 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 {
   "digest": "<opaque_base64_string>",
   "digest_type": "xxh3_bloom",
+  "digest_salt": "<base64url_8_byte_salt>",
   "digest_bits": 32768,
+  "digest_depth_floor": 93000,
   "digest_window": 5000,
+  "window_event_count": 5000,
   "event_count": 81247,
   "extremity_event_ids": ["$abc123", "$def456"],
   "depth_range": [1, 93841],
@@ -96,8 +119,11 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | ------------------------ | ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `digest`                 | string             | Yes      | Base64url-encoded digest of the server's event ID set for this room. See Digest Construction below.                                     |
 | `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `xxh3_bloom`.                                                          |
+| `digest_salt`            | string             | Yes      | Base64url-encoded 8-byte salt used when constructing the Bloom filter.                                                                  |
 | `digest_bits`            | integer            | Yes      | The bit-length of the Bloom filter. The server dynamically sizes this; see Digest Construction.                                         |
+| `digest_depth_floor`     | integer            | Yes      | The minimum topological depth included in the active window.                                                                            |
 | `digest_window`          | integer            | Yes      | The number of most-recent events (by topological depth) included in the digest. See Active Window.                                      |
+| `window_event_count`     | integer            | Yes      | The number of events actually included in the active window at `digest_depth_floor`.                                                    |
 | `event_count`            | integer            | Yes      | The total number of non-outlier events the server holds for this room (including locally rejected events; see Rejected Event Handling). |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                      |
 | `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                               |
@@ -107,12 +133,14 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 The digest is a dynamically-sized Bloom filter constructed as follows:
 
-1. **Determine the Active Window.** Select the `W` most recent events by
-   topological depth held for this room (including locally rejected events; see
-   Rejected Event Handling below). The default window size is `W = 5000`. The
-   server reports this value in the `digest_window` field. Hashing the entire
-   event history is unnecessary because the bottom of the DAG (old history)
-   rarely mutates — divergence almost always occurs at the frontier.
+1. **Determine the Active Window.** Select a depth floor `D` such that the
+   events with locally computed topological depth `>= D` cover approximately the
+   requested window size `W` (default `W = 5000`). The active window is the set
+   of events at or above `D`, including locally rejected events; see Rejected
+   Event Handling below. The server reports `D` in `digest_depth_floor` and the
+   resulting event count in `window_event_count`. Hashing the entire event
+   history is unnecessary because the bottom of the DAG (old history) rarely
+   mutates — divergence almost always occurs at the frontier.
 2. **Size the filter.** Allocate `m` bits where `m` is the next power of two
    greater than or equal to `ceil(W * 6.235)` (approximately 6.235 bits per
    element), which yields a false-positive rate of ~5% with `k = 4` hash
@@ -122,13 +150,24 @@ The digest is a dynamically-sized Bloom filter constructed as follows:
    5000 events, `ceil(5000 * 6.235) = 31,175`, so the server allocates
    `m = 32,768` bits (exactly 4,096 bytes or 4.0 KB). The server reports this
    value in the `digest_bits` field.
-3. **Populate the filter.** For each event ID in the active window, compute two
-   independent hash values using XXH3-128, seeded with the constants `0x00` and
-   `0x01` respectively.
-4. Use double hashing to derive `k=4` bit positions from the two hash values:
-   `position_i = (h1 + i * h2) mod m` for `i` in `{0, 1, 2, 3}`.
-5. Set those bits in the filter.
-6. Base64url-encode the resulting byte array (unpadded).
+3. **Select a salt.** The party constructing the filter selects an 8-byte salt.
+   For the `room_digest` endpoint the salt MAY be fixed per cache generation.
+   For `room_diff` in `bloom` mode the requesting server MUST generate a fresh,
+   unpredictable salt for every request. The salt is transmitted alongside the
+   filter as `digest_salt` (unpadded base64url).
+4. **Populate the filter.** For each event ID in the active window, compute
+   `H = XXH3-128(digest_salt || utf8(event_id))` with seed 0, where `||` is byte
+   concatenation. Let `h1` be the low 64 bits of `H` and `h2` be the high 64
+   bits, both as unsigned 64-bit integers.
+5. Derive `k = 4` bit positions using Kirsch–Mitzenmacher double hashing:
+   `position_i = ((h1 + i * h2) mod 2^64) mod m` for `i` in `{0, 1, 2, 3}`. Both
+   the addition and the multiplication are performed modulo `2^64` (wrapping, as
+   in unsigned 64-bit arithmetic). Because `m` is a power of two, the final
+   reduction is equivalent to `& (m - 1)`.
+6. Set each `position_i` in the filter. Bit `p` is located at byte index
+   `floor(p / 8)`, at bit offset `p mod 8` counted from the least significant
+   bit of that byte (`byte[p >> 3] |= 1 << (p & 7)`).
+7. Base64url-encode the resulting byte array (unpadded).
 
 The key mathematical constraint is:
 
@@ -144,7 +183,9 @@ Servers MAY adjust the window size and filter dimensions, but MUST NOT advertise
 filter parameters from the `digest_bits` and `digest_window` fields in the
 response. Two servers with different window sizes can still detect divergence —
 if their windows overlap, bit differences in the overlapping region indicate
-missing events.
+missing events. The active window is a predicate over `digest_depth_floor`, not
+an ordering over raw receipt time, so both peers can evaluate it against their
+own stores without relying on locally observed arrival order.
 
 The Bloom filter gives O(1) equality comparison, approximate difference
 estimation (for example, the popcount of `remote AND NOT local` correlates with
@@ -182,9 +223,18 @@ the bit-array into two equal halves and performing a bitwise `OR` operation on
 them: `folded[i] = filter[i] | filter[i + m]` (indexing in bits, or equivalently
 over the byte array with an `m/8` byte offset)
 
-This mathematical projection is perfectly sound because $hash \pmod m$ maps to
-the exact same bit position as $(hash \pmod{2m}) \pmod m$. This enables instant,
-in-memory filter down-sampling with zero cryptographic overhead.
+Folding preserves the underlying bit positions, but it does not preserve the
+false-positive rate. Each halving approximately doubles the fill ratio, and the
+false-positive rate grows super-linearly in fill. Folding is therefore only
+appropriate for filter-to-filter comparison and other non-membership uses such
+as `popcount(remote AND NOT local)`. It MUST NOT be used to claim that a folded
+filter is an equivalent membership-testing filter.
+
+Servers MUST NOT fold a filter by more than one halving, and MUST treat
+difference estimates derived from a folded filter as an order-of-magnitude hint
+only. Where the two peers' `digest_bits` differ by more than 2×, the comparison
+MUST be skipped and the protocol MUST proceed directly to `bloom` mode using
+each side's native parameters.
 
 **Authorization:**
 
@@ -253,7 +303,9 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "mode": "bloom",
   "local_digest": "<base64_bloom_filter>",
   "digest_type": "xxh3_bloom",
+  "digest_salt": "<base64url_8_byte_salt>",
   "digest_bits": 32768,
+  "digest_depth_floor": 93000,
   "digest_window": 5000,
   "local_event_count": 81000,
   "limit": 1000
@@ -269,7 +321,9 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                              |
 | `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                                                     |
 | `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                                                       |
+| `digest_salt`               | string   | If mode=bloom     | The 8-byte salt used to construct `local_digest`.                                                                                                |
 | `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                                                        |
+| `digest_depth_floor`        | integer  | If mode=bloom     | The minimum topological depth included in the active window used to construct `local_digest`.                                                    |
 | `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                                             |
 | `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                                                         |
 | `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.              |
@@ -304,8 +358,8 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   server does not recognize → use `extremity` mode (frontier lag; the merge-base
   walk will find the delta).
 - If the remote server's `extremity_event_ids` all match locally, but
-  `event_count` differs → use `bloom` mode (interior gap; extremities match but
-  events are missing inside the DAG).
+  `window_event_count` differs at the shared `digest_depth_floor` → use `bloom`
+  mode (interior gap; extremities match but events are missing inside the DAG).
 - If both extremities diverge AND event counts differ → use `extremity` mode
   first (to resolve the frontier), then `bloom` mode (to patch interior gaps).
 
@@ -429,6 +483,31 @@ In `bloom` mode, the responding server:
 
 Same as `room_digest` — the requesting server MUST be a participant in the room.
 
+### Membership divergence handling
+
+If a request is rejected because the responding server and requesting server
+disagree about room membership, the rejection MUST be distinguishable from a
+generic authorization failure. A plain `M_FORBIDDEN` deadlocks recovery: the
+requester cannot learn which membership event it needs in order to reconcile the
+membership view that caused the denial.
+
+In that case, the responding server SHOULD return a structured error body that
+names the membership event IDs it used to make the decision, limited to events
+about the requesting server's own membership or other authorization-relevant
+events already known to the requester. A suggested shape is:
+
+```json
+{
+  "errcode": "M_MEMBERSHIP_DIVERGENCE",
+  "error": "membership view differs between peers",
+  "membership_event_ids": ["$membership_event_1", "$membership_event_2"]
+}
+```
+
+This does not leak additional private room history: the event IDs are only for
+membership events already implicated in the authorization decision, and they
+give the requester a concrete target for subsequent reconciliation.
+
 ### Bulk event fetch: `POST /_matrix/federation/v1/room_events/{roomId}`
 
 Given a set of event IDs, returns the full events and their auth chain events in
@@ -538,8 +617,9 @@ The full reconciliation flow between two servers is:
 ```
 
 **Short-circuit optimization:** If the `room_digest` response shows identical
-`extremity_event_ids` and `event_count` values, the requesting server MAY skip
-the diff and event fetch phases entirely.
+`extremity_event_ids` and `window_event_count` values at the shared
+`digest_depth_floor`, the requesting server MAY skip the diff and event fetch
+phases entirely.
 
 #### Gossip scheduling
 
@@ -611,24 +691,25 @@ the purpose of a fast 304 check). Instead, the ETag MUST be computed as:
 
 If both components match, the two event sets are identical except with
 negligible probability (an accidental collision of XORed 128-bit hashes). The
-ETag is a cache-validation hint, not a security boundary: a spurious 304 merely
-delays reconciliation until the next poll, and the `xxh3_bloom` digest
-comparison remains authoritative. The server evaluates the conditional request
-in O(E), where E is the number of extremities (typically 1–5), using the
-incrementally maintained `room_xor_sum` — without touching the event store or
-computing the Bloom filter.
+ETag is a cache-validation hint, not a synchronization guarantee: it only means
+the responder's view of the room has not changed since the requester last
+observed it. A `304` does not imply the two servers agree. The server evaluates
+the conditional request in O(E), where E is the number of extremities (typically
+1–5), using the incrementally maintained `room_xor_sum` — without touching the
+event store or computing the Bloom filter.
 
 If the computed ETag matches the `If-None-Match` header, the server MUST return
 HTTP 304 with no body. This reduces the reconciliation polling cost to a single
 HTTP round-trip with a ~50 byte response for rooms that are already
 synchronized.
 
-**Why this bridges both failure modes:** The ETag is deliberately constructed so
-that both frontier lag and interior gaps produce a cache miss. If a server falls
-behind, its extremities differ from the remote server's, changing the ETag. If a
-server has Swiss cheese gaps behind identical extremities, its `room_xor_sum`
-differs instead. The digest polling phase therefore detects divergence
-regardless of its topological structure, triggering the appropriate diff mode.
+Requesting servers SHOULD cache the peer's ETag together with their own local
+room accumulator at the time of caching. They MUST NOT send `If-None-Match` if
+their own accumulator has changed since the ETag was cached or if the most
+recent reconciliation round for that peer and room terminated with
+`truncated: true`. To avoid indefinite stalling on a quiescent peer, the
+requesting server MUST force an unconditional digest comparison at least once
+every 16 consecutive `304` responses per peer and room.
 
 ## Potential issues
 
