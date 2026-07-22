@@ -32,6 +32,17 @@ MUST be able to fall back to existing backfill APIs if the sender does not
 support this MSC, cannot serve the requested range, or returns commitments the
 receiver cannot verify.
 
+This proposal is distinct from
+[MSC4016: Streaming and resumable E2EE file transfer with random access](https://github.com/matrix-org/matrix-spec-proposals/pull/4016).
+MSC4016 concerns encrypted media/file payloads, random access, resumable upload,
+and per-block AEAD authentication. Its open Merkle-tree question is about
+binding encrypted file chunks so a media server cannot reorder or substitute
+chunks while still satisfying local block checks. MSC00DB concerns federated
+history backfill of already-signed Matrix PDUs. Chunk hashes in this proposal
+are transport integrity checks for compressed event batches; they do not
+authenticate secret media contents, do not replace event hashes or signatures,
+and do not make chunk order authoritative for the room DAG.
+
 ### Capability discovery
 
 Servers advertise support in `/_matrix/federation/v1/version` feature flags:

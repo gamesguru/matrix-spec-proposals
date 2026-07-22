@@ -315,7 +315,7 @@ unknown, inaccessible, hidden, or wrong-room edge target causes a row to be
 omitted, the server MUST set `limited` to `true` to signal that the response is
 not a complete walk.
 
-When requested via `fields`, a server MAY include `edge_errors` explaining why
+When requested via `fields`, a server SHOULD include `edge_errors` explaining why
 certain edge targets were not followed. Servers MUST omit `edge_errors` unless
 it is requested in `fields`. The initial reason codes are:
 
@@ -947,7 +947,7 @@ change because `event_header_root` now commits `sender_localpart` and
 ### Cryptographic proof responses
 
 When `proof` is requested in `fields` and the queried room version supports
-split canonicalization, a server MAY include proof material for provable
+split canonicalization, a server SHOULD include proof material for provable
 requested fields inside the `proofs` sidecar object keyed by the corresponding
 `event_id`. A room version adopting this format also extends the queryable
 `fields` set with header leaves not exposed in hint-only mode, such as
@@ -1201,6 +1201,27 @@ state-DAG extension of this query shape can add efficient filters by event
 `type` and `state_key`, allowing a server to ask targeted questions such as
 "which membership-state branch contains this user?" without fetching full state
 events or scanning unrelated state keys.
+
+This proposal also overlaps conceptually with several existing DAG traversal and
+repair MSCs, but sits at a different layer:
+
+- [MSC4000: Forwards fill](https://github.com/matrix-org/matrix-spec-proposals/pull/4000)
+  adds a mirror of `/backfill` for fetching successor PDUs. MSC4511 does not
+  return the next slice of room history as a transaction. It returns bounded
+  graph metadata, edge errors, candidate servers, and optional computed facts so
+  a server can decide which events or peers to query next before fetching full
+  PDUs through existing mechanisms.
+- [MSC4370: Federation endpoint for retrieving current extremities](https://github.com/matrix-org/matrix-spec-proposals/pull/4370)
+  exposes the current forward extremities a server would use as `prev_events` at
+  request time. MSC4511 is not limited to current extremities: it can start from
+  arbitrary known or missing event IDs, walk selected edge types, and return
+  sparse per-event metadata for gap repair and historical traversal.
+- MSC4242 changes the room model by adding state-DAG edges and authorization
+  semantics in a new room version. MSC4511 is intentionally additive for
+  existing room versions: returned metadata is a routing and diagnostic hint
+  unless a future room version adds independently verifiable metadata
+  commitments. It does not replace state resolution or make metadata alone
+  sufficient to accept history.
 
 ## Security considerations
 
