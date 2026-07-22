@@ -782,7 +782,9 @@ ETag: "algv1:abc123def456"
 The ETag is derived from the incrementally maintained level-0 accumulator and
 current extremity frontier:
 
-> `unpadded_base64url(digest || implementation_defined_frontier_hash[0:8])`
+```text
+unpadded_base64url(digest || implementation_defined_frontier_hash[0:8])
+```
 
 - `digest` is the 16-byte `algebraic_v1` accumulator over `K` for the frame.
 - The `sorted(extremity_event_ids)` component is defense-in-depth: even if two
