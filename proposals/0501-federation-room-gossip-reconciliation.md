@@ -201,15 +201,18 @@ $$
 \end{aligned}
 $$
 
+Here $$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values.
+
 The digest is encoded as 16 raw bytes using unpadded base64url. Insertion and
 removal are the same operation: XOR the same `h_128(e)` value into the
 accumulator and increment or decrement `known_event_count`.
 
 The count residual `c = abs(local.known_event_count - remote.known_event_count)`
-is an exact measurement of `Δ = |K_A △ K_B|` when divergence is one-sided, which
-is the common lagging-server case. If both the digest and `known_event_count`
-match for the same frame, the two known-event sets agree except with negligible
-probability from an accidental 128-bit accumulator collision.
+is an exact measurement of `Δ = |symmetric difference of K_A and K_B|` when
+divergence is one-sided, which is the common lagging-server case. If both the
+digest and `known_event_count` match for the same frame, the two known-event
+sets agree except with negligible probability from an accidental 128-bit
+accumulator collision.
 
 **Rejected Event Handling:**
 
