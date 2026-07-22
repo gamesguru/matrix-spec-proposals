@@ -1,15 +1,17 @@
-# MSC0501: Gossip-based room federation PDU reconciliation
+# MSC0501: Gossip-based room federation missed PDU reconciliation
 
-Matrix federation is "push and hope" — servers send events via `/send`
-transactions and assume delivery. When delivery fails (rate limiting, network
-partitions, spam storms, rejection cascades), the DAG develops permanent holes.
-Each server drops a different random subset of events, creating unique "swiss
-cheese" patterns that no existing endpoint can efficiently detect or repair.
+Matrix federation today is "push and hope" — when event delivery fails or
+servers miss or drop transactions, the DAG develops permanent holes. Each server
+drops a different random subset of events, creating unpredictable gaps that no
+existing endpoint can efficiently detect or repair.
 
-This proposal introduces a lightweight, gossip-inspired reconciliation protocol
-that allows federated servers to efficiently detect DAG divergence and
-surgically heal data gaps without requiring full state synchronization or new
-room versions.
+When servers undergo extended downtime, they have trouble catching up after a
+cold boot; no homeserver implementation "forward fills" a complete or orderly
+DAG timeline.
+
+This proposal introduces a lightweight endpoint allowing federated servers to
+efficiently monitor for event set divergence and reconcile via existing
+endpoints without requiring full state synchronization or new room versions.
 
 ## Background
 
