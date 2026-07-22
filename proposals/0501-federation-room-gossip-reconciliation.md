@@ -193,10 +193,13 @@ This MSC does not use XXH3 or another auxiliary hash for `algebraic_v1`.
 
 The level-0 room digest is:
 
-```text
-digest = XOR_{e in K ∩ Frame} h_128(e)
-known_event_count = |K ∩ Frame|
-```
+$$
+\begin{aligned}
+\mathrm{digest} &= \bigoplus_{e \in K \cap \mathrm{Frame}} h_{128}(e) \\
+\\
+\mathrm{known\_event\_count} &= |K \cap \mathrm{Frame}|
+\end{aligned}
+$$
 
 The digest is encoded as 16 raw bytes using unpadded base64url. Insertion and
 removal are the same operation: XOR the same `h_128(e)` value into the
