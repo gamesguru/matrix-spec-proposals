@@ -713,14 +713,27 @@ with no padding leaves. A one-leaf tree's root is that leaf hash, though this
 overlay version defines more than one fixed leaf and therefore never uses the
 degenerate shape.
 
-The responder signs the canonical attestation envelope with its existing
-federation signing key:
+For a response containing one or more overlay proofs, the responder builds a
+response-level Merkle tree over the returned per-event overlay commitments. The
+response tree leaves are ordered bytewise by event ID and computed as:
+
+```text
+response_leaf =
+  SHA3-256("msc4511:overlay-response-leaf:v1" || event_id || "\x00" ||
+           overlay_commitment)
+
+response_inner =
+  SHA3-256("msc4511:overlay-response-node:v1" || left_hash || right_hash)
+```
+
+The responder signs the canonical response attestation envelope with its
+existing federation signing key:
 
 ```json
 {
   "room_id": "!room:example.org",
-  "event_id": "$event:example.org",
-  "overlay_commitment": "base64url_sha3_256_hash",
+  "response_root": "base64url_sha3_256_hash",
+  "event_count": 42,
   "fields_version": "msc4511.overlay.v1"
 }
 ```
@@ -738,30 +751,42 @@ strings above.
 
 ### Overlay proof responses
 
-The response can carry a per-event sidecar map named `overlay_proofs`, where
-each entry contains the sibling hashes needed to recompute the fixed-field
-Merkle root for disclosed fields, the final `overlay_commitment`, and the
-responder's signature over the attestation envelope:
+The response can carry an `overlay_proofs` sidecar object containing one signed
+response attestation and a per-event `events` map. Each event entry contains the
+sibling hashes needed to recompute the fixed-field Merkle root for disclosed
+fields, the final `overlay_commitment`, and the response-tree inclusion path for
+that commitment:
 
 ```json
 "overlay_proofs": {
-  "$missing_event_A": {
-    "leaf_paths": {
-      "prev_events": [],
-      "sender_domain": [
-        { "side": "right", "hash": "base64url_sha3_256_hash" },
-        { "side": "left", "hash": "base64url_sha3_256_hash" }
-      ],
-      "type": [
-        { "side": "left", "hash": "base64url_sha3_256_hash" }
-      ]
-    },
-    "overlay_commitment": "base64url_sha3_256_hash",
+  "attestation": {
+    "room_id": "!room:example.org",
+    "response_root": "base64url_sha3_256_hash",
+    "event_count": 42,
     "fields_version": "msc4511.overlay.v1",
     "signatures": {
       "example.org": {
         "ed25519:key": "signature_base64"
       }
+    }
+  },
+  "events": {
+    "$missing_event_A": {
+      "leaf_paths": {
+        "prev_events": [],
+        "sender_domain": [
+          { "side": "right", "hash": "base64url_sha3_256_hash" },
+          { "side": "left", "hash": "base64url_sha3_256_hash" }
+        ],
+        "type": [
+          { "side": "left", "hash": "base64url_sha3_256_hash" }
+        ]
+      },
+      "overlay_commitment": "base64url_sha3_256_hash",
+      "response_path": [
+        { "side": "right", "hash": "base64url_sha3_256_hash" },
+        { "side": "left", "hash": "base64url_sha3_256_hash" }
+      ]
     }
   }
 }
@@ -789,9 +814,15 @@ To verify an overlay attestation, the requester performs the following steps:
 3. Combine the reconstructed root with `event_id` and the fixed leaf count to
    compute the master `overlay_commitment`.
 4. Verify that the computed commitment matches the `overlay_commitment` in the
-   response.
-5. Verify that `fields_version` is recognized.
-6. Verify the responder's signature over the attestation envelope using normal
+   per-event `events` entry.
+5. Verify that `event_count` equals the number of entries in
+   `overlay_proofs.events`.
+6. Use the event ID and `overlay_commitment` to compute the response-tree leaf,
+   then apply `response_path` to reconstruct the response root.
+7. Verify that the reconstructed response root matches the `response_root` in
+   the signed response attestation.
+8. Verify that `fields_version` is recognized.
+9. Verify the responder's signature over the response attestation using normal
    Matrix federation signing-key rules. The signing server MUST be the
    responding server, not the event's `sender_domain`.
 
@@ -804,8 +835,9 @@ This makes the overlay useful for accountability and corroboration:
 - an attestation can be forwarded to a third party, unlike local hint suspicion;
 - two honest servers answering about the same event can produce the same
   `overlay_commitment` even if they disclose different subsets;
-- contradictory signed roots for the same `(room_id, event_id, fields_version)`
-  tuple are useful evidence for debugging or reputation.
+- contradictory commitments included under signed response roots for the same
+  `(room_id, event_id, fields_version)` tuple are useful evidence for debugging
+  or reputation.
 
 The overlay also preserves the current repair workflow. If a server only needs
 to find likely bridge points, candidate peers, or a merge base, it can still use
@@ -1231,13 +1263,14 @@ indexes is optional and would increase this overhead.
 
 The signed overlay attestation sketch has a different cost profile. With the
 initial fixed leaf set, a responder computes one fixed-field Merkle root per
-attested event and signs one attestation envelope per event. Each disclosed
-field proof carries roughly `ceil(log2(leaf_count))` sibling hashes, and each
-event carries at least one federation signature. This is acceptable for operator
-tools and small corroboration queries, but expensive for large responses. A
-future extension could reduce this cost by building a per-response tree over
-per-event overlay commitments and signing the response root once; that would
-trade simpler independent per-event attestations for cheaper batch verification.
+attested event, then builds a response-level Merkle tree over those event
+commitments and signs the response root once. Each disclosed field proof carries
+roughly `ceil(log2(leaf_count))` sibling hashes, and each attested event also
+carries a response-tree inclusion path. This avoids one Ed25519 signature per
+event while preserving transferable evidence: a third party can verify the
+single response signature and the event commitment's inclusion path. The
+trade-off is that a standalone event attestation must carry the response root,
+signature, and inclusion path, not just the event's fixed-field proof.
 
 ### Cacheability
 
@@ -1354,10 +1387,11 @@ limited period.
 
 Signed overlay attestations make this evidence transferable. A requester that
 obtains an `overlay_proofs` entry can show a third party that the responding
-server signed a particular commitment for `(room_id, event_id, fields_version)`.
-This still does not prove the attested metadata is true, but it does make
-contradictions between responders, or contradictions with a later fetched PDU,
-auditable outside the original requester's local logs.
+server signed a response root containing a particular commitment for
+`(room_id, event_id, fields_version)`. This still does not prove the attested
+metadata is true, but it does make contradictions between responders, or
+contradictions with a later fetched PDU, auditable outside the original
+requester's local logs.
 
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
 falsifiable when the full PDU is eventually fetched, and are therefore useful
