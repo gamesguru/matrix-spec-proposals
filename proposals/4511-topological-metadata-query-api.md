@@ -599,6 +599,119 @@ and perform state resolution. This endpoint therefore provides the same final
 verification guarantees as existing federation repair flows while reducing round
 trips and wasted full-PDU fetches.
 
+## Sidecar commitment sketch
+
+One room-agnostic option is to leave the PDU format and `event_id` derivation
+unchanged, and attach a separate commitment only to the sparse fields returned
+by this query. The commitment would live alongside the query response, not
+inside the event itself, so current room versions would keep their existing
+hashing and signature rules.
+
+A responder that supports this overlay returns the sparse metadata requested by
+`fields` and a sidecar commitment proving that the returned slice is exactly the
+slice it committed to. This does not make the PDU self-splitting and does not
+change event identity. It only gives the requester a way to verify the sparse
+response without waiting for a full-event fetch.
+
+### Overlay commitment construction
+
+The overlay commitment is computed per returned event as follows:
+
+- canonicalize the disclosed response fields as a map from field name to Matrix
+  canonical JSON value;
+- order the field names bytewise;
+- compute a leaf hash for each disclosed field with
+  `SHA3-256("msc4511:overlay-leaf:v1" || field_name || "\x00" || canonical_value)`;
+- combine the ordered leaf hashes into a binary Merkle tree using
+  `SHA3-256("msc4511:overlay-node:v1" || left_hash || right_hash)` for inner
+  nodes;
+- compute the sidecar commitment root as
+  `SHA3-256("msc4511:overlay-root:v1" || event_id || field_count || merkle_root)`,
+  where `event_id` is the returned event ID, `field_count` is the number of
+  disclosed fields encoded as an unsigned integer in network byte order, and
+  `merkle_root` is the root hash of the disclosed-field tree.
+
+All concatenations above are byte concatenations: domain-separation strings and
+`field_name` are UTF-8 bytes; `\x00` is a single `0x00` byte; `canonical_value`
+is the UTF-8 encoding of the canonical JSON value; and
+`left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
+
+The disclosed-field tree uses the same binary Merkle shape as the native sketch
+below: the largest-power-of-two split rule at each level, with no padding
+leaves.
+
+### Overlay proof responses
+
+The response can carry a per-event sidecar map such as `proofs`, where each
+entry contains the disclosed field values, the sibling hashes needed to
+recompute the disclosed-field Merkle root, and the final `overlay_commitment`
+for that event:
+
+```json
+"proofs": {
+  "$missing_event_A": {
+    "leaf_paths": {
+      "prev_events": [],
+      "sender": [
+        { "side": "right", "hash": "base64url_sha3_256_hash" },
+        { "side": "left", "hash": "base64url_sha3_256_hash" }
+      ],
+      "type": [
+        { "side": "left", "hash": "base64url_sha3_256_hash" }
+      ]
+    },
+    "overlay_commitment": "base64url_sha3_256_hash"
+  }
+}
+```
+
+The `leaf_paths` object maps each disclosed field name to the sibling hashes
+needed to rebuild the Merkle root for that field set. For fields committed
+directly at the top level, the path is empty and the leaf hash is used as-is.
+For fields inside the disclosed slice, the sibling list is ordered from the leaf
+level upward to the root.
+
+### Overlay verification
+
+To verify the authenticity of the disclosed slice, the requester performs the
+following steps:
+
+1. Canonicalize each returned field and compute its domain-separated leaf hash.
+2. Apply each step in `leaf_paths`, computing the parent inner hash using the
+   provided left or right sibling, to reconstruct the disclosed-field
+   `merkle_root`.
+3. Combine the reconstructed root with `event_id` and the field count to compute
+   the master `overlay_commitment`.
+4. Verify that the computed commitment matches the `overlay_commitment` in the
+   response.
+
+If a required hash is missing or any hash check fails, verification fails. By
+chaining hashes upward, the server only needs to send missing sibling hashes in
+the proof, and the requester recomputes the commitment locally.
+
+This makes the overlay useful in two places:
+
+- for room versions that want stronger verification of sparse query replies
+  without changing event identity;
+- for deployments that want to evaluate a proof layer before deciding whether a
+  later room-version MSC is worth standardizing.
+
+The overlay also preserves the current repair workflow. If a server only needs
+to find likely bridge points, candidate peers, or a merge base, it can still use
+the sparse query as a hint. If it also wants cryptographic assurance about the
+returned slice, it can verify the sidecar commitment without waiting for a full
+event fetch.
+
+The important part here is the boundary: commitment over disclosed query output,
+not commitment that redefines the event itself.
+
+The main trade-off is that this is response-scoped rather than event-intrinsic.
+That makes it easy to deploy incrementally, but it also means the proof is only
+as durable and cacheable as the query response that carried it. It is a good fit
+for sparse repair and operator workflows, but it does not replace a native
+event-level commitment model if the protocol later wants the proof to be part of
+event identity.
+
 ## Split canonicalization and Merkleized metadata (opt-in sketch)
 
 To make selected event metadata independently verifiable, this MSC sketches a
