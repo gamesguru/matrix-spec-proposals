@@ -734,6 +734,7 @@ existing federation signing key:
   "room_id": "!room:example.org",
   "response_root": "base64url_sha3_256_hash",
   "event_count": 42,
+  "origin_server_ts": 1716000000000,
   "fields_version": "msc4511.overlay.v1"
 }
 ```
@@ -763,6 +764,7 @@ that commitment:
     "room_id": "!room:example.org",
     "response_root": "base64url_sha3_256_hash",
     "event_count": 42,
+    "origin_server_ts": 1716000000000,
     "fields_version": "msc4511.overlay.v1",
     "signatures": {
       "example.org": {
@@ -783,6 +785,7 @@ that commitment:
         ]
       },
       "overlay_commitment": "base64url_sha3_256_hash",
+      "leaf_index": 0,
       "response_path": [
         { "side": "right", "hash": "base64url_sha3_256_hash" },
         { "side": "left", "hash": "base64url_sha3_256_hash" }
@@ -795,7 +798,9 @@ that commitment:
 The `leaf_paths` object maps each disclosed field name to the sibling hashes
 needed to rebuild the fixed-field Merkle root. For a field whose leaf is the
 tree root, the path is empty and the leaf hash is used as-is. Otherwise, the
-sibling list is ordered from the leaf level upward to the root.
+sibling list is ordered from the leaf level upward to the root. `leaf_index` is
+the zero-based bytewise rank of the event ID in the signed response tree's
+event-ID ordering.
 
 Selective disclosure is meaningful only because the committed leaf set is fixed
 independently of the disclosed subset. For example, a responder can disclose and
@@ -815,10 +820,16 @@ To verify an overlay attestation, the requester performs the following steps:
    compute the master `overlay_commitment`.
 4. Verify that the computed commitment matches the `overlay_commitment` in the
    per-event `events` entry.
-5. Verify that `event_count` equals the number of entries in
-   `overlay_proofs.events`.
+5. Verify that `event_count` is positive and that `leaf_index` is in
+   `0..event_count-1`. A complete response MAY additionally verify that
+   `event_count` equals the number of entries in `overlay_proofs.events`, but a
+   forwarded single-event proof MUST NOT fail merely because the other response
+   entries are absent.
 6. Use the event ID and `overlay_commitment` to compute the response-tree leaf,
-   then apply `response_path` to reconstruct the response root.
+   then apply `response_path` to reconstruct the response root. The expected
+   path length and each left/right sibling position are derived from
+   `event_count`, `leaf_index`, and the largest-power-of-two split rule; a path
+   that is inconsistent with that position fails verification.
 7. Verify that the reconstructed response root matches the `response_root` in
    the signed response attestation.
 8. Verify that `fields_version` is recognized.
@@ -1280,11 +1291,13 @@ stable, authorization-equivalent queries are therefore cacheable in a way that
 linear `/backfill` responses are not: a cached sparse topology answer can remain
 useful even when later room history advances.
 
-Signed overlay attestations are likewise replayable by design: the attested
-field set is restricted to event-intrinsic metadata, so a valid old attestation
-should remain valid evidence that the responder made that assertion. Responder-
-local hint fields such as `rejected` and `soft_failed` are excluded from the
-overlay root precisely because their values can change over time.
+Signed overlay attestations include `origin_server_ts` in the signed envelope so
+contradictory response roots can be ordered approximately in time. The attested
+field set is restricted to event-intrinsic metadata, so an old attestation
+should remain valid evidence that the responder made that assertion at the
+signed timestamp. Responder-local hint fields such as `rejected` and
+`soft_failed` are excluded from the overlay root precisely because their values
+can change over time.
 
 ### Empirical benchmarking
 
@@ -1388,10 +1401,10 @@ limited period.
 Signed overlay attestations make this evidence transferable. A requester that
 obtains an `overlay_proofs` entry can show a third party that the responding
 server signed a response root containing a particular commitment for
-`(room_id, event_id, fields_version)`. This still does not prove the attested
-metadata is true, but it does make contradictions between responders, or
-contradictions with a later fetched PDU, auditable outside the original
-requester's local logs.
+`(room_id, event_id, fields_version)` at the envelope's `origin_server_ts`. This
+still does not prove the attested metadata is true, but it does make
+contradictions between responders, or contradictions with a later fetched PDU,
+auditable outside the original requester's local logs.
 
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
 falsifiable when the full PDU is eventually fetched, and are therefore useful
