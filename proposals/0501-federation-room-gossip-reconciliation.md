@@ -328,23 +328,23 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                                                                                               |
-| --------------------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes               | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                      |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                  |
-| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                       |
-| `local_digest`              | string   | If mode=sketch    | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                      |
-| `digest_type`               | string   | If mode=sketch    | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                           |
-| `local_known_event_count`   | integer  | If mode=sketch    | The requesting server's known-event count for the negotiated frame.                                                                                       |
-| `frame_event_ids`           | [string] | If mode=sketch    | The frame anchor antichain used for both the local digest and responder digest.                                                                           |
-| `sketch_capacity`           | integer  | If mode=sketch    | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 1000. Larger differences MUST use bucket mode or a future rateless profile.        |
-| `local_sketch`              | string   | If mode=sketch    | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, `sketch_capacity`, and optional bucket selection.           |
-| `buckets`                   | [object] | No                | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` and positive `capacity`. Entries MUST be sorted by ascending `bucket_id`. |
-| `bucket_count`              | integer  | No                | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                |
-| `include_bucket_summary`    | bool     | No                | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                     |
-| `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                       |
-| `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.          |
-| `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                         |
+| Field                       | Type     | Required          | Description                                                                                                                                                      |
+| --------------------------- | -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes               | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                             |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                         |
+| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                              |
+| `local_digest`              | string   | If mode=sketch    | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                             |
+| `digest_type`               | string   | If mode=sketch    | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                                  |
+| `local_known_event_count`   | integer  | If mode=sketch    | The requesting server's known-event count for the negotiated frame.                                                                                              |
+| `frame_event_ids`           | [string] | If mode=sketch    | The frame anchor antichain used for both the local digest and responder digest.                                                                                  |
+| `sketch_capacity`           | integer  | If mode=sketch    | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 1000 on the wire. Implementations SHOULD enforce lower local CPU policy caps when needed. |
+| `local_sketch`              | string   | If mode=sketch    | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, `sketch_capacity`, and optional bucket selection.                  |
+| `buckets`                   | [object] | No                | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` and positive `capacity`. Entries MUST be sorted by ascending `bucket_id`.        |
+| `bucket_count`              | integer  | No                | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                       |
+| `include_bucket_summary`    | bool     | No                | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                            |
+| `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                              |
+| `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                 |
+| `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                |
 
 **Response:**
 
@@ -500,10 +500,11 @@ In `sketch` mode, the responding server:
 1. Validates that `digest_type` is `algebraic_v1`, `local_digest` is exactly 16
    decoded bytes, `sketch_capacity` is positive and within the cap, and the
    request frame matches the responder's digest frame. If `buckets` is absent or
-   null, `sketch_capacity` MUST NOT exceed 1000. If `buckets` is present, the
-   sketch is computed only over those buckets, in ascending `bucket_id` order.
-   The sum of bucket capacities MUST NOT exceed 4096 unless a future profile
-   raises the cap.
+   null, `sketch_capacity` MUST NOT exceed 1000 on the wire, though responders
+   MAY reject lower capacities according to local CPU policy. If `buckets` is
+   present, the sketch is computed only over those buckets, in ascending
+   `bucket_id` order. The sum of bucket capacities MUST NOT exceed 4096 unless a
+   future profile raises the cap.
 2. Computes the residual accumulator:
    `residual_digest = remote_digest XOR local_digest`.
 3. Computes the count residual:
@@ -823,7 +824,7 @@ per-room syndrome structure:
 | Layer                               | Width             | Size   | Purpose                                      |
 | ----------------------------------- | ----------------- | ------ | -------------------------------------------- |
 | Integrity accumulator               | 128 bits          | 16 B   | ETag, level-0 agreement, decode verification |
-| Bucket accumulators                 | 128 bits × 256    | 4 KiB  | two-sided localization, grinding resistance  |
+| Bucket accumulators                 | 128 bits × 256    | 4 KiB  | two-sided localization, fault detection      |
 | Bucket counts                       | 24 bits × 256     | 768 B  | count residuals and provisioning             |
 | Bucket syndromes `s1` through `s15` | 64 bits × 8 × 256 | 16 KiB | fast-path extraction                         |
 
@@ -831,14 +832,20 @@ Total resident state is approximately 21 KiB per active room. On persisting or
 purging event `e`, compute `x = h_64(e)`, choose the bucket from its leading 8
 bits, compute `x^2` once, and update `x, x^3, ..., x^15` by repeated
 multiplication by `x^2`. In characteristic 2, insertion and removal are the same
-XOR operation. On machines with carry-less multiplication, this is small
-relative to the database write needed to persist the event.
+XOR operation. With a portable bitwise `GF(2^64)` multiply this is expected to
+be hundreds of nanoseconds per event; with a carry-less multiplication
+implementation it can be substantially lower. Either way, it is small relative
+to the database write needed to persist the event.
 
 The resident 64-bit syndrome layer is an optimization. Any decoded difference
 MUST be checked against the 128-bit accumulator before the result is trusted.
-Deployments that need adversarial robustness SHOULD compute transmitted 64-bit
-sketches with a per-link salt over the already-localized buckets, while keeping
-the resident 128-bit accumulators unsalted and shared across peers.
+The 128-bit accumulators are not binding commitments against malicious peers:
+because XOR is linear over `GF(2)`, an adversary with event-authoring freedom
+can construct nonempty zero-sum subsets by linear algebra. They are still useful
+for detecting accidental divergence and bad decodes. Deployments that need
+adversarial robustness SHOULD compute transmitted 64-bit sketches with a
+per-link salt over the already-localized buckets, while keeping the resident
+128-bit accumulators unsalted and shared across peers.
 
 ## Potential issues
 
@@ -854,8 +861,9 @@ As with any federation endpoint, execution time and resource usage are concerns.
 
 - **Diff amplification:** A malicious requester can overstate `sketch_capacity`,
   request bucket summaries repeatedly, or ask for large `limit` values. Servers
-  MUST cap unbucketed `sketch_capacity` at 1000, and MUST cap bucketed
-  capacities, `limit`, response bytes, and per-peer CPU time.
+  MUST cap unbucketed `sketch_capacity` at 1000, SHOULD enforce lower local CPU
+  policy caps when needed, and MUST cap bucketed capacities, `limit`, response
+  bytes, and per-peer CPU time.
 
 - **Bulk fetch abuse:** The `room_events` endpoint returns full PDUs, which
   could be large. The 500-event-per-request cap and standard federation rate
@@ -1036,9 +1044,10 @@ values above 1000, and MUST cap bucketed capacities, decoded response size,
 bucket summary size, and CPU time per peer and room. Servers SHOULD reject
 requests whose `local_known_event_count` is grossly inconsistent with the
 supplied accumulator history or negotiated frame. The unbucketed capacity cap is
-a wire/profile limit, not a CPU entitlement: implementations SHOULD still abort
-decode work when their per-peer or per-room execution budget is exhausted, even
-for requests within the numeric capacity cap.
+a wire/profile limit, not a CPU entitlement: implementations SHOULD enforce a
+local decode policy with lower capacity caps or wall-clock timeouts when their
+field implementation makes large unbucketed decodes expensive, and SHOULD abort
+decode work when their per-peer or per-room execution budget is exhausted.
 
 ### Depth manipulation
 
@@ -1051,12 +1060,14 @@ recomputed depth) rather than trusting the `depth` field of received events.
 
 XOR accumulators are fault-detecting, not authenticators. A malicious peer with
 control over which event IDs to include can target accumulator collisions with
-linear algebra over `GF(2)`. The 128-bit accumulator is therefore an integrity
-anchor for accidental decode failure and benign desync, not a replacement for
-normal Matrix event verification. Deployments that need malicious-peer
-resistance MAY use an LtHash-style root accumulator profile in a future
-`digest_type`; returned PDUs still MUST be verified by event ID, hashes,
-signatures, and authorization rules.
+linear algebra over `GF(2)`: any 129 independent 128-bit values are linearly
+dependent, so the attacker can construct a nonempty subset whose accumulator is
+zero. Nothing in this MSC relies on the accumulator being binding against such a
+peer. It is an integrity anchor for accidental decode failure and benign desync,
+while returned PDUs still MUST be verified by event ID, hashes, signatures, and
+authorization rules. Deployments that need transferable accumulator evidence MAY
+use an LtHash-style root accumulator profile in a future `digest_type`; MSC4511
+uses Ed25519-signed overlay attestations for responder accountability.
 
 ### Interaction with server ACLs
 
