@@ -174,6 +174,7 @@ The initial dense response fields available for the `events` rows are:
   a requester that only wants the sending server's domain, not the full MXID,
   can request `sender_domain` instead of `sender`. See below for the split rule.
 - `type`: the event type, if known.
+- `state_key`: the event state key, if the event is a state event.
 - `candidate_servers`: a list of server names which the responding server
   believes may have useful data for this event or branch.
 - `origin_server_ts`: the event timestamp, if known.
@@ -707,10 +708,10 @@ All concatenations above are byte concatenations: domain-separation strings and
 is the UTF-8 encoding of the canonical JSON value; and
 `left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
 
-The fixed-field tree uses the same binary Merkle shape as the native sketch
-below: the largest-power-of-two split rule at each level, with no padding
-leaves. A one-leaf tree's root is that leaf hash, though this overlay version
-defines more than one fixed leaf and therefore never uses the degenerate shape.
+The fixed-field tree uses the largest-power-of-two split rule at each level,
+with no padding leaves. A one-leaf tree's root is that leaf hash, though this
+overlay version defines more than one fixed leaf and therefore never uses the
+degenerate shape.
 
 The responder signs the canonical attestation envelope with its existing
 federation signing key:
