@@ -160,7 +160,13 @@ therefore in `K`; their soft-fail status is not part of reconciliation.
 
 For room versions 3 and later, event IDs are already derived from SHA-256 event
 hashes. Implementations derive short identifiers directly from the decoded event
-ID hash:
+ID hash, using the room-version-specific event-ID alphabet:
+
+- room versions 1 and 2: hash the UTF-8 event ID string with SHA-256;
+- room version 3: decode the event ID reference hash as unpadded standard
+  Base64;
+- room versions 4 and later: decode the event ID reference hash as unpadded
+  URL-safe Base64.
 
 ```text
 h_128(e) = first 128 bits of decoded_event_id_hash(e)
@@ -169,15 +175,17 @@ h_64(e)  = first  64 bits of decoded_event_id_hash(e)
 
 The "first" bits above are the leading bytes of the SHA-256 byte string in
 network byte order. `h_128(e)` is the first 16 bytes. `h_64(e)` is the first 8
-bytes interpreted as an unsigned big-endian integer and then as the
-corresponding element of the public minisketch 64-bit field representation.
-Because minisketch set elements are nonzero, if the first 8-byte chunk is zero
-the implementation MUST use the next nonzero 8-byte chunk of the decoded SHA-256
-hash; if all four chunks are zero, it MUST use the integer value 1.
+bytes interpreted as an unsigned big-endian integer. Because minisketch set
+elements are nonzero, if the first 8-byte chunk is zero the implementation MUST
+use the next nonzero 8-byte chunk of the decoded SHA-256 hash; if all four
+chunks are zero, it MUST use the integer value 1. The 64-bit field is
+`GF(2)[x] / (x^64 + x^4 + x^3 + x + 1)`. `h_64` values are mapped to field
+elements by treating bit `i` of the integer as the coefficient of `x^i`.
 `algebraic_v1` sketches MUST be byte-for-byte compatible with libminisketch
-field size 64, implementation 0, for the same ordered sequence of inserted
-`h_64` values. Syndrome coordinates are serialized in increasing odd-power
-order: `s1, s3, s5, ...`.
+field size 64 for the same inserted `h_64` values. Syndrome coordinates are
+serialized in increasing odd-power order, `s1, s3, s5, ...`; each coordinate is
+serialized as an unsigned 64-bit little-endian integer. The big-endian hash
+parsing and little-endian sketch-coordinate serialization are both normative.
 
 Room versions whose event IDs are not hash-derived MUST either hash their event
 IDs with SHA-256 before truncation or be excluded from the negotiated frame.
@@ -214,6 +222,15 @@ implementation disagreement rather than a data-sync failure. Rejected tombstones
 SHOULD retain the event ID and rejection reason, not the full PDU. Until frame
 negotiation defines synchronized frame advancement, rejected tombstones that are
 inside any active reconciliation frame MUST NOT be garbage-collected.
+
+This MSC does not provide a verdict-diff endpoint for `K_rejected` or
+`K_softfailed`. Equal `algebraic_v1` digests mean equal known-event-ID sets, not
+equal acceptance decisions. A server that accepted an event and a server that
+rejected the same event with a retained tombstone both include the same event ID
+in `K`, so that ID cancels from the reconciliation sketch. If operators need to
+compare rejection or soft-failure status between servers, that is a diagnostic
+API over per-event verdicts, not part of the set-reconciliation mechanism
+defined here.
 
 **Frames:**
 
@@ -302,7 +319,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "frame_event_ids": ["$join_anchor"],
   "sketch_capacity": 150,
   "local_sketch": "<base64url_syndrome_sketch>",
-  "bucket_ids": null,
+  "buckets": null,
   "bucket_count": 256,
   "include_bucket_summary": false,
   "limit": 1000
@@ -311,23 +328,23 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
-| Field                       | Type                | Required          | Description                                                                                                                                         |
-| --------------------------- | ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string              | Yes               | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                |
-| `local_extremity_event_ids` | [string]            | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                            |
-| `have_event_ids`            | [string]            | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                 |
-| `local_digest`              | string              | If mode=sketch    | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                |
-| `digest_type`               | string              | If mode=sketch    | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                     |
-| `local_known_event_count`   | integer             | If mode=sketch    | The requesting server's known-event count for the negotiated frame.                                                                                 |
-| `frame_event_ids`           | [string]            | If mode=sketch    | The frame anchor antichain used for both the local digest and responder digest.                                                                     |
-| `sketch_capacity`           | integer             | If mode=sketch    | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 1000. Larger differences MUST use bucket mode or a future rateless profile.  |
-| `local_sketch`              | string              | If mode=sketch    | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, `sketch_capacity`, and optional bucket selection.     |
-| `bucket_ids`                | [integer] or object | No                | Bucket subset for localized sketch mode. If present, values MUST be in `0..255`; an object form MAY map bucket ID strings to per-bucket capacities. |
-| `bucket_count`              | integer             | No                | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                          |
-| `include_bucket_summary`    | bool                | No                | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                               |
-| `max_depth_delta`           | integer             | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                 |
-| `max_events`                | integer             | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.    |
-| `limit`                     | integer             | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                   |
+| Field                       | Type     | Required          | Description                                                                                                                                               |
+| --------------------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes               | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                      |
+| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                  |
+| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                       |
+| `local_digest`              | string   | If mode=sketch    | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                      |
+| `digest_type`               | string   | If mode=sketch    | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                           |
+| `local_known_event_count`   | integer  | If mode=sketch    | The requesting server's known-event count for the negotiated frame.                                                                                       |
+| `frame_event_ids`           | [string] | If mode=sketch    | The frame anchor antichain used for both the local digest and responder digest.                                                                           |
+| `sketch_capacity`           | integer  | If mode=sketch    | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 1000. Larger differences MUST use bucket mode or a future rateless profile.        |
+| `local_sketch`              | string   | If mode=sketch    | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, `sketch_capacity`, and optional bucket selection.           |
+| `buckets`                   | [object] | No                | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` and positive `capacity`. Entries MUST be sorted by ascending `bucket_id`. |
+| `bucket_count`              | integer  | No                | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                |
+| `include_bucket_summary`    | bool     | No                | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                     |
+| `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                       |
+| `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.          |
+| `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                         |
 
 **Response:**
 
@@ -482,10 +499,11 @@ In `sketch` mode, the responding server:
 
 1. Validates that `digest_type` is `algebraic_v1`, `local_digest` is exactly 16
    decoded bytes, `sketch_capacity` is positive and within the cap, and the
-   request frame matches the responder's digest frame. If `bucket_ids` is absent
-   or null, `sketch_capacity` MUST NOT exceed 1000. If `bucket_ids` is present,
-   the sketch is computed only over those buckets and each bucket capacity MUST
-   be capped independently by local policy.
+   request frame matches the responder's digest frame. If `buckets` is absent or
+   null, `sketch_capacity` MUST NOT exceed 1000. If `buckets` is present, the
+   sketch is computed only over those buckets, in ascending `bucket_id` order.
+   The sum of bucket capacities MUST NOT exceed 4096 unless a future profile
+   raises the cap.
 2. Computes the residual accumulator:
    `residual_digest = remote_digest XOR local_digest`.
 3. Computes the count residual:
@@ -496,8 +514,11 @@ In `sketch` mode, the responding server:
    for an unbucketed sketch, or the sum of `8 * bucket_capacity` over the
    requested buckets in localized bucket mode.
 5. Produces a matching syndrome sketch over the responder's known-event set for
-   the requested frame. The sketch has capacity `sketch_capacity` over 64-bit
-   short identifiers `h_64(e)`.
+   the requested frame. In unbucketed mode, the sketch has capacity
+   `sketch_capacity`. In bucket mode, it is the concatenation of one sketch per
+   requested bucket, each with that bucket's requested capacity, in ascending
+   `bucket_id` order. Each sketch operates over 64-bit short identifiers
+   `h_64(e)`.
 6. Subtracts the requester's sketch from the responder's sketch and attempts to
    decode the symmetric difference as 64-bit short identifiers.
 7. Partitions the decoded short identifiers into `responder_side` and
@@ -529,7 +550,7 @@ using `bucket_count = 256`. Each bucket is selected by the leading 8 bits of
 summaries are used only after the count residual is zero or a direct sketch
 decode fails, both of which indicate a two-sided difference. They are not sent
 on the common one-sided lag path. After receiving a bucket summary, a requester
-MAY issue another `sketch` request with `bucket_ids` limited to the differing
+MAY issue another `sketch` request with `buckets` limited to the differing
 buckets and with per-bucket capacities derived from the bucket count residuals.
 
 **Causal closure and truncation:**
@@ -757,12 +778,18 @@ ETag: "algv1:abc123def456"
 The ETag is derived from the incrementally maintained level-0 accumulator and
 current extremity frontier:
 
-> `unpadded_base64url(digest || SHA-256(canonical_json(sorted(extremity_event_ids)))[0:8])`
+> `unpadded_base64url(digest || implementation_defined_frontier_hash[0:8])`
 
 - `digest` is the 16-byte `algebraic_v1` accumulator over `K` for the frame.
 - The `sorted(extremity_event_ids)` component is defense-in-depth: even if two
   different known-event sets collide in the accumulator, differing frontiers
   still change the ETag.
+
+The frontier hash is implementation-defined because ETags are opaque and are
+only compared against the same responder's later `If-None-Match` value. Servers
+that want byte-stable behavior across implementations SHOULD use Matrix
+canonical JSON over bytewise-sorted `extremity_event_ids`, hashed with SHA-256,
+and truncate to the first 8 bytes.
 
 If both components match, the two event sets are identical except with
 negligible probability (an accidental collision of XORed 128-bit hashes). The
@@ -798,9 +825,9 @@ per-room syndrome structure:
 | Integrity accumulator               | 128 bits          | 16 B   | ETag, level-0 agreement, decode verification |
 | Bucket accumulators                 | 128 bits × 256    | 4 KiB  | two-sided localization, grinding resistance  |
 | Bucket counts                       | 24 bits × 256     | 768 B  | count residuals and provisioning             |
-| Bucket syndromes `s3` through `s15` | 64 bits × 7 × 256 | 14 KiB | fast-path extraction                         |
+| Bucket syndromes `s1` through `s15` | 64 bits × 8 × 256 | 16 KiB | fast-path extraction                         |
 
-Total resident state is approximately 19 KiB per active room. On persisting or
+Total resident state is approximately 21 KiB per active room. On persisting or
 purging event `e`, compute `x = h_64(e)`, choose the bucket from its leading 8
 bits, compute `x^2` once, and update `x, x^3, ..., x^15` by repeated
 multiplication by `x^2`. In characteristic 2, insertion and removal are the same

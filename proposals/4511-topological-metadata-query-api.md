@@ -1299,6 +1299,11 @@ signed timestamp. Responder-local hint fields such as `rejected` and
 `soft_failed` are excluded from the overlay root precisely because their values
 can change over time.
 
+For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
+overlay attestations whose signed `origin_server_ts` is more than 24 hours old,
+unless local policy or operator tooling is explicitly evaluating historical
+evidence.
+
 ### Empirical benchmarking
 
 Implementations SHOULD benchmark this endpoint against their specific event
