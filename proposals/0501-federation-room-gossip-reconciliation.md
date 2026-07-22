@@ -501,7 +501,7 @@ In `sketch` mode, the responding server:
    decoded bytes, `sketch_capacity` is positive and within the cap, and the
    request frame matches the responder's digest frame. If `buckets` is absent or
    null, `sketch_capacity` MUST NOT exceed 1000 on the wire, though responders
-   MAY reject lower capacities according to local CPU policy. If `buckets` is
+   MAY enforce a lower local maximum according to CPU policy. If `buckets` is
    present, the sketch is computed only over those buckets, in ascending
    `bucket_id` order. The sum of bucket capacities MUST NOT exceed 4096 unless a
    future profile raises the cap.
@@ -1060,7 +1060,7 @@ recomputed depth) rather than trusting the `depth` field of received events.
 
 XOR accumulators are fault-detecting, not authenticators. A malicious peer with
 control over which event IDs to include can target accumulator collisions with
-linear algebra over `GF(2)`: any 129 independent 128-bit values are linearly
+linear algebra over `GF(2)`: any set of 129 128-bit values is linearly
 dependent, so the attacker can construct a nonempty subset whose accumulator is
 zero. Nothing in this MSC relies on the accumulator being binding against such a
 peer. It is an integrity anchor for accidental decode failure and benign desync,
