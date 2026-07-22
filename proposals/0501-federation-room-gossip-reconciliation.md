@@ -1035,7 +1035,10 @@ number of event IDs returned. Servers MUST reject unbucketed `sketch_capacity`
 values above 1000, and MUST cap bucketed capacities, decoded response size,
 bucket summary size, and CPU time per peer and room. Servers SHOULD reject
 requests whose `local_known_event_count` is grossly inconsistent with the
-supplied accumulator history or negotiated frame.
+supplied accumulator history or negotiated frame. The unbucketed capacity cap is
+a wire/profile limit, not a CPU entitlement: implementations SHOULD still abort
+decode work when their per-peer or per-room execution budget is exhausted, even
+for requests within the numeric capacity cap.
 
 ### Depth manipulation
 
