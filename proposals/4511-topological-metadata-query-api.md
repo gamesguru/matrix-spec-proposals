@@ -166,6 +166,13 @@ The initial dense response fields available for the `events` rows are:
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
 - `sender`: the event sender, if known.
+- `sender_domain`: the server name (domain) portion of `sender`, if known. This
+  field exists because, as of room version 11, the top-level `origin` property
+  is no longer protected from redaction and is not committed event metadata in
+  any modern room version
+  ([room version 11 redaction changes](https://spec.matrix.org/latest/rooms/v11/#redactions));
+  a requester that only wants the sending server's domain, not the full MXID,
+  can request `sender_domain` instead of `sender`. See below for the split rule.
 - `type`: the event type, if known.
 - `candidate_servers`: a list of server names which the responding server
   believes may have useful data for this event or branch.
@@ -237,12 +244,36 @@ The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
 are not independently provable event metadata.
 
-This MSC deliberately does not define an `origin` event field. Modern room
-versions do not retain `origin` as committed event metadata, and for current
-room versions the sender domain is available through the queryable `sender`
-field. Routing advice is represented by `candidate_servers` instead, because
-that field is explicitly a local belief about where repair requests may be
-productive.
+This MSC deliberately does not define an `origin` event field. Room version 11
+removed `origin` (along with `membership` and `prev_state`) from the set of
+top-level properties protected from redaction, formalizing what was already true
+in practice: `origin` carries no defined meaning in modern room versions. (A
+stale `origin` field lingered in the Matrix specification's own PDU JSON example
+well after room version 11 shipped; that was a documentation bug fixed
+separately in spec release v1.12, unrelated to any room-version behavior
+change.) For current room versions the sender domain is available through the
+queryable `sender_domain` field, derived from `sender`. Routing advice is
+represented by `candidate_servers` instead, because that field is explicitly a
+local belief about where repair requests may be productive, not a claim about
+who signed the event.
+
+For room versions 3 and later, `sender_domain` MUST be derived by splitting
+`sender` at the first `:` character: the local part is everything between the
+leading `@` and that first `:`, and the domain is everything after it. This
+matches the Matrix user identifier grammar, under which the domain is a server
+name that may itself contain a `:` (for an explicit port), so splitting at the
+first `:` rather than the last `:` is required to recover the correct boundary.
+A server MUST NOT split at the last `:`, and MUST treat a `sender` value that
+does not parse as a well-formed user ID as unknown, returning `null` for both
+`sender` and `sender_domain` rather than a partial or best-effort split.
+Implementations SHOULD compute `sender_domain` directly from stored event data
+rather than re-parsing `sender` on every response, but the two fields MUST
+remain consistent: whenever both are returned for the same event,
+`sender_domain` MUST equal the domain component of `sender` under the splitting
+rule above. This split is purely a query-time convenience for current room
+versions; see
+[Split canonicalization and Merkleized metadata](#split-canonicalization-and-merkleized-metadata-opt-in-sketch)
+for the independently provable analogue in a future room version.
 
 ### Traversal
 
@@ -652,7 +683,7 @@ for that event:
   "$missing_event_A": {
     "leaf_paths": {
       "prev_events": [],
-      "sender": [
+      "sender_domain": [
         { "side": "right", "hash": "base64url_sha3_256_hash" },
         { "side": "left", "hash": "base64url_sha3_256_hash" }
       ],
@@ -670,6 +701,15 @@ needed to rebuild the Merkle root for that field set. For fields committed
 directly at the top level, the path is empty and the leaf hash is used as-is.
 For fields inside the disclosed slice, the sibling list is ordered from the leaf
 level upward to the root.
+
+Because the overlay commits only to whichever fields the responder chose to
+disclose in a given response, it already gets sender-domain-only selective
+disclosure for free by disclosing `sender_domain` instead of `sender` — no
+room-version change is required. This is unlike the native
+split-canonicalization sketch below, where `sender_localpart` and
+`sender_domain` must be fixed as separate committed leaves ahead of time,
+because the leaf set there is part of event identity rather than chosen per
+response.
 
 ### Overlay verification
 
@@ -723,8 +763,8 @@ A compatible future room version modifies event hashing to generate an
 - `prev_events_hash`: canonical hash of the event's `prev_events`;
 - `auth_events_hash`: canonical hash of the event's `auth_events`;
 - `event_header_root`: Merkle root over routing and authorship fields:
-  `room_id`, `sender`, `type`, `state_key`, `redacts`, `depth`, and
-  `origin_server_ts`;
+  `room_id`, `sender_localpart`, `sender_domain`, `type`, `state_key`,
+  `redacts`, `depth`, and `origin_server_ts`;
 - `content_hash`: canonical hash of the remaining event body after the topology
   and header components above are separated out. This is distinct from the
   legacy event `hashes` field unless a future room-version MSC explicitly maps
@@ -739,6 +779,23 @@ The future room version MUST define this partition so every signed,
 identity-relevant event field is committed to exactly once. Two events which
 differ in any signed field that contributes to event identity, including
 `redacts`, MUST NOT derive the same `event_root` or event ID.
+
+`sender_localpart` and `sender_domain` MUST be committed as two independent
+header leaves rather than one combined `sender` leaf, using the same
+first-`:`-boundary split defined above for the hint-mode `sender_domain` field:
+the local part is everything between the leading `@` and the first `:`, and the
+domain is everything after it. A room version adopting this format MUST reject
+events whose `sender` does not parse under that grammar before deriving
+`event_root`, since an unparseable `sender` would otherwise have no defined
+split. Splitting the leaf this way is required, not merely convenient: with a
+single `sender` leaf, any proof that discloses authorship information
+necessarily discloses the full MXID, including the localpart. With
+`sender_domain` committed separately, a prover can disclose and prove only the
+sending server's identity, and a verifier can check signature entitlement,
+without either party handling the sender's localpart at all. The sender's full
+MXID remains recoverable and provable by disclosing both leaves together as
+`"@" || sender_localpart || ":" || sender_domain`, so no authorship information
+is lost, only made separable.
 
 The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
 
@@ -830,7 +887,8 @@ The sample inputs are:
   },
   "event_header_root_fields": {
     "room_id": "!room:example.org",
-    "sender": "@alice:example.org",
+    "sender_localpart": "alice",
+    "sender_domain": "example.org",
     "type": "m.room.message",
     "state_key": null,
     "redacts": null,
@@ -867,17 +925,24 @@ The generated outputs are:
 ```text
 [msc4511-merkle]
 field_root_hex = 08e7c748acbe75a855a5c1420ea3d5948a765509f27d132796bfbaecbe8c3fae
-event_header_root_hex = f4f5f542c8adb6ba354328dfeda66fd069b77981a5514bb86cb22072d5117324
+event_header_root_hex = db91cc8e8d3eb0d13885c32f28dbd4215a111081383e25263749c65d9bf8bc37
 prev_events_hash_hex = fe8934c852d5a646390f3734f99911606c40f4f8ca7fe4065814081e2fb1faef
 auth_events_hash_hex = 2309b8433c96de36d4a55cfb263f3f3131a0874324a9bda59bfd9e73e3846ea1
 content_hash_hex = 8bfc6857f7a86d45b263c551057d052dfa73ef29dee6e842c90d12143abec729
 other_signed_fields_hash_hex = 272428680275d80a8b02254dbbbe13e93af0153a6e8d80746d7d95dd1df48d59
-event_root_hex = 734aaf66da440dfbbe445bfe7874014983beafe7682b456f40973f7e8e0a2e4d
-event_id = $c0qvZtpEDfu-RFv-eHQBSYO-r-doK0VvQJc_fo4KLk0
-event_signature_private_key_base64 = La3Ed/9MYCA92KgPY7Kq3BoFQGX1TOKHhk3OCdlUEWE
-event_signature_public_key_base64 = +XahP9W/Yj6pcXWL8uZSEpRvWj5B45CzWPaT6Qs2blk
-event_signature_base64 = 02sWmhazPdnb+RJopm1B9fGfdutyT1/hyQWs6pSNmNcYWDiXF5oYEPYC9m9SkPux9q0qiwwjNYF8dIHZjjO/Dw
+event_root_hex = 4ccc880527fe5f97d27a04105bb55e6c6e75d87928e54a6cd2973c224802ce91
+event_id = $TMyIBSf-X5fSegQQW7VebG512Hko5Ups0pc8IkgCzpE
+event_signature_private_key_base64 = tyNS/1BppUG0XaG+6kzHwz+vj22Ikq0bRebV/Qzu+FI
+event_signature_public_key_base64 = LYZrYjxYptzTRzEYBZzYMMEfX/2yYYqQ+RCw62Hmsz4
+event_signature_base64 = 592xXLqbyExpxL1Te7zobls1Gh+IYYbliYCN3jTTn2Ny0kRnFGCEc22Sh/ifTCh/IDsJWVnmRFgrWA7JAqchBA
 ```
+
+`field_root_hex`, `prev_events_hash_hex`, `auth_events_hash_hex`,
+`content_hash_hex`, and `other_signed_fields_hash_hex` are unchanged from the
+pre-split vectors, since none of those inputs reference `sender`.
+`event_header_root_hex`, `event_root_hex`, `event_id`, and the signature values
+change because `event_header_root` now commits `sender_localpart` and
+`sender_domain` as separate leaves instead of a single `sender` leaf.
 
 ### Cryptographic proof responses
 
@@ -897,7 +962,7 @@ provides any required top-level component hashes needed to reconstruct
   "$missing_event_A": {
     "leaf_paths": {
       "prev_events": [],
-      "sender": [
+      "sender_domain": [
         { "side": "right", "hash": "base64url_sha3_256_hash" },
         { "side": "right", "hash": "base64url_sha3_256_hash" },
         { "side": "left", "hash": "base64url_sha3_256_hash" }
@@ -922,6 +987,13 @@ provides any required top-level component hashes needed to reconstruct
 }
 ```
 
+The example above discloses `sender_domain` but not `sender_localpart`;
+`sender_localpart`'s hash is simply absorbed into one of the sibling hashes in
+`sender_domain`'s `leaf_paths` entry, the same way any other undisclosed header
+leaf would be. This is the selective-disclosure case this split exists for: a
+verifier can confirm which server sent the event, and check signature
+entitlement, without ever learning or requesting the sender's localpart.
+
 To verify the authenticity of a field all the way to the root, the requester
 performs the following steps:
 
@@ -936,27 +1008,29 @@ performs the following steps:
    MUST contain every component hash not reconstructed from a proof in the same
    response.
 4. Verify that the event ID matches `"$" || unpadded_base64url(event_root)`.
-5. If the proof is being used as authorship evidence, verify that the `sender`
-   leaf is disclosed or otherwise proven, then verify that the event signature
-   is from the server name implied by the sender according to the room version's
-   signing rules.
+5. If the proof is being used as authorship evidence, verify that the
+   `sender_domain` leaf is disclosed or otherwise proven, then verify that the
+   event signature is from that server name according to the room version's
+   signing rules. `sender_domain` alone is sufficient for this check;
+   `sender_localpart` does not need to be disclosed or proven to establish
+   signature entitlement.
 
 If a required hash is missing or any hash check fails, verification fails. By
 chaining hashes upward, the server only needs to send missing neighbor hashes in
 the proof, and the verifier recomputes the root locally.
 
-A proof which omits `sender` can authenticate disclosed data against a known
-event ID, but does not by itself prove that the signing server is the server
-entitled to sign for the event's sender. This distinction matters for proof
-consumers outside the backwards-DAG walk, where the event ID may not have been
-learned from a previously verified event.
+A proof which omits `sender_domain` can authenticate disclosed data against a
+known event ID, but does not by itself prove that the signing server is the
+server entitled to sign for the event's sender. This distinction matters for
+proof consumers outside the backwards-DAG walk, where the event ID may not have
+been learned from a previously verified event.
 
 The `signatures` object is not committed to `event_root`; like existing Matrix
 signed JSON, signatures are excluded from the signed hash input. Intermediaries
 can therefore strip signatures or append additional signatures without changing
 the event ID. The signature map keys identify which server keys to try for
-verification, but entitlement still comes from the expected server name implied
-by a proven or disclosed `sender` field.
+verification, but entitlement still comes from the expected server name given by
+a proven or disclosed `sender_domain` field, not from `sender_localpart`.
 
 The following side-by-side example DAG shows the short-circuiting opportunity.
 The left side illustrates the legacy fetch-and-verify path over the chain. The
@@ -1009,11 +1083,13 @@ hint-reputation heuristics.
 
 The stronger motivation for this sketch is selective disclosure: proving one
 field to a party who is not entitled to the whole event, proving topology
-without revealing `content`, or proving absence for fixed header leaves where a
-missing optional field is committed as canonical `null` at a known leaf
-position. This construction does not prove absence for arbitrary fields folded
-into `other_signed_fields_hash` without revealing the corresponding signed-field
-set. Those use cases need their own room-version work before they can become
+without revealing `content`, proving which server sent an event without
+revealing the sender's localpart (see `sender_localpart` / `sender_domain`
+above), or proving absence for fixed header leaves where a missing optional
+field is committed as canonical `null` at a known leaf position. This
+construction does not prove absence for arbitrary fields folded into
+`other_signed_fields_hash` without revealing the corresponding signed-field set.
+Those use cases need their own room-version work before they can become
 normative.
 
 ## Future extensions
