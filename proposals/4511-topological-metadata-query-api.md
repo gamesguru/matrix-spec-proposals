@@ -899,7 +899,7 @@ first-`:`-boundary split defined above for the hint-mode `sender_domain` field:
 the local part is everything between the leading `@` and the first `:`, and the
 domain is everything after it. A room version adopting this format MUST reject
 events whose `sender` does not parse under that grammar before deriving
-`event_root`, since an unparseable `sender` would otherwise have no defined
+`event_root`, since an unparsable `sender` would otherwise have no defined
 split. Splitting the leaf this way is required, not merely convenient: with a
 single `sender` leaf, any proof that discloses authorship information
 necessarily discloses the full MXID, including the localpart. With
