@@ -221,27 +221,27 @@ are equivalent.
 
 ```json
 {
-    "origin": "example.com",
-    "pdus": [
-        {
-            "type": "m.room.message",
-            "event_id": "$sample_pduid_abc123def456",
-            "sender": "@alice:example.com",
-            "content": {
-                "body": "Hello world",
-                "msgtype": "m.text"
-            }
-        }
-    ],
-    "state_hashes": {
-        "algorithm": "lthash16",
-        "$sample_pduid_abc123def456": {
-            "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-            "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-            "n_before": 2,
-            "n_after": 2
-        }
+  "origin": "example.com",
+  "pdus": [
+    {
+      "type": "m.room.message",
+      "event_id": "$sample_pduid_abc123def456",
+      "sender": "@alice:example.com",
+      "content": {
+        "body": "Hello world",
+        "msgtype": "m.text"
+      }
     }
+  ],
+  "state_hashes": {
+    "algorithm": "lthash16",
+    "$sample_pduid_abc123def456": {
+      "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+      "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+      "n_before": 2,
+      "n_after": 2
+    }
+  }
 }
 ```
 
@@ -278,15 +278,15 @@ evaluated against.
 
 ```json
 {
-    "pdus": {
-        "$sample_pduid_abc123def456": {
-            "state_hash_mismatch": {
-                "algorithm": "lthash16",
-                "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-                "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
-            }
-        }
+  "pdus": {
+    "$sample_pduid_abc123def456": {
+      "state_hash_mismatch": {
+        "algorithm": "lthash16",
+        "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+        "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
+      }
     }
+  }
 }
 ```
 
@@ -327,12 +327,12 @@ applied (the `after` accumulator of that PDU).
 
 ```json
 {
-    "event_id": "$sample_pduid_abc123def456",
-    "algorithm": "lthash16",
-    "lattice": "<base64url, unpadded, 2048 raw bytes>",
-    "n_state_events": 2,
-    "digest": "99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c",
-    "shape": "9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d"
+  "event_id": "$sample_pduid_abc123def456",
+  "algorithm": "lthash16",
+  "lattice": "<base64url, unpadded, 2048 raw bytes>",
+  "n_state_events": 2,
+  "digest": "99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c",
+  "shape": "9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d"
 }
 ```
 
