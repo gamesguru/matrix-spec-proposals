@@ -195,10 +195,11 @@ The initial sparse response fields returned as sidecar maps are:
 - `start_event_errors`: non-returned start events keyed by start event ID to
   reason code.
 - `proofs`: Merkle proof material, only for future room versions which opt into
-  split canonicalization. Requested via the `proof` field name.
+  split canonicalization as described in Part III. Requested via the `proof`
+  field name.
 - `overlay_proofs`: signed responder attestations for room-version-agnostic
-  metadata commitments. Requested via the `overlay_proof` field name and only
-  available when the responder advertises
+  metadata commitments as described in Part II. Requested via the
+  `overlay_proof` field name and only available when the responder advertises
   `tk.nutra.msc4511.overlay_attestations` in `/_matrix/federation/v1/version`.
 
 Unrecognized `edge_types` entries cause the request to fail with
@@ -282,7 +283,7 @@ remain consistent: whenever both are returned for the same event,
 `sender_domain` MUST equal the domain component of `sender` under the splitting
 rule above. This split is purely a query-time convenience for current room
 versions; see
-[Split canonicalization and Merkleized metadata](#split-canonicalization-and-merkleized-metadata-opt-in-sketch)
+[Part III: Split canonicalization and Merkleized metadata](4511-part-c-merkleized-room-version-upgrade.md)
 for the independently provable analogue in a future room version.
 
 ### Traversal
@@ -644,8 +645,8 @@ trips and wasted full-PDU fetches.
 
 ## Future extensions
 
-Future room versions may extend the proof fields or add more independently
-provable metadata fields.
+Future extensions may add more computed graph facts or additional traversal
+relations while keeping this endpoint hint-only for current room versions.
 
 ### Forward recursive queries
 
@@ -704,28 +705,12 @@ these illustrative percentages as protocol guarantees.
 
 ### Storage overhead
 
-The split-canonicalization sketch introduces storage overhead if a server stores
-the top-level hashes `prev_events_hash`, `auth_events_hash`,
-`event_header_root`, `content_hash`, `other_signed_fields_hash`, and
-`event_root`.
-
-Using SHA3-256, each hash is 32 bytes, so storing these six hashes adds 192
-bytes of raw hash material per event before database row, index, and encoding
-overhead. For a 2 KiB event, this raw hash material is approximately 9.4% of the
-event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
-recompute proof paths on demand; caching intermediate Merkle nodes or proof
-indexes is optional and would increase this overhead.
-
-The signed overlay attestation sketch has a different cost profile. With the
-initial fixed leaf set, a responder computes one fixed-field Merkle root per
-attested event, then builds a response-level Merkle tree over those event
-commitments and signs the response root once. Each disclosed field proof carries
-roughly `ceil(log2(leaf_count))` sibling hashes, and each attested event also
-carries a response-tree inclusion path. This avoids one Ed25519 signature per
-event while preserving transferable evidence: a third party can verify the
-single response signature and the event commitment's inclusion path. The
-trade-off is that a standalone event attestation must carry the response root,
-signature, and inclusion path, not just the event's fixed-field proof.
+The base sparse-query endpoint does not require new per-event cryptographic
+storage. Implementations can answer from existing event JSON plus indexes over
+`prev_events`, `auth_events`, event ID, sender, type, state key, depth, and
+origin timestamp. Optional caches for forward adjacency, candidate-server hints,
+or common-ancestor computation are implementation details and should be sized by
+local workload.
 
 ### Cacheability
 
@@ -733,20 +718,9 @@ Event topology is immutable. Once an event's `prev_events`, `auth_events`,
 `depth`, and event ID are known, those values do not change. Responses for
 stable, authorization-equivalent queries are therefore cacheable in a way that
 linear `/backfill` responses are not: a cached sparse topology answer can remain
-useful even when later room history advances.
-
-Signed overlay attestations include `origin_server_ts` in the signed envelope so
-contradictory response roots can be ordered approximately in time. The attested
-field set is restricted to event-intrinsic metadata, so an old attestation
-should remain valid evidence that the responder made that assertion at the
-signed timestamp. Responder-local hint fields such as `rejected` and
-`soft_failed` are excluded from the overlay root precisely because their values
-can change over time.
-
-For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
-overlay attestations whose signed `origin_server_ts` is more than 24 hours old,
-unless local policy or operator tooling is explicitly evaluating historical
-evidence.
+useful even when later room history advances. Responder-local fields such as
+`rejected`, `soft_failed`, and `candidate_servers` can change over time and
+should be cached more conservatively.
 
 ### Empirical benchmarking
 
@@ -785,12 +759,15 @@ repair MSCs, but sits at a different layer:
   graph metadata, edge errors, candidate servers, and optional computed facts so
   a server can decide which events or peers to query next before fetching full
   PDUs through existing mechanisms.
+
 - [MSC4370: Federation endpoint for retrieving current extremities](https://github.com/matrix-org/matrix-spec-proposals/pull/4370)
   exposes the current forward extremities a server would use as `prev_events` at
   request time. MSC4511 is not limited to current extremities: it can start from
   arbitrary known or missing event IDs, walk selected edge types, and return
   sparse per-event metadata for gap repair and historical traversal.
-- MSC4242 changes the room model by adding state-DAG edges and authorization
+
+- [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
+  changes the room model by adding `prev_state_events` edges and authorization
   semantics in a new room version. MSC4511 is intentionally additive for
   existing room versions: returned metadata is a routing and diagnostic hint
   unless a future room version adds independently verifiable metadata
@@ -847,14 +824,6 @@ verified event payloads, the requester MAY deprioritize that server for future
 topology queries, apply local rate limits, or ignore its topology hints for a
 limited period.
 
-Signed overlay attestations make this evidence transferable. A requester that
-obtains an `overlay_proofs` entry can show a third party that the responding
-server signed a response root containing a particular commitment for
-`(room_id, event_id, fields_version)` at the envelope's `origin_server_ts`. This
-still does not prove the attested metadata is true, but it does make
-contradictions between responders, or contradictions with a later fetched PDU,
-auditable outside the original requester's local logs.
-
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
 falsifiable when the full PDU is eventually fetched, and are therefore useful
 inputs to these heuristics. `candidate_servers` is not directly falsifiable in
@@ -886,18 +855,3 @@ passes normal Matrix authorization and event verification.
 - [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
   as related work for representing state progression separately from the message
   event DAG.
-- [Polkadot Fellowship RFC-0078: Merkleized Metadata][polkadot-rfc-0078] as
-  prior art for committing to metadata with a root hash while revealing only the
-  pieces needed by the verifier.
-- [Crosby and Wallach, Efficient Data Structures for Tamper-Evident
-  Logging][crosby-wallach] as foundational work on the security model and proof
-  semantics for tamper-evident logs, including logarithmic membership and
-  consistency proofs and authenticated query results over logged event
-  attributes.
-- [RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1)
-  for the Merkle tree construction used by `event_header_root`.
-
-[polkadot-rfc-0078]:
-  https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html
-[crosby-wallach]:
-  https://static.usenix.org/event/sec09/tech/full_papers/crosby.pdf

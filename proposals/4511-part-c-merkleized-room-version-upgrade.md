@@ -373,41 +373,10 @@ normative.
 ## Future extensions
 
 Future room versions may extend the proof fields or add more independently
-provable metadata fields.
-
-### Forward recursive queries
-
-Future extensions might define forward recursive queries over the same event
-graph. In this context, "forward" means following the inverse of a stored edge:
-
-- forward `prev_events` recursion follows events whose `prev_events` list the
-  frontier event.
-- forward `auth_events` recursion follows events whose `auth_events` list the
-  frontier event.
-
-Because events store backward references, a responding server computes forward
-traversal from local indexes over `prev_events` and `auth_events`.
-Implementations might also use local forward-extremity indexes or equivalent
-adjacency caches to avoid performing full table walks or full event JSON scans.
-
-The practical motivation is cache-hunting and witness discovery when an origin
-server is unavailable: a forward walk helps identify the later events or peers
-most likely to have observed the referenced resource.
-
-Any forward recursive query extension would need to specify:
-
-- whether it walks one or more forward edge types, and how those types map to
-  the underlying stored relations, associations, or mentions;
-- whether traversal proceeds breadth-first, or via another deterministic order;
-- whether events can be revisited, and how cycles are handled;
-- visibility and room-boundary rules and authorization;
-- limits to recursion depth, returned records, and visited nodes;
-- how truncation is reported, including whether `limited` is set and whether an
-  `edge_errors` sidecar is offered.
-
-Absent such an extension, this MSC does not define forward recursion semantics.
-The current endpoint remains a reverse walk over `prev_events` and
-`auth_events`, plus bounded computed facts derived from that reverse walk.
+provable metadata fields. Any extension MUST keep the event-root partition
+unambiguous: every signed, identity-relevant event field must be committed to
+exactly once, and verifiers must be able to determine which leaf position proves
+or withholds each independently provable field.
 
 ## Performance characteristics and benchmarking
 
@@ -444,17 +413,6 @@ event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
 recompute proof paths on demand; caching intermediate Merkle nodes or proof
 indexes is optional and would increase this overhead.
 
-The signed overlay attestation sketch has a different cost profile. With the
-initial fixed leaf set, a responder computes one fixed-field Merkle root per
-attested event, then builds a response-level Merkle tree over those event
-commitments and signs the response root once. Each disclosed field proof carries
-roughly `ceil(log2(leaf_count))` sibling hashes, and each attested event also
-carries a response-tree inclusion path. This avoids one Ed25519 signature per
-event while preserving transferable evidence: a third party can verify the
-single response signature and the event commitment's inclusion path. The
-trade-off is that a standalone event attestation must carry the response root,
-signature, and inclusion path, not just the event's fixed-field proof.
-
 ### Cacheability
 
 Event topology is immutable. Once an event's `prev_events`, `auth_events`,
@@ -462,19 +420,6 @@ Event topology is immutable. Once an event's `prev_events`, `auth_events`,
 stable, authorization-equivalent queries are therefore cacheable in a way that
 linear `/backfill` responses are not: a cached sparse topology answer can remain
 useful even when later room history advances.
-
-Signed overlay attestations include `origin_server_ts` in the signed envelope so
-contradictory response roots can be ordered approximately in time. The attested
-field set is restricted to event-intrinsic metadata, so an old attestation
-should remain valid evidence that the responder made that assertion at the
-signed timestamp. Responder-local hint fields such as `rejected` and
-`soft_failed` are excluded from the overlay root precisely because their values
-can change over time.
-
-For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
-overlay attestations whose signed `origin_server_ts` is more than 24 hours old,
-unless local policy or operator tooling is explicitly evaluating historical
-evidence.
 
 ### Empirical benchmarking
 
@@ -486,58 +431,32 @@ repair path selection.
 
 ## Relationship to other proposals
 
-This proposal is a lower-level, targeted, pull-based metadata primitive. A
-set-reconciliation or gossip protocol could use it as a lookup step after
-detecting divergence.
+This room-version sketch is the native-verifiability counterpart to Part I's
+sparse query endpoint. It does not define push gossip, session state, set
+digests, or bulk event repair; it only defines how a future room version could
+make selected metadata independently provable once a query response chooses to
+carry proof material.
 
-This proposal does not define push gossip, session state, set digests, or bulk
-event repair. If another reconciliation proposal defines those higher-level
-flows, this endpoint should compose underneath it rather than compete with its
-wire format.
+Part II's signed overlay is the deployable, responder-scoped alternative for
+current room versions. This Part III sketch is stronger but requires a future
+room version because the metadata commitment must participate in event identity.
 
-This proposal is also complementary to
-[MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242).
-State DAGs split state progression from the message event DAG; this endpoint
-provides a sparse query primitive that can compose with state-DAG edges. A
-state-DAG extension of this query shape can add efficient filters by event
-`type` and `state_key`, allowing a server to ask targeted questions such as
-"which membership-state branch contains this user?" without fetching full state
-events or scanning unrelated state keys.
-
-This proposal also overlaps conceptually with several existing DAG traversal and
-repair MSCs, but sits at a different layer:
-
-- [MSC4000: Forwards fill](https://github.com/matrix-org/matrix-spec-proposals/pull/4000)
-  adds a mirror of `/backfill` for fetching successor PDUs. MSC4511 does not
-  return the next slice of room history as a transaction. It returns bounded
-  graph metadata, edge errors, candidate servers, and optional computed facts so
-  a server can decide which events or peers to query next before fetching full
-  PDUs through existing mechanisms.
-- [MSC4370: Federation endpoint for retrieving current extremities](https://github.com/matrix-org/matrix-spec-proposals/pull/4370)
-  exposes the current forward extremities a server would use as `prev_events` at
-  request time. MSC4511 is not limited to current extremities: it can start from
-  arbitrary known or missing event IDs, walk selected edge types, and return
-  sparse per-event metadata for gap repair and historical traversal.
-- MSC4242 changes the room model by adding state-DAG edges and authorization
-  semantics in a new room version. MSC4511 is intentionally additive for
-  existing room versions: returned metadata is a routing and diagnostic hint
-  unless a future room version adds independently verifiable metadata
-  commitments. It does not replace state resolution or make metadata alone
-  sufficient to accept history.
+[MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
+changes the room model by adding state-DAG edges and authorization semantics in
+a new room version. A room version adopting this sketch would need to define
+whether state-DAG edges are additional independently provable metadata leaves,
+and how they interact with state resolution.
 
 ## Security considerations
 
-The major risks are:
-
-- recursive queries hanging or entering unbounded traversals;
-- large repeated queries increasing bandwidth or processing load;
-- metadata leaks about rooms, participants, or historical graph shape;
-- buggy or misrepresented topology output causing incorrect repair attempts.
-
-These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints unless the room version provides
-verifiable Merkle topology proofs. A server should still fetch and verify full
-events before accepting them, repairing state, or considering a gap resolved.
+The major risks are incorrect field partitioning, metadata leaks through
+selective disclosure, large repeated proof requests, and buggy proof validation
+causing incorrect repair attempts. These are mitigated by hard local limits,
+normal federation authorization, rate-limiting, explicit field partitioning, and
+event-ID verification against `event_root`. Even with independently provable
+metadata, a server should still fetch and verify full events before accepting
+them, repairing state, or considering a gap resolved unless a later room-version
+MSC defines a narrower operation that requires only the proven metadata.
 
 ### Bandwidth consumption
 
@@ -575,19 +494,11 @@ verified event payloads, the requester MAY deprioritize that server for future
 topology queries, apply local rate limits, or ignore its topology hints for a
 limited period.
 
-Signed overlay attestations make this evidence transferable. A requester that
-obtains an `overlay_proofs` entry can show a third party that the responding
-server signed a response root containing a particular commitment for
-`(room_id, event_id, fields_version)` at the envelope's `origin_server_ts`. This
-still does not prove the attested metadata is true, but it does make
-contradictions between responders, or contradictions with a later fetched PDU,
-auditable outside the original requester's local logs.
-
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
-falsifiable when the full PDU is eventually fetched, and are therefore useful
-inputs to these heuristics. `candidate_servers` is not directly falsifiable in
-the same way; a poor candidate may simply be stale or unavailable rather than
-provably false.
+directly verifiable against `event_root` in room versions that adopt this
+sketch. `candidate_servers` is not event-intrinsic and is not part of this
+native proof model; a poor candidate may simply be stale or unavailable rather
+than provably false.
 
 Implementations should decay these penalties over time to prevent transient
 corruption or partial-state desyncs from permanently poisoning a peer. Such

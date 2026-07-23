@@ -49,8 +49,8 @@ to know. The useful property is narrower: a requester can obtain a transferable
 statement that "server X asserts these topology values for event E", compare the
 same fixed commitment root across multiple responders, and later present a
 signed contradiction to other servers or operators. Native event authenticity
-requires the split-canonicalization design below, where the metadata commitment
-is part of event identity.
+requires the Part III split-canonicalization design, where the metadata
+commitment is part of event identity.
 
 ### Overlay commitment construction
 
@@ -268,42 +268,10 @@ identity.
 
 ## Future extensions
 
-Future room versions may extend the proof fields or add more independently
-provable metadata fields.
-
-### Forward recursive queries
-
-Future extensions might define forward recursive queries over the same event
-graph. In this context, "forward" means following the inverse of a stored edge:
-
-- forward `prev_events` recursion follows events whose `prev_events` list the
-  frontier event.
-- forward `auth_events` recursion follows events whose `auth_events` list the
-  frontier event.
-
-Because events store backward references, a responding server computes forward
-traversal from local indexes over `prev_events` and `auth_events`.
-Implementations might also use local forward-extremity indexes or equivalent
-adjacency caches to avoid performing full table walks or full event JSON scans.
-
-The practical motivation is cache-hunting and witness discovery when an origin
-server is unavailable: a forward walk helps identify the later events or peers
-most likely to have observed the referenced resource.
-
-Any forward recursive query extension would need to specify:
-
-- whether it walks one or more forward edge types, and how those types map to
-  the underlying stored relations, associations, or mentions;
-- whether traversal proceeds breadth-first, or via another deterministic order;
-- whether events can be revisited, and how cycles are handled;
-- visibility and room-boundary rules and authorization;
-- limits to recursion depth, returned records, and visited nodes;
-- how truncation is reported, including whether `limited` is set and whether an
-  `edge_errors` sidecar is offered.
-
-Absent such an extension, this MSC does not define forward recursion semantics.
-The current endpoint remains a reverse walk over `prev_events` and
-`auth_events`, plus bounded computed facts derived from that reverse walk.
+Future overlay versions may define additional fixed leaf sets, different
+response-tree batching profiles, or fresher liveness envelopes. A new
+`fields_version` MUST identify the fixed leaf set, tree construction, and
+domain-separation strings together, and verifiers MUST reject unknown versions.
 
 ## Performance characteristics and benchmarking
 
@@ -328,28 +296,20 @@ these illustrative percentages as protocol guarantees.
 
 ### Storage overhead
 
-The split-canonicalization sketch introduces storage overhead if a server stores
-the top-level hashes `prev_events_hash`, `auth_events_hash`,
-`event_header_root`, `content_hash`, `other_signed_fields_hash`, and
-`event_root`.
-
-Using SHA3-256, each hash is 32 bytes, so storing these six hashes adds 192
-bytes of raw hash material per event before database row, index, and encoding
-overhead. For a 2 KiB event, this raw hash material is approximately 9.4% of the
-event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
-recompute proof paths on demand; caching intermediate Merkle nodes or proof
-indexes is optional and would increase this overhead.
-
-The signed overlay attestation sketch has a different cost profile. With the
-initial fixed leaf set, a responder computes one fixed-field Merkle root per
-attested event, then builds a response-level Merkle tree over those event
-commitments and signs the response root once. Each disclosed field proof carries
-roughly `ceil(log2(leaf_count))` sibling hashes, and each attested event also
-carries a response-tree inclusion path. This avoids one Ed25519 signature per
-event while preserving transferable evidence: a third party can verify the
+With the initial fixed leaf set, a responder computes one fixed-field Merkle
+root per attested event, then builds a response-level Merkle tree over those
+event commitments and signs the response root once. Each disclosed field proof
+carries roughly `ceil(log2(leaf_count))` sibling hashes, and each attested event
+also carries a response-tree inclusion path. This avoids one Ed25519 signature
+per event while preserving transferable evidence: a third party can verify the
 single response signature and the event commitment's inclusion path. The
 trade-off is that a standalone event attestation must carry the response root,
 signature, and inclusion path, not just the event's fixed-field proof.
+
+The overlay profile does not require persistent Merkle storage. Because the
+fixed leaf set is event-intrinsic and excludes responder-local processing
+results, a server MAY cache per-event overlay commitments, but it can also
+recompute them from stored event metadata on demand.
 
 ### Cacheability
 
@@ -382,58 +342,21 @@ repair path selection.
 
 ## Relationship to other proposals
 
-This proposal is a lower-level, targeted, pull-based metadata primitive. A
-set-reconciliation or gossip protocol could use it as a lookup step after
-detecting divergence.
-
-This proposal does not define push gossip, session state, set digests, or bulk
-event repair. If another reconciliation proposal defines those higher-level
-flows, this endpoint should compose underneath it rather than compete with its
-wire format.
-
-This proposal is also complementary to
-[MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242).
-State DAGs split state progression from the message event DAG; this endpoint
-provides a sparse query primitive that can compose with state-DAG edges. A
-state-DAG extension of this query shape can add efficient filters by event
-`type` and `state_key`, allowing a server to ask targeted questions such as
-"which membership-state branch contains this user?" without fetching full state
-events or scanning unrelated state keys.
-
-This proposal also overlaps conceptually with several existing DAG traversal and
-repair MSCs, but sits at a different layer:
-
-- [MSC4000: Forwards fill](https://github.com/matrix-org/matrix-spec-proposals/pull/4000)
-  adds a mirror of `/backfill` for fetching successor PDUs. MSC4511 does not
-  return the next slice of room history as a transaction. It returns bounded
-  graph metadata, edge errors, candidate servers, and optional computed facts so
-  a server can decide which events or peers to query next before fetching full
-  PDUs through existing mechanisms.
-- [MSC4370: Federation endpoint for retrieving current extremities](https://github.com/matrix-org/matrix-spec-proposals/pull/4370)
-  exposes the current forward extremities a server would use as `prev_events` at
-  request time. MSC4511 is not limited to current extremities: it can start from
-  arbitrary known or missing event IDs, walk selected edge types, and return
-  sparse per-event metadata for gap repair and historical traversal.
-- MSC4242 changes the room model by adding state-DAG edges and authorization
-  semantics in a new room version. MSC4511 is intentionally additive for
-  existing room versions: returned metadata is a routing and diagnostic hint
-  unless a future room version adds independently verifiable metadata
-  commitments. It does not replace state resolution or make metadata alone
-  sufficient to accept history.
+The overlay profile is a backwards-compatible accountability layer for Part I's
+sparse query response. It does not replace Part III's native room-version
+commitment model: a signed overlay proves only that the responding server made a
+claim, while split canonicalization can make selected metadata part of event
+identity.
 
 ## Security considerations
 
-The major risks are:
-
-- recursive queries hanging or entering unbounded traversals;
-- large repeated queries increasing bandwidth or processing load;
-- metadata leaks about rooms, participants, or historical graph shape;
-- buggy or misrepresented topology output causing incorrect repair attempts.
-
-These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints unless the room version provides
-verifiable Merkle topology proofs. A server should still fetch and verify full
-events before accepting them, repairing state, or considering a gap resolved.
+The major risks are excessive proof generation, metadata leakage, stale
+attestations being treated as fresh liveness evidence, and verifiers confusing a
+signed responder assertion with event authenticity. These are mitigated by hard
+local limits, normal federation authorization, timestamp freshness policy, and
+the explicit rule that overlay attestations are responder-scoped evidence only.
+A server must still fetch and verify full events before accepting them,
+repairing state, or considering a gap resolved.
 
 ### Bandwidth consumption
 
@@ -446,11 +369,9 @@ This is not unique to this endpoint: `/event`, `/backfill`,
 `/get_missing_events`, and `/state_ids` already expose heavier bandwidth
 surfaces.
 
-The intended use case here is real-world gap repair: inbound transactions,
-backfill attempts, and auth-chain recovery often need to know a few edges or
-candidate servers before deciding which full events to fetch. Returning compact
-metadata can reduce total bandwidth compared to fetching full PDUs or state sets
-blindly. This can also support operator-initiated repair tooling.
+The intended use case here is accountable sparse metadata: repair tooling can
+record which server asserted which topology facts without requiring one
+signature per returned event.
 
 Servers should still treat this as an optional endpoint with hard response-size
 limits, per-origin rate limits, and conservative defaults. If a deployment does
@@ -459,11 +380,10 @@ the endpoint.
 
 ### Hint validation and reputation
 
-Because current room versions cannot independently verify topological hints
-without fetching the full event, requesting servers are exposed to potential
-misdirection from responding nodes. To mitigate this without strictly
-standardizing a global reputation system, implementations should rely on local
-heuristics.
+Because overlay attestations do not make metadata true, requesting servers are
+still exposed to potential misdirection from responding nodes. To mitigate this
+without strictly standardizing a global reputation system, implementations
+should rely on local heuristics.
 
 Requesting servers SHOULD track topology hints they later verify against full
 events. If a responding server repeatedly returns metadata contradicted by
@@ -500,16 +420,6 @@ passes normal Matrix authorization and event verification.
   current default room-version baseline, including event format behavior
   inherited from room version 11, event IDs inherited from room versions 3 and
   later, and v12-specific room ID and state-resolution changes.
-- [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
-  art for selective, client-chosen field/query shapes in Matrix.
-- [MSC2836: Twitter-style Threading](https://github.com/matrix-org/matrix-spec-proposals/pull/2836),
-  as prior art for bounded traversal of Matrix event relationships over
-  federation.
-- [MSC2716: Incrementally Importing History](https://github.com/matrix-org/matrix-spec-proposals/pull/2716),
-  as related background for historical DAG gaps and inserted history chunks.
-- [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
-  as related work for representing state progression separately from the message
-  event DAG.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata][polkadot-rfc-0078] as
   prior art for committing to metadata with a root hash while revealing only the
   pieces needed by the verifier.
@@ -519,7 +429,8 @@ passes normal Matrix authorization and event verification.
   consistency proofs and authenticated query results over logged event
   attributes.
 - [RFC 6962, Section 2.1](https://datatracker.ietf.org/doc/html/rfc6962#section-2.1)
-  for the Merkle tree construction used by `event_header_root`.
+  for the Merkle tree construction used by overlay fixed-field and response
+  trees.
 
 [polkadot-rfc-0078]:
   https://polkadot-fellows.github.io/RFCs/approved/0078-merkleized-metadata.html
