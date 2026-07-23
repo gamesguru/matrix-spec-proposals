@@ -31,6 +31,10 @@ future room-version extension for Merkleized event metadata, allowing selected
 metadata fields to be independently verified without fetching the full event
 payload.
 
+**TODO:** stipulate that State DAGs (MSC4242) traversal must be promptly
+supported as a recursion pivot (in addition to `prev_events` and `auth_events`)
+if merged into the spec.
+
 ## Proposal
 
 A new federation endpoint is added:
