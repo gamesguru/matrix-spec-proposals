@@ -1,41 +1,12 @@
-# MSC4511: Topological peek/query API with sparse fieldsets and Merkleized metadata
+# MSC4511 Part III: Merkleized Metadata Room-Version Sketch
 
-Currently the Matrix protocol relies on fetching entire events to perform
-backfills or otherwise retrieve previous or missing events. Often we do not know
-the shape of the graph we are traversing, whether it is a dead end, or whether
-two branches reconnect at a known common ancestor. When a server encounters a
-gap in the DAG, the current federation API provides limited ways to discover
-which events reference the gap, which servers sent or received them, or which
-servers are otherwise likely to have the missing event before fetching full
-events.
+This companion to [Part I](4511-part-a-topological-metadata-query-api.md)
+sketches how a future room version could make selected topology metadata
+independently provable by committing it into event identity. Current room
+versions should use Part I as hint-only; Part II provides responder-scoped
+attestations without a room-version change.
 
-This proposal seeks to reduce these inefficiencies and traversal failures by
-allowing homeservers to return routing hints as customized queries of highly
-granular metadata and bounded graph facts, including:
-
-- `prev_events` / `auth_events` edge event IDs, up to a recursion limit.
-- candidate servers which may have useful data for the returned event or branch.
-- whether a known edge target is outside the requested room, unavailable from
-  this server, or not followed because the response was truncated.
-- graph shape hints and bounded computed facts, such as common ancestors, hop
-  distances, and per-event branching factor from returned edges.
-
-For room versions 3 and later, returned metadata remains a hint that must be
-verified by fetching full events. This is the intended security model, not a
-weaker fallback: gap repair needs the full PDU at the end anyway in order to
-validate `content`, `auth_events`, event hashes, signatures, auth rules, and
-state resolution. The query response helps a server decide which event IDs and
-peer servers to try next, but accepting or repairing history still happens
-through the existing verified-event path. This proposal also sketches an opt-in
-future room-version extension for Merkleized event metadata, allowing selected
-metadata fields to be independently verified without fetching the full event
-payload.
-
-**TODO:** stipulate that State DAGs (MSC4242) traversal must be promptly
-supported as a recursion pivot (in addition to `prev_events` and `auth_events`)
-if merged into the spec.
-
-## PART III: Split canonicalization, Merkleized metadata (future room version sketch)
+## Proposal
 
 To make selected event metadata independently verifiable, this MSC sketches a
 split canonicalization design for future room versions to opt into.
@@ -348,11 +319,11 @@ redaction rules.
 ### Marginal value for gap repair
 
 Merkleized topology proofs verify the committed metadata they disclose, but they
-are not required for this endpoint's current gap-repair workflow. A requester
-must still fetch the full PDU before accepting an event, because it needs
-`content`, `auth_events`, event hashes, signatures, auth rules, and
-state-resolution inputs. A proof of `prev_events` therefore adds proof bytes and
-verification work without removing the eventual full-event fetch. The remaining
+are not required for Part I's current gap-repair workflow. A requester must
+still fetch the full PDU before accepting an event, because it needs `content`,
+`auth_events`, event hashes, signatures, auth rules, and state-resolution
+inputs. A proof of `prev_events` therefore adds proof bytes and verification
+work without removing the eventual full-event fetch. The remaining
 malicious-peer case is early abandonment of a fabricated branch, which this MSC
 handles with request work budgets, `limited`, `edge_errors`, and local
 hint-reputation heuristics.
@@ -423,7 +394,7 @@ useful even when later room history advances.
 
 ### Empirical benchmarking
 
-Implementations SHOULD benchmark this endpoint against their specific event
+Implementations SHOULD benchmark this proof profile against their specific event
 store and federation workload. Recommended metrics include total bytes
 transferred, number of round trips, database rows read, full event JSON decode
 count, CPU time, active RAM usage, wall-clock latency, and success rate for gap
@@ -465,7 +436,7 @@ the endpoint. Authenticated federation peers could issue repeated large bounded
 topology queries, so implementations should apply the same conservative
 response-size and rate-limit controls described above.
 
-This is not unique to this endpoint: `/event`, `/backfill`,
+This is not unique to this proof profile: `/event`, `/backfill`,
 `/get_missing_events`, and `/state_ids` already expose heavier bandwidth
 surfaces.
 

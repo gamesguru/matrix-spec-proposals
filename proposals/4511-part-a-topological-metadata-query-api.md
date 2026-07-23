@@ -1,4 +1,4 @@
-# MSC4511: Topological peek/query API with sparse fieldsets and Merkleized metadata
+# MSC4511 Part I: Topological Metadata Query API
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -35,7 +35,7 @@ payload.
 supported as a recursion pivot (in addition to `prev_events` and `auth_events`)
 if merged into the spec.
 
-## PART I: Proposal
+## Proposal
 
 A new federation endpoint is added:
 
