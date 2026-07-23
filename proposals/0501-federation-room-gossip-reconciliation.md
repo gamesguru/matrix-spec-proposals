@@ -252,6 +252,12 @@ SHOULD maintain resident accumulators keyed by frame anchor rather than only by
 room ID, so the small number of common join generations in a room can be
 compared without scanning the whole store.
 
+MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
+`edges.oldest` response field is an antichain that can become the next frame
+anchor after the returned historical segment is validated and ingested. This MSC
+then reconciles holes above that anchor; MSC00DB fetches contiguous history to
+move the anchor downward.
+
 **Authorization:**
 
 The requesting server MUST be a participant in the room (i.e., have at least one
