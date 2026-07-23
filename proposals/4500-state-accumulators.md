@@ -413,7 +413,7 @@ point and proceeds from there.
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSCXXXX [Gossip-based federation room
+enumeration and healing are delegated to MSC0501 [Gossip-based federation room
 reconciliation] and its `/room_diff` and `/room_events` endpoints. Attempting to
 recover the missing `+12 / -18` events directly from the accumulator difference
 is computationally intractable in the general case; the accumulator is for
@@ -441,14 +441,15 @@ already proved (that a mismatch exists), and a server that omits `shape` simply
 forgoes classification, not detection.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
-non-state-altering events. For this capability, it fully defers to MSCXXXX.
+non-state-altering events. For this capability, it fully defers to MSC0501.
 
-## Synergy with MSCXXXX (event set reconciliation)
+## Synergy with MSC0501 (event set reconciliation)
 
-This proposal and MSCXXXX (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4500's accumulator covers the room's _current state set_ at
-arbitrary DAG positions. MSCXXXX's bloom digest and LCA/RMQ fall-back cover the
-_event set_ (full PDU timeline).
+This proposal and MSC0501 (`room_digest` / `room_diff`) solve fundamentally
+different sets. MSC4500's accumulator covers the room's _current resolved state
+set_ at arbitrary DAG positions. MSC0501's algebraic digest and bounded
+extremity fallback cover the _known event set_ (accepted events and retained
+rejection tombstones across the frame).
 
 Because state divergence implies event-set divergence (with the converse _often_
 also holding true), the two proposals nicely complement each other:
@@ -458,10 +459,12 @@ also holding true), the two proposals nicely complement each other:
    round trips.
 2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSCXXXX):** `room_diff` (with a `scope: "state"` parameter)
-   fetches omissions, auth chains included, triggering state re-resolution.
+3. **Reconcile (MSC0501):** `room_diff` identifies missing event IDs and
+   `room_events` retrieves their PDUs and auth chains. The receiver admits
+   verified events to its DAG, then recomputes its resolved state locally;
+   remote state digests and state maps are never write targets.
 
-Because MSC4500 gives active rooms free passive detection, MSCXXXX's periodic
+Because MSC4500 gives active rooms free passive detection, MSC0501's periodic
 polling can back off significantly for rooms with recent inbound transactions.
 
 ## Implementation notes
