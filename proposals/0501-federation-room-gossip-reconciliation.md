@@ -136,6 +136,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
   "digest": "<base64url_16_byte_accumulator>",
   "digest_type": "algebraic_v1",
   "known_event_count": 81247,
+  "frame_id": "<base64url_32_byte_frame_id>",
   "strata": ["<base64url_64_byte_stratum_sketch>", "..."],
   "frame_event_ids": ["$join_anchor"],
   "extremity_event_ids": ["$abc123", "$def456"],
@@ -153,6 +154,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame. See Digest Construction below. |
 | `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `algebraic_v1`.                                                           |
 | `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                 |
 | `strata`                 | [string]           | No       | Optional 32-entry strata estimator. Each entry is a base64url-encoded 64-byte sketch containing `s1` through `s15` for one stratum.        |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
@@ -268,6 +270,13 @@ deduplicated `frame_event_ids` antichain; the order of the array is not
 significant on the wire, but implementations MUST canonicalize it before
 comparing or indexing a digest.
 
+`frame_id` is the unpadded base64url encoding of the 32-byte SHA-256 digest of
+the Matrix canonical JSON array containing the canonical sorted
+`frame_event_ids`. The room ID is not included because a frame anchor event ID
+is already room-bound; implementations MUST nevertheless reject a frame whose
+anchors do not belong to the requested room. The same frame ID therefore names
+the same frame across servers and can be used as the key for resident state.
+
 Frame negotiation proceeds as follows:
 
 1. The requester compares the responder's `frame_event_ids` with its own. An
@@ -297,11 +306,16 @@ frame. An implementation MUST NOT silently substitute its local frame between
 the digest and diff requests.
 
 Implementations SHOULD maintain resident accumulators keyed by the canonical
-frame anchor set rather than only by room ID. A server MAY retire an old frame
-only after it has negotiated a descendant frame with the peers that use the old
-frame, or after it can no longer serve that peer under its retention policy. If
-an old frame is retired, the server MUST report `frame_status: "none"` for it
-and MUST NOT claim that a digest mismatch proves an event-set divergence.
+frame anchor set rather than only by room ID, using a bounded TTL and/or LRU
+policy based on memory pressure. Servers MUST NOT assume that a negotiated frame
+remains permanently available and are not required to track per-peer frame
+adoption before evicting it. If a requester submits a `frame_id` that has been
+pruned, expired, or is unknown, the responder MUST reject the request with HTTP
+400 and `M_UNKNOWN_FRAME` (or return an equivalent `frame_status: "none"`
+response before comparing any digest). The requester MUST then abandon
+algebraic reconciliation for that frame and fall back to `extremity` mode,
+frame extension, or historical backfill. If an old frame is retired, the
+responder MUST NOT claim that a digest mismatch proves an event-set divergence.
 
 MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
 `edges.oldest` response field is an antichain that can become the next frame
@@ -374,6 +388,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 {
   "mode": "extremity",
   "scope": "event_set",
+  "frame_id": "<base64url_32_byte_frame_id>",
   "local_extremity_event_ids": ["$abc123", "$def456"],
   "have_event_ids": [
     "$known_depth_90000",
@@ -397,6 +412,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "mode": "sketch",
   "scope": "resolved_state",
   "state_at": "$state_point:example.com",
+  "frame_id": "<base64url_32_byte_frame_id>",
   "local_digest": "<base64url_16_byte_accumulator>",
   "digest_type": "algebraic_v1",
   "local_known_event_count": 81000,
@@ -423,6 +439,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `have_event_ids`            | [string] | If mode=extremity       | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                       |
 | `frame_negotiation`         | bool     | No                      | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                              |
 | `frame_event_ids`           | [string] | If frame negotiation    | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true and ignored otherwise.                                |
+| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                     |
 | `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                      |
 | `digest_type`               | string   | If mode=sketch          | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                           |
 | `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                       |
@@ -447,6 +464,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "expected_requester_side_accumulator": "<base64url_16_byte_accumulator>",
   "remote_known_event_count": 81247,
   "remote_extremity_event_ids": ["$abc123", "$pqr678"],
+  "frame_id": "<base64url_32_byte_frame_id>",
   "frame_status": "not_requested",
   "sketch_status": "decoded",
   "bucket_summary": null,
@@ -465,6 +483,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `expected_requester_side_accumulator` | string   | No                      | In `sketch` mode, `residual_digest XOR accumulator(responder_side)`, encoded as a 16-byte unpadded base64url value. The requester verifies this against the full event IDs it resolves from `requester_only_short_ids`.                                         |
 | `remote_known_event_count`            | integer  | Yes                     | The responding server's known-event count for the negotiated frame.                                                                                                                                                                                             |
 | `remote_extremity_event_ids`          | [string] | Yes                     | The responding server's current forward extremities.                                                                                                                                                                                                            |
+| `frame_id`                            | string   | Yes                     | The exact frame identifier used for the response.                                                                                                                                                                                                                |
 | `frame_status`                        | string   | If negotiation          | `common`, `none`, or `not_requested`. A `common` response selects `negotiated_frame_event_ids` for subsequent digest and diff operations.                                                                                                                       |
 | `negotiated_frame_event_ids`          | [string] | If frame_status=common  | The complete canonical frame anchor antichain selected by negotiation.                                                                                                                                                                                          |
 | `scope`                               | string   | Yes                     | The comparison scope used by the response: `event_set` or `resolved_state`.                                                                                                                                                                                     |
