@@ -205,7 +205,13 @@ and `bls_aggregate` is absent.
 encoding. A receiver MAY resume a dropped transfer by repeating the request with
 `resume.first_chunk` set to the first missing chunk. Senders SHOULD keep
 transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
-under resource pressure.
+under resource pressure. A resumed response contains the suffix beginning at
+`first_chunk`, but its manifest describes the complete transfer: `chunk_count`,
+`event_count`, `edges`, state commitments, and the global hashes retain their
+original full-transfer meaning. The receiver MUST retain the previously
+verified prefix and combine it with the resumed suffix before checking the
+global hashes, final event count, and boundary commitments. The expected number
+of chunks in a resumed suffix is `chunk_count - first_chunk`.
 
 ### Event stream
 
@@ -223,11 +229,13 @@ and encoded as unpadded standard Base64.
 but is retained as defense-in-depth over the complete decoded event sequence and
 event order.
 
-Receivers MUST verify both `content_sha256` and `canonical_events_sha256` before
-parsing events for authorization. Receivers MUST count events while decoding,
-abort if the decoded event count exceeds the request `limit`, and verify that
-the final decoded count equals `event_count` and is less than or equal to
-`limit` before persisting any event from the response.
+Receivers MUST verify both `content_sha256` and `canonical_events_sha256` over
+the complete transfer before parsing events for authorization. For a resumed
+response, this means combining the retained verified prefix with the received
+suffix first. Receivers MUST count events while decoding, abort if the complete
+decoded event count exceeds the request `limit`, and verify that the final
+decoded count equals `event_count` and is less than or equal to `limit` before
+persisting any event from the response.
 
 ### `xzip` compression profile
 
