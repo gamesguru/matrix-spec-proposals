@@ -35,7 +35,7 @@ payload.
 supported as a recursion pivot (in addition to `prev_events` and `auth_events`)
 if merged into the spec.
 
-## Proposal
+## PART I: Proposal
 
 A new federation endpoint is added:
 
@@ -640,7 +640,9 @@ and perform state resolution. This endpoint therefore provides the same final
 verification guarantees as existing federation repair flows while reducing round
 trips and wasted full-PDU fetches.
 
-## Signed overlay attestation sketch
+---
+
+## PART II: Signed overlay attestation (backwards compatible sketch)
 
 One room-agnostic option is to leave the PDU format and `event_id` derivation
 unchanged, and attach a signed responder attestation to the metadata known by
@@ -869,7 +871,9 @@ repair and operator workflows, but it does not replace a native event-level
 commitment model if the protocol later wants the proof to be part of event
 identity.
 
-## Split canonicalization and Merkleized metadata (opt-in sketch)
+---
+
+## PART III: Split canonicalization, Merkleized metadata (future room version sketch)
 
 To make selected event metadata independently verifiable, this MSC sketches a
 split canonicalization design for future room versions to opt into.
@@ -1201,6 +1205,8 @@ construction does not prove absence for arbitrary fields folded into
 `other_signed_fields_hash` without revealing the corresponding signed-field set.
 Those use cases need their own room-version work before they can become
 normative.
+
+---
 
 ## Future extensions
 
