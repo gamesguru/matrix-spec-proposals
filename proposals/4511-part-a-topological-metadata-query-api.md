@@ -31,9 +31,13 @@ future room-version extension for Merkleized event metadata, allowing selected
 metadata fields to be independently verified without fetching the full event
 payload.
 
-**TODO:** stipulate that State DAGs (MSC4242) traversal must be promptly
-supported as a recursion pivot (in addition to `prev_events` and `auth_events`)
-if merged into the spec.
+For a room version which defines State DAGs as in MSC4242, `prev_state_events`
+is an additional supported edge type. It is traversed with the same depth,
+record, and visited-node limits as `prev_events` and `auth_events`. A requester
+MUST NOT infer State DAG edges from `auth_events` or `prev_events`, and a server
+MUST reject `prev_state_events` with `M_UNSUPPORTED_ROOM_VERSION` when the room
+version does not define that relation. State-DAG traversal remains a hint-only
+query; it does not replace state resolution or authorize accepting an event.
 
 ## Proposal
 
@@ -139,7 +143,8 @@ The initial query fields are:
 
 - `room_id`: the room being queried.
 - `start_event_ids`: event IDs to start from.
-- `edge_types`: one or more of `prev_events` or `auth_events`.
+- `edge_types`: one or more of `prev_events`, `auth_events`, or
+  `prev_state_events` when defined by the room version.
 - `max_depth`: the maximum number of recursive hops requested.
 - `max_event_records`: the maximum number of event records returned.
 - `max_nodes_visited`: the maximum number of distinct events visited while
@@ -169,6 +174,8 @@ The initial dense response fields available for the `events` rows are:
   since wrong-room events are never returned as records.
 - `prev_events`: known previous-event edges.
 - `auth_events`: known auth-event edges.
+- `prev_state_events`: known State DAG edges, only for room versions which
+  define them.
 - `sender`: the event sender, if known.
 - `sender_domain`: the server name (domain) portion of `sender`, if known. This
   field exists because, as of room version 11, the top-level `origin` property
@@ -205,6 +212,10 @@ The initial sparse response fields returned as sidecar maps are:
 Unrecognized `edge_types` entries cause the request to fail with
 `M_INVALID_PARAM`, because silently ignoring them would change traversal
 semantics without the requester knowing.
+
+`prev_state_events` is recognized only when the requested room version defines
+the State DAG relation. Otherwise the server MUST reject the request with
+`M_UNSUPPORTED_ROOM_VERSION`, rather than silently treating the edge as empty.
 
 If the server does not support computed graph queries at all, it rejects any
 request containing `compute` with `M_UNRECOGNIZED`, as described below. If the
