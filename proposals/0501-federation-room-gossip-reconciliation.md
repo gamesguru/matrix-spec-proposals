@@ -37,6 +37,8 @@ functioning correctly.
 
 ### Why existing endpoints are insufficient
 
+<!-- markdownlint-disable MD013 -->
+
 | Endpoint                            | Limitation                                                                                                                    |
 | ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG                   |
@@ -44,6 +46,8 @@ functioning correctly.
 | `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); O(N) comparison; no incremental diffing                                   |
 | `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                                   |
 | `GET /make_join`                    | Does not meet latency requirements (20-100 ms); requests to lagging server can timeout (full index scan for unknown event)    |
+
+<!-- markdownlint-enable MD013 -->
 
 None of these endpoints answer the fundamental question: **"Am I missing events
 in this room, and if so, which ones?"**
@@ -142,6 +146,8 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 **Fields:**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                    | Type               | Required | Description                                                                                                                                |
 | ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame. See Digest Construction below. |
@@ -152,6 +158,8 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
 | `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                                  |
 | `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                                 |
+
+<!-- markdownlint-enable MD013 -->
 
 **Digest construction (`algebraic_v1`):**
 
@@ -352,6 +360,8 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (request):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                       | Type     | Required          | Description                                                                                                                                               |
 | --------------------------- | -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mode`                      | string   | Yes               | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                      |
@@ -370,6 +380,8 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.          |
 | `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                         |
 
+<!-- markdownlint-enable MD013 -->
+
 **Response:**
 
 ```json
@@ -387,6 +399,8 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 **Fields (response):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                                 | Type     | Required | Description                                                                                                                                                                                                                                                     |
 | ------------------------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `missing_event_ids`                   | [string] | Yes      | Event IDs that the responding server has but the requesting server does not. Returned IDs are exact in `sketch` mode when `sketch_status` is `decoded`, and in `extremity` mode when `truncated` is false; the list is complete only when `truncated` is false. |
@@ -397,6 +411,8 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `sketch_status`                       | string   | No       | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode.                                                                                                                                                                                 |
 | `bucket_summary`                      | object   | No       | Optional bucket accumulator/count summary for two-sided localization. Present only when requested and supported.                                                                                                                                                |
 | `truncated`                           | bool     | Yes      | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling Truncation.                                                                                                               |
+
+<!-- markdownlint-enable MD013 -->
 
 **Diff Computation — Mode Selection:**
 
@@ -638,11 +654,15 @@ POST /_matrix/federation/v1/room_events/{roomId}
 
 **Fields (request):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                | Type     | Required | Description                                                                                                                                                                                               |
 | -------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event_ids`          | [string] | Yes      | The event IDs to fetch. Maximum 500 per request.                                                                                                                                                          |
 | `include_auth_chain` | bool     | No       | If true, the response includes auth chain events that the requesting server might not have. Default true.                                                                                                 |
 | `known_event_ids`    | [string] | No       | Event IDs the requesting server already has. When walking auth chains, the responding server SHOULD stop at events in this set (the graph intersection), avoiding redundant transfer. Default empty list. |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
@@ -663,11 +683,15 @@ POST /_matrix/federation/v1/room_events/{roomId}
 
 **Fields (response):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field               | Type     | Required | Description                                                                                                                                      |
 | ------------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `events`            | [PDU]    | Yes      | The requested events, in topological order (dependencies before dependants). Each event is a full, signed PDU.                                   |
 | `auth_chain_events` | [PDU]    | Yes      | Auth chain events for the returned events that are not in the `events` list. Also in topological order. Empty if `include_auth_chain` was false. |
 | `missing_event_ids` | [string] | Yes      | Event IDs from the request that the responding server does not have.                                                                             |
+
+<!-- markdownlint-enable MD013 -->
 
 **Event Ordering:**
 
@@ -846,6 +870,8 @@ every 16 consecutive `304` responses per peer and room.
 To make `sketch` mode deployable, implementations SHOULD maintain a resident
 per-room syndrome structure:
 
+<!-- markdownlint-disable MD013 -->
+
 | Layer                               | Width             | Size   | Purpose                                      |
 | ----------------------------------- | ----------------- | ------ | -------------------------------------------- |
 | Integrity accumulator               | 128 bits          | 16 B   | ETag, level-0 agreement, decode verification |
@@ -853,6 +879,8 @@ per-room syndrome structure:
 | Bucket counts                       | 24 bits × 256     | 768 B  | count residuals and provisioning             |
 | Bucket syndromes `s1` through `s15` | 64 bits × 8 × 256 | 16 KiB | fast-path extraction                         |
 | Strata estimator                    | 64 bits × 8 × 32  | 2 KiB  | pre-decode difference estimation             |
+
+<!-- markdownlint-enable MD013 -->
 
 Total resident state is approximately 23 KiB per active room. On persisting or
 purging event `e`, compute `x = h_64(e)`, choose the bucket from its leading 8
@@ -1106,6 +1134,8 @@ behavior for other federation endpoints.
 The following mapping will be used for identifiers in this MSC during
 development:
 
+<!-- markdownlint-disable MD013 -->
+
 | Proposed final identifier                     | Purpose         | Development identifier                                               |
 | --------------------------------------------- | --------------- | -------------------------------------------------------------------- |
 | `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_digest/{roomId}` |
@@ -1113,6 +1143,8 @@ development:
 | `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_events/{roomId}` |
 | `algebraic_v1`                                | digest type     | `algebraic_v1`                                                       |
 | `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                    |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Dependencies
 

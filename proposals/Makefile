@@ -14,4 +14,4 @@ lint:
 
 .PHONY: pdf
 pdf:
-	# TODO: make f=/path/to/some.md  # outputs /path/to/some.pdf
+	pandoc $(f) -o $(f).pdf
