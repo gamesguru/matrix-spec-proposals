@@ -82,14 +82,6 @@ population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
 The 64-bit field is:
 
 $$
-\mathbb{F}_{2}[x]\big/\bigl(x^{64}+x^{4}+x^{3}+x+1\bigr)
-$$
-
-$$
-\mathbb{F}_2[x]\big/\bigl(x^{64}+x^4+x^3+x+1\bigr)
-$$
-
-$$
 \mathbb{F}_{2^{64}}
 \cong
 \mathbb{F}_{2}[x]\big/\bigl(x^{64}+x^{4}+x^{3}+x+1\bigr)
