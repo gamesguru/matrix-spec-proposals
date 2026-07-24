@@ -79,10 +79,12 @@ population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
 
 <!-- Edit marker. -->
 
-The 64-bit field is:
+The 64-bit Galois field is:
 
 $$
-GF(2^{64}) \cong GF(2)[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
+\mathbb{F}_{2^{64}}
+\cong
+\mathbb{F}_{2}[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
 <!--
@@ -111,18 +113,18 @@ $$
 \begin{aligned}
 \mathrm{digest} &= \bigoplus_{e \in S} h_{128}(e) \\
 \\
-\mathrm{count} &= |S|
+\mathrm{count} &= |S|,
 \end{aligned}
 $$
 
-$$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values. The digest
-is encoded as 16 raw bytes using unpadded base64url.
+where $$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values. The
+digest is encoded as 16 raw bytes using unpadded base64url.
 
 Insertion and removal are the same operation: XOR the same `h_128(e)` value into
 the accumulator and increment or decrement the count. There is no rebuild path
 and no ordering requirement.
 
-The count residual `c = abs(count_A - count_B)` is an exact measurement of
+The count residual $$c = abs(|S_A| - |S_B|)$$ is an exact measurement of
 `|S_A △ S_B|` when divergence is one-sided, which is the common lagging-peer
 case. When both digest and count match over the same population, the two sets
 agree except with negligible probability from an accidental 128-bit collision.
@@ -134,12 +136,12 @@ verification" and the consuming MSC's security considerations.
 
 The extraction layer is the odd-power syndrome map over the 64-bit field:
 
-```text
-sigma_k(S) = (sum h_64(e), sum h_64(e)^3, ..., sum h_64(e)^(2k-1))
-```
+$$
+\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, ..., \sum h_{64}(e)^{2k-1}\right)
+$$
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
-in characteristic 2: `s_{2i} = s_i^2`.
+in characteristic 2: $$s_{2i} = s_i^2.$$
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
