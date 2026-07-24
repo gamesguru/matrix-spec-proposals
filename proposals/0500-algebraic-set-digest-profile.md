@@ -382,20 +382,24 @@ for the common no-difference path.
 
 ## Alternatives
 
-**Rateless IBLT (RIBLT).** Invertible Bloom Lookup Tables are in the same
-group-valued family and remove the need to choose capacity up front. This
-profile keeps BCH/PinSketch-style syndromes as the baseline because they are
-more compact per unit of extraction capacity, extend additively, and can be
-maintained cheaply in the resident bucket array.
+**Fixed-Capacity Invertible Bloom Lookup Tables (IBLT).** Standard IBLTs are in
+the same group-valued family and offer linear-time decoding. They are rejected
+for the baseline because BCH/PinSketch-style syndromes are significantly more
+compact. An IBLT requires three fields per cell (`count`, `id_sum`, `hash_sum`)
+and typically requires 1.35x to 1.5x more cells than the expected difference
+size to decode successfully. `algebraic_v1` requires exactly one field element
+per unit of capacity, making it cheaper to maintain in the resident bucket
+array.
 
-A future profile MAY define a rateless encoding for large or heavy-tailed
-differences. Such a fallback cannot be a zero-state, infinitely maintained
-extension of the resident kernel. In an adversarial federation environment it
-MUST define its own wire format with signed fixed-width count semantics,
-overflow bounds, checksum and domain separation, chunk authentication, explicit
-negotiated materialization limits such as finite prefixes, and a termination
-rule. It remains a separately negotiated capability rather than a partial
-implementation within `algebraic_v1`.
+**Rateless IBLT (RIBLT).** Rateless variants remove the need to choose capacity
+up front. A future profile MAY define a rateless encoding for large or
+heavy-tailed differences. Such a fallback cannot be a zero-state, infinitely
+maintained extension of the resident kernel. In an adversarial federation
+environment it MUST define its own wire format with signed fixed-width count
+semantics, overflow bounds, checksum and domain separation, chunk
+authentication, explicit negotiated materialization limits such as finite
+prefixes, and a termination rule. It remains a separately negotiated capability
+rather than a partial implementation within `algebraic_v1`.
 
 **Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
 monoid: it supports membership tests but not subtraction. See the MSC0501

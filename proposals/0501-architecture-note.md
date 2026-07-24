@@ -170,23 +170,29 @@ emerges, Merkle reconciliation can be introduced later as a separate
 
 Covered in §1. Rejected for the baseline because they are not group-valued.
 
-### 3.4 Mandatory RIBLT
+### 3.4 IBLT and RIBLT alternatives
 
-Invertible Bloom Lookup Tables can recover missing IDs directly from the digest
-exchange when the difference is small, and rateless IBLTs remove the need to
-choose capacity up front — a genuine advantage over fixed-capacity syndromes.
+Invertible Bloom Lookup Tables (IBLT) can recover missing IDs directly from the
+digest exchange. Rateless variants (RIBLT) remove the need to choose capacity up
+front, which is a genuine advantage over fixed-capacity syndromes.
 
-They are in the same group-valued family, so this is a choice between siblings
-rather than a rejection on principle. MSC0501 keeps BCH/PinSketch-style
-syndromes as the baseline because they are more compact per unit of extraction
-capacity, extend additively, and can be maintained in the resident bucket array
-at the cost already being paid for the accumulator. For the small one-sided
-differences expected to dominate normal federation repair, that is the better
-operating point.
+Both are in the same group-valued family as PinSketch, making this a choice
+between siblings rather than a rejection on principle. MSC0501 keeps
+BCH/PinSketch-style syndromes as the baseline because of density. An IBLT cell
+requires a `count`, an `id_sum`, and a `hash_sum` checksum, and the table must
+be provisioned at approximately 1.35x to 1.5x the expected difference. PinSketch
+requires exactly one field element per unit of extraction capacity. Because
+normal federation repair is dominated by small, one-sided differences, density
+and resident-memory efficiency are more important than avoiding capacity limits.
 
-Future profiles may define a rateless encoding for large or heavy-tailed
-differences. The two are complementary: a deployment routinely exceeding
-capacity 64 is a deployment that should have a rateless option.
+Future profiles may define a rateless encoding for heavy-tailed differences
+where the difference size far exceeds practical bucket bounds. A deployment
+routinely exceeding capacity 64 is a deployment that should eventually have a
+rateless option. However, RIBLT requires strict limits to be safe: signed
+fixed-width counts, overflow bounds, authenticated chunks, and finite memory
+prefixes. Because these adversarial defenses add substantial specification and
+implementation complexity, rateless streaming is deferred to a future profile
+rather than made a mandatory baseline.
 
 ### 3.5 Server-initiated push
 
