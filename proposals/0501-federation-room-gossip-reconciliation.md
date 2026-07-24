@@ -58,23 +58,20 @@ this room, and if so, which ones?"**
 
 <!-- Edit marker. -->
 
-This proposal adapts three mechanisms from the gossip protocol literature
-(Demers et al., 1987; Birman, 1999) to Matrix's federated DAG model:
+This proposal adapts three mechanisms from the gossip protocol literature ([1],
+[2]) to Matrix's federated DAG model:
 
-1. **Anti-entropy via digest comparison** — `O(1)` divergence detection using
-   compact room digests
-2. **Pull-based reconciliation** — the lagging server requests exactly the
-   events it needs
-3. **Protocol-level idempotency** — repeated reconciliation produces no side
-   effects on an already-synchronized pair
+1. **Anti-entropy room digest comparison** — `O(1)` divergence detection.
+2. **Pull-based reconciliation** — the lagging server requests what it needs.
+3. **Protocol-level idempotency** — repeated reconciliation is harmless.
 
-Two constraints shape the wire contract and are stated here because they recur
-throughout the specification. First, the digest must be group-valued rather than
-merely a membership filter, so that peers can subtract digests and extend a
-failed exchange additively. Second, a recovered event set is integrable only if
-it is downward-closed relative to the recipient's store, which is why exact set
-recovery and truncated graph walks are reported differently. The full argument
-for both is in the architecture note.
+The wire contract requires group-valued digests for subtractable, extensible
+exchanges and downward-closed recovery sets for integration; see the
+architecture note for the full argument.
+
+Homeserver implementations maintain a single table or column family, tracking
+the sketch and strata per room. The sketch is purely internal; no cache
+maintenance or knowledge of the remote server is required.
 
 ## Proposal
 
@@ -994,3 +991,14 @@ It is designed to complement:
   Frames
 - MSC0502 (Federation EDU state reconciliation) — the ephemeral-state
   counterpart, using version-vector comparison instead of graph reconciliation
+
+## References
+
+[1] A. Demers, D. Greene, C. Hauser, W. Irish, J. Larson, S. Shenker, H.
+Sturgis, D. Swinehart, and D. Terry, "Epidemic Algorithms for Replicated
+Database Maintenance," _Proceedings of the Sixth Annual ACM Symposium on
+Principles of Distributed Computing_, 1987. Anti-entropy and rumor-mongering.
+
+[2] K. P. Birman, M. Hayden, O. Ozkasap, Z. Xiao, M. Babu, and Y. Minsky,
+"Bimodal Multicast," _ACM Transactions on Computer Systems_, 17(2), 1999. Gossip
+under partial failure.
