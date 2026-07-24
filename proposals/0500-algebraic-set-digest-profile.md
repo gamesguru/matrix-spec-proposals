@@ -52,8 +52,8 @@ h_128(e) = first 128 bits of D(e)
 h_64(e)  = first  64 bits of D(e)
 ```
 
-"First" means the leading bytes of `D(e)` in network byte order. `h_128(e)` is
-the first 16 bytes. `h_64(e)` is the first 8 bytes interpreted as an unsigned
+"First" means the leading bytes of `D(e)` in network byte order. $h_{128}(e)$ is
+the first 16 bytes. $h_{64}(e)$ is the first 8 bytes interpreted as an unsigned
 big-endian integer.
 
 ### Matrix event-ID binding
@@ -95,11 +95,11 @@ $$
 $$
 -->
 
-`h_64` values are mapped to field elements by treating bit `i` of the integer as
-the coefficient of `x^i`.
+$h_{64}$ values are mapped to field elements by treating bit `i` of the integer
+as the coefficient of $x^i$.
 
 `algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
-field size 64 for the same inserted `h_64` values. This compatibility is the
+field size 64 for the same inserted $h_{64}$ values. This compatibility is the
 normative interoperability test for the profile: an implementation that produces
 a different byte string for the same input set is non-conforming, regardless of
 whether its own decoder round-trips.
@@ -117,17 +117,18 @@ $$
 \end{aligned}
 $$
 
-where $$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values. The
+where $\bigoplus$ denotes bitwise XOR over all selected 128-bit values. The
 digest is encoded as 16 raw bytes using unpadded base64url.
 
-Insertion and removal are the same operation: XOR the same `h_128(e)` value into
-the accumulator and increment or decrement the count. There is no rebuild path
-and no ordering requirement.
+Insertion and removal are the same operation: XOR the same $h_{128}(e)$ value
+into the accumulator and increment or decrement the count. There is no rebuild
+path and no ordering requirement.
 
-The count residual $$c = abs(|S_A| - |S_B|)$$ is an exact measurement of
-`|S_A △ S_B|` when divergence is one-sided, which is the common lagging-peer
-case. When both digest and count match over the same population, the two sets
-agree except with negligible probability from an accidental 128-bit collision.
+The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ is an
+exact measurement of $|S_A\ \Delta\ S_B|$ when divergence is one-sided, which is
+the common lagging-peer case. When both digest and count match over the same
+population, the two sets agree except with negligible probability from an
+accidental 128-bit collision.
 
 The accumulator is an integrity anchor, not an authenticator. See "Decode
 verification" and the consuming MSC's security considerations.
@@ -141,7 +142,7 @@ $$
 $$
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
-in characteristic 2: $$s_{2i} = s_i^2.$$
+in characteristic 2: $s_{2i} = s_i^2$.
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
@@ -150,8 +151,8 @@ derivation" and the little-endian coordinate serialization here are both
 normative and are deliberately different; the first follows Matrix hash
 conventions and the second follows `libminisketch`.
 
-A sketch of capacity `k` is therefore exactly `8 * k` bytes, encoded on the wire
-as unpadded base64url.
+A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
+unpadded base64url.
 
 **Subtraction.** Two sketches over the same population and capacity are
 subtracted by XOR. The result is the syndrome of the symmetric difference. This
@@ -166,10 +167,10 @@ future profile MAY raise these caps; `algebraic_v1` MUST NOT.
 
 Buckets localize two-sided differences that a single sketch cannot decode.
 
-`bucket_count` is 256 in this profile. A value `h_64(e)` is assigned to the
+`bucket_count` is 256 in this profile. A value $h_{64}(e)$ is assigned to the
 bucket named by its leading 8 bits. Each bucket carries:
 
-- a 128-bit bucket accumulator over `h_128(e)` for members of that bucket;
+- a 128-bit bucket accumulator over $h_{128}(e)$ for members of that bucket;
 - a 24-bit member count.
 
 Bucket summaries are diagnostic inputs for capacity provisioning, not a transfer
@@ -190,12 +191,12 @@ define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
 
 Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
-extraction sketch, but only for elements whose `h_64(e)` has exactly `i`
+extraction sketch, but only for elements whose $h_{64}(e)$ has exactly `i`
 trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
 Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate `|S_A △ S_B|` before choosing between direct extraction,
+stratum to estimate $|S_A △ S_B|$ before choosing between direct extraction,
 bucket localization, or abandoning the comparison.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
@@ -205,7 +206,7 @@ difference.
 ## Decode and verification
 
 A decoder recovers up to `k` elements from a capacity-`k` syndrome residual.
-Decode either succeeds with a set of `h_64` values, or fails.
+Decode either succeeds with a set of $h_{64}$ values, or fails.
 
 Decode failure is loud, and this is the central operational property of the
 profile: a failed decode is reported as failure, not as an empty difference.
@@ -215,9 +216,11 @@ Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 accumulator before it is trusted. Concretely, for a peer that resolves decoded
 short IDs to full identifiers:
 
-```text
-expected_other_side = residual_digest XOR accumulator(own_side_full_ids)
-```
+$$
+\mathrm{expected\_other\_side} =
+\mathrm{residual\_digest} \oplus
+\mathrm{accumulator}(\mathrm{own\_side\_full\_ids})
+$$
 
 The peer resolves the short IDs it holds, computes their 128-bit accumulator,
 and compares. A mismatch means the decode was wrong or the populations differed;
@@ -228,10 +231,10 @@ The asymmetry is intentional: each side verifies the half it can resolve, and
 the residual carries the other half.
 
 **Adversarial limits.** XOR accumulators are fault-detecting, not binding. Any
-set of 129 128-bit values is linearly dependent over `GF(2)`, so a peer with
-freedom over which identifiers to include can construct a nonempty subset whose
-accumulator is zero. Nothing in this profile relies on the accumulator being
-binding. Consumers MUST verify transferred objects by their own rules —
+set of 129 `128-bit` values is linearly dependent over $\mathbb{F}_2$, so a peer
+with freedom over which identifiers to include can construct a nonempty subset
+whose accumulator is zero. Nothing in this profile relies on the accumulator
+being binding. Consumers MUST verify transferred objects by their own rules —
 signatures, hashes, authorization — and MUST NOT treat accumulator agreement as
 evidence of authenticity.
 
@@ -239,7 +242,7 @@ Deployments needing adversarial robustness MAY define a future profile with
 negotiated per-link salting for transmitted extraction sketches. Such a profile
 MUST specify salt negotiation, salt derivation, the salted identifier mapping,
 and how both sides identify the profile before subtraction. `algebraic_v1`
-defines no salting and its fixed `h_64` mapping MUST remain byte-compatible
+defines no salting and its fixed $h_{64}$ mapping MUST remain byte-compatible
 across implementations. Deployments needing transferable accumulator evidence
 should look to an LtHash-style profile under a future `digest_type` rather than
 to `algebraic_v1`.
@@ -247,11 +250,13 @@ to `algebraic_v1`.
 ## Capacity provisioning
 
 Provision extraction capacity from the count residual. In the common one-sided
-lag case, `c = abs(count_A - count_B)` equals the exact difference size.
+lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ equals the exact
+difference size.
 
-```text
-k = ceil(1.5 * c) + 4 + ceil(observed_event_rate_per_second * estimated_RTT)
-```
+$$
+k = \left\lceil 1.5c \right\rceil + 4 +
+\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{RTT}} \right\rceil
+$$
 
 The three terms cover, respectively: measurement slack when divergence is not
 purely one-sided, a small floor for tiny differences, and events arriving
@@ -282,20 +287,21 @@ Total resident state is approximately 23 KiB per active population.
 
 **Update procedure.** On inserting or removing element `e`:
 
-1. Compute `x = h_64(e)`.
+1. Compute $x = h_{64}(e)$.
 2. Choose the bucket from the leading 8 bits of `x`.
 3. Choose the estimator stratum from `x.trailing_zeros()`.
-4. Compute `x^2` once.
-5. Update `x, x^3, ..., x^15` by repeated multiplication by `x^2`.
+4. Compute $x^2$ once.
+5. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
 
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
 
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with PCLMULQDQ on the
-benchmarked x86-64 machine. The underlying `GF(2^64)` multiply measured about
-77.25 ns portable and 6.50 ns with PCLMULQDQ, with bit-identical results. Either
-path is small relative to the database write that accompanies the update.
+benchmarked `x86-64` machine. The underlying $\mathbb{F}_{2^{64}}$ multiply
+measured about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`, with
+bit-identical results. Either path is small relative to the database write that
+accompanies the update.
 
 The resident 64-bit syndrome layer is an optimization, not a correctness
 requirement. An implementation that computes sketches by scanning its store is
@@ -329,11 +335,11 @@ and fall back to bucket localization more often than necessary. A rateless
 encoding (see Alternatives, below) is the natural answer, at the cost of a
 second decoder.
 
-**64-bit collisions.** Two distinct identifiers can share `h_64`. At the
+**64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
 population sizes in scope this is rare, and the 128-bit verification step
 catches the resulting bad decode, but it does mean a decode can fail for reasons
 unrelated to capacity. Implementations MUST NOT interpret repeated verification
-failure at adequate capacity as evidence of peer misbehaviour without further
+failure at adequate capacity as evidence of peer misbehavior without further
 diagnosis.
 
 **Resident state on many small populations.** 23 KiB per population is cheap for
@@ -387,8 +393,7 @@ Known consumers and possible consumers:
 ## References
 
 - Gennaro Boneh et al., PinSketch / set reconciliation via BCH syndromes
-- Pieter Wuille, `libminisketch` — the byte-compatibility reference for field
-  size 64
+- Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
 - Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
   Reconciliation without Prior Context" (strata estimator, IBLT)
 - Bessani et al., rateless IBLT constructions
