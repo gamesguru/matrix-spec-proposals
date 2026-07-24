@@ -87,18 +87,18 @@ GET /_matrix/federation/v1/edu_digest
 
 ```json
 {
-    "users": {
-        "@alice:example.com": {
-            "version": 1716000042,
-            "content_hash": "xxh3:a1b2c3d4"
-        },
-        "@bob:example.com": {
-            "version": 1716000099,
-            "content_hash": "xxh3:e5f6g7h8"
-        }
+  "users": {
+    "@alice:example.com": {
+      "version": 1716000042,
+      "content_hash": "xxh3:a1b2c3d4"
     },
-    "next_batch": "opaque_token_123",
-    "edu_type": "m.presence"
+    "@bob:example.com": {
+      "version": 1716000099,
+      "content_hash": "xxh3:e5f6g7h8"
+    }
+  },
+  "next_batch": "opaque_token_123",
+  "edu_type": "m.presence"
 }
 ```
 
@@ -160,8 +160,8 @@ POST /_matrix/federation/v1/edu_state
 
 ```json
 {
-    "edu_type": "m.presence",
-    "user_ids": ["@alice:example.com", "@bob:example.com"]
+  "edu_type": "m.presence",
+  "user_ids": ["@alice:example.com", "@bob:example.com"]
 }
 ```
 
@@ -177,25 +177,25 @@ POST /_matrix/federation/v1/edu_state
 
 ```json
 {
-    "edu_type": "m.presence",
-    "states": {
-        "@alice:example.com": {
-            "version": 1716000042,
-            "content": {
-                "presence": "online",
-                "last_active_ago": 5000,
-                "status_msg": "Working on MSCs"
-            }
-        },
-        "@bob:example.com": {
-            "version": 1716000099,
-            "content": {
-                "presence": "unavailable",
-                "last_active_ago": 300000
-            }
-        }
+  "edu_type": "m.presence",
+  "states": {
+    "@alice:example.com": {
+      "version": 1716000042,
+      "content": {
+        "presence": "online",
+        "last_active_ago": 5000,
+        "status_msg": "Working on MSCs"
+      }
     },
-    "unknown_user_ids": []
+    "@bob:example.com": {
+      "version": 1716000099,
+      "content": {
+        "presence": "unavailable",
+        "last_active_ago": 300000
+      }
+    }
+  },
+  "unknown_user_ids": []
 }
 ```
 
@@ -230,20 +230,20 @@ nested structure:
 
 ```json
 {
-    "users": {
-        "@alice:example.com": {
-            "rooms": {
-                "!room1:example.com": {
-                    "version": 1716000042,
-                    "content_hash": "xxh3:a1b2c3d4"
-                },
-                "!room2:example.com": {
-                    "version": 1716000050,
-                    "content_hash": "xxh3:b2c3d4e5"
-                }
-            }
+  "users": {
+    "@alice:example.com": {
+      "rooms": {
+        "!room1:example.com": {
+          "version": 1716000042,
+          "content_hash": "xxh3:a1b2c3d4"
+        },
+        "!room2:example.com": {
+          "version": 1716000050,
+          "content_hash": "xxh3:b2c3d4e5"
         }
+      }
     }
+  }
 }
 ```
 

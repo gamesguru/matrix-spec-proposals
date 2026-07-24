@@ -1,5 +1,7 @@
 # MSC0503: `algebraic_v1` — a group-valued set digest profile for Matrix federation
 
+<!-- Edit marker. -->
+
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known-event set.
@@ -166,7 +168,9 @@ sketch per requested bucket, in ascending `bucket_id` order.
 ## Strata estimator
 
 Implementations MAY maintain a 32-entry strata estimator for pre-decode
-difference sizing.
+difference sizing. Consumers that expose the estimator in their wire contract
+define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
+responses.
 
 Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
 extraction sketch, but only for elements whose `h_64(e)` has exactly `i`

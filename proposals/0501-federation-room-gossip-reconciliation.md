@@ -68,8 +68,10 @@ exchanges and downward-closed recovery sets for integration; see the
 architecture note for the full argument.
 
 Homeserver implementations maintain a single table or column family, tracking
-the sketch and strata per room. The sketch is purely internal; no cache
-maintenance or knowledge of the remote server is required.
+the resident sketch and strata per room. These structures are computed only from
+local data and are reused across peers; the strata projection is included in
+each `room_digest` response, while no per-peer cache or remote knowledge is
+required.
 
 ## Proposal
 
@@ -107,8 +109,6 @@ event sets have diverged (about 50 ms compute and 20 KB of bandwidth).
 GET /_matrix/federation/v1/room_digest/{roomId}
 ```
 
-<!-- Edit marker. -->
-
 **Response:**
 
 ```json
@@ -135,7 +135,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                              |
 | `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
 | `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                |
-| `strata`                 | [string]           | No       | Optional 32-entry strata estimator, per MSC0503. Each entry is a base64url-encoded 64-byte sketch.                                         |
+| `strata`                 | [string]           | Yes      | The required 32-entry strata estimator, per MSC0503. Each entry is a base64url-encoded 64-byte sketch. (Efficiency/performance gain).      |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
 | `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                  |
@@ -148,18 +148,19 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 The digest covers the known event identifier set
 
 $$
-K = E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}
+K = E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}.
 $$
 
+In addition to the accepted and rejected event sets, soft-failed events are also
+in `K`; their soft-fail status specifically is not part of reconciliation.
 
-where `Acc` is the accepted event set and `Rej` is the set of locally rejected
-event tombstones, restricted to the negotiated frame. Soft-failed events are
-stored events and are therefore in `K`; their soft-fail status is not part of
-reconciliation.
+<!-- Edit marker. -->
 
 Given that population, `digest` and `known_event_count` are exactly the level-0
 accumulator and count defined in MSC0503, and `strata` is that profile's strata
-estimator. This MSC adds no arithmetic of its own.
+estimator. MSC0501 requires the estimator on `room_digest`; other consumers of
+MSC0503 MAY use it only when their wire contract includes it. This MSC adds no
+arithmetic of its own.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
