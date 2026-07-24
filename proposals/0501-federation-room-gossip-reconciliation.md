@@ -11,7 +11,7 @@ DAG timeline.
 
 This proposal introduces three lightweight endpoints allowing federated servers
 to efficiently monitor for event set divergence and reconcile it, without
-requiring full state synchronization or new room versions.
+requiring full state map comparisons or new room versions.
 
 **Companion documents.** The digest algebra — field, hash derivation, sketch
 encoding, decoder contract, and capacity budgets — is specified separately in
@@ -25,40 +25,38 @@ note. This document specifies the protocol and its wire contract.
 
 Federation data loss occurs through several well-documented mechanisms:
 
-1. **Rate limiting** drops inbound `/send` transactions during high-traffic
-   periods (spam storms, raids, viral rooms).
-2. **Rejection cascades** orphan entire subgraphs — a single malformed event
-   causes every subsequent event referencing it via `prev_events` to be
-   rejected.
-3. **Auth chain fetch timeouts** during load cause events to be permanently
-   persisted as rejected outliers.
-4. **Partial state joins** (MSC3706) intentionally defer full state
-   synchronization, but network interruptions during the resync phase can leave
-   permanent gaps.
+1. Servers may never receive events due to DNS routing or other federation
+   connection issues (sometimes due to deliberate _de_-federation).
+2. Servers after prolonged downtime may be marked as permanently backed off.
+   Unless they engage with a room and send an event, they may remain excised
+   from any new activity.
+3. Other transient bugs in state resolution or database logic can cause an event
+   to mistakenly be soft-failed or otherwise skipped during traversal.
 
-The result is that servers in the same room can have materially different DAGs,
-leading to membership divergence, missing messages, and inconsistent state
-resolution outputs — even when the state resolution algorithm itself is
-functioning correctly.
+The result is that servers in the same room can have divergent views of the same
+DAG, leading to membership differences, missing messages, and inconsistent state
+(different inputs to state resolution in general produce different outputs).
 
 ### Why existing endpoints are insufficient
 
 <!-- markdownlint-disable MD013 -->
 
-| Endpoint                            | Limitation                                                                                                                    |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG                   |
-| `POST /get_missing_events/{roomId}` | BFS walk with a hard depth limit (default 10); cannot bridge gaps larger than 10 events; requires knowing the boundary events |
-| `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); O(N) comparison; no incremental diffing                                   |
-| `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                                   |
-| `GET /make_join`                    | Does not meet latency requirements (20-100 ms); requests to lagging server can timeout (full index scan for unknown event)    |
+| Endpoint                            | Limitation                                                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG    |
+| `POST /get_missing_events/{roomId}` | BFS walk with a lower depth limit; cannot bridge some gaps; requires knowing the boundary events               |
+| `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); `O(S)` comparison; no incremental diffing                  |
+| `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                    |
+| `GET /make_join`                    | Does not meet latency requirements (20-50 ms); requests can timeout (full remote index scan for unknown event) |
 
 <!-- markdownlint-enable MD013 -->
 
-None of these endpoints answer the fundamental question: **"Am I missing events
-in this room, and if so, which ones?"**
+None of these endpoints quickly answer the question: **"Am I missing events in
+this room, and if so, which ones?"**
 
 ### Design philosophy
+
+<!-- Edit marker. -->
 
 This proposal adapts three mechanisms from the gossip protocol literature
 (Demers et al., 1987; Birman, 1999) to Matrix's federated DAG model:
