@@ -22,7 +22,7 @@ exchange additively; it does not restart it.
 
 This profile defines:
 
-- derivation of short identifiers from Matrix event IDs;
+- derivation of short identifiers from 256-bit IDs;
 - the finite field and its libminisketch compatibility contract;
 - the level-0 accumulator;
 - the syndrome sketch, its serialization, and its capacity bounds;
@@ -39,7 +39,7 @@ two digests are comparable.
 
 ## Identifier derivation
 
-The profile operates over a set `S` of Matrix event IDs. Consumers define what
+The profile operates over a set `S` of Matrix event IDs, room IDs, key IDs, or other 256-bit indentifiers. Consumers define what
 `S` contains; the kernel treats it as an opaque set of identifiers.
 
 For room versions 3 and later, event IDs are already derived from SHA-256 event
