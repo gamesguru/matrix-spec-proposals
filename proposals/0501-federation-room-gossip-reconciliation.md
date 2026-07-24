@@ -189,6 +189,13 @@ history being reconciled. Reconciliation repairs holes inside a frame. Backfill
 extends the frame downward. Servers MUST NOT compare digests unless they agree
 on the frame.
 
+A frame is mathematically bounded by the causal graph. The frame's digested
+population includes only the known events that **causally succeed** (are
+topological descendants of) the anchor antichain. Events that causally precede
+the anchor, such as pre-join history, are excluded. This topological bound
+prevents spoofed timestamps or depths from polluting finalized historical
+segments, because the causal lineage is cryptographically sealed by the anchor.
+
 A frame is identified by the sorted, deduplicated `frame_event_ids` antichain.
 The order of the array is not significant on the wire, but implementations MUST
 canonicalize it before comparing or indexing a digest.

@@ -27,9 +27,11 @@ than a constant factor:
 
 2. **False positives are silent in the reconciliation direction.** The responder
    concludes that the requester already has an event and does not send it. The
-   requester has no signal that this happened. A protocol whose failure mode is
-   silence cannot be operated safely at federation scale, because the operator
-   learns about the gap from user complaints months later.
+   requester has no signal that this happened. For example, a 1% false-positive
+   filter over a 1-million event room requires ~1.2 MB. If the servers differ by
+   750,000 events, that 1% rate silently masks ~7,500 missing events. A protocol
+   whose failure mode is silence cannot be operated safely at federation scale,
+   because those 7,500 holes become permanent.
 
 3. **A larger filter restarts the exchange.** Re-sizing or re-salting produces
    an object that cannot be combined with the previous one. The work already
@@ -203,6 +205,26 @@ Rejected because it creates O(servers²) traffic in active rooms; it forces all
 servers to process incoming digests even when already synchronized; and it
 forfeits the natural rate limiting of pull, where a server reconciles only when
 it chooses to and only with peers it selects.
+
+### 3.6 Range-based set reconciliation (Merkle Search Trees)
+
+This is a narrower case than §3.2: not a persistent Merkle tree over the whole
+event ID space, but range-based reconciliation (e.g., Merkle-Radix trees
+dividing a dataset into segments by timestamp or lexicographical ID), which is
+highly efficient in eventual-consistency systems but fails for a different
+reason against Matrix's adversarial DAG.
+
+If segments are bounded by timestamp or depth, an attacker can craft an event
+with a spoofed timestamp or deeply spoofed `prev_events` to retroactively drop a
+new event into a "finalized" historical segment. This would constantly
+invalidate historical hashes and force peers to re-traverse old data.
+
+Instead, MSC0501 relies on **causal bounding** via the Frame anchor. Because
+Matrix is a cryptographic DAG, the causal past is sealed by hashes. By defining
+a Frame mathematically as "all events that causally succeed the anchor," the
+historical boundary is cryptographically locked. Pre-join events are naturally
+filtered out, and spoofed outliers are quarantined to the active concurrent
+frontier rather than invalidating historical segments.
 
 ## 4. Why the constants are what they are
 
