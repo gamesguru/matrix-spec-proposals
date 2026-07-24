@@ -328,6 +328,15 @@ MUST then abandon algebraic reconciliation for that frame and fall back to
 retired, the responder MUST NOT claim that a digest mismatch proves an event-set
 divergence.
 
+Frame validation is a transport-layer responsibility. Before invoking the
+algebraic reconciliation kernel, the responder MUST resolve and validate the
+requested `frame_id` and confirm that it matches the frame used by the supplied
+digest metadata. A missing, expired, or mismatched frame MUST terminate the
+request before the responder computes a digest residual, count residual, sketch
+subtraction, or bucket summary. The kernel MUST receive only inputs already
+validated as belonging to the same frame; it MUST NOT interpret
+`frame_status: "none"` or perform frame negotiation itself.
+
 MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
 `edges.oldest` response field is an antichain that can become the next frame
 anchor after the returned historical segment is validated and ingested. This MSC
