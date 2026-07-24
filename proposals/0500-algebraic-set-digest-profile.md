@@ -1,12 +1,12 @@
-# MSC0503: `algebraic_v1`, a group-valued digest for 256-bit set reconciliation
+# MSC0500: `algebraic_v1`, a group-valued digest for set reconciliation
 
 <!-- Edit marker. -->
 
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
-(federation missed-PDU reconciliation) needs it over a room's known-event set.
-MSC0502 needs an analogous primitive for ephemeral state. Future diagnostic and
-audit endpoints will need it again.
+(federation missed-PDU reconciliation) needs it over a room's known event or
+resolve state set. MSC0502 needs an analogous primitive for ephemeral state.
+Future diagnostic and audit endpoints will need it again.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
@@ -22,7 +22,7 @@ exchange additively; it does not restart it.
 
 This profile defines:
 
-- derivation of short identifiers from 256-bit IDs;
+- derivation of short identifiers from canonical 32-byte element digests;
 - the finite field and its `libminisketch` compatibility contract;
 - the level-0 accumulator;
 - the syndrome sketch, its serialization, and its capacity bounds;
@@ -37,37 +37,42 @@ both sides of a comparison are digesting the same population before invoking
 this kernel; the kernel MUST NOT be given the responsibility of deciding whether
 two digests are comparable.
 
-## Identifier derivation
+## Element derivation
 
-The profile operates over a set `S` of Matrix event IDs, room IDs, key IDs, or
-other 256-bit indentifiers. Consumers define what `S` contains; the kernel
-treats it as an opaque set of identifiers.
+The profile operates over a set `S` of opaque elements. Each consumer MUST map
+every element to a canonical 32-byte digest before applying this profile.
+Consumers define what the elements mean; the kernel treats them as an opaque set
+and does not interpret their content.
 
-For room versions 3 and later, event IDs are already derived from SHA-256 event
-hashes, so no auxiliary hash is required. Implementations derive short
-identifiers directly from the decoded event ID hash, using the
-room-version-specific event-ID alphabet:
+Let `D(e)` be the consumer-defined 32-byte digest for element `e`.
+
+```text
+h_128(e) = first 128 bits of D(e)
+h_64(e)  = first  64 bits of D(e)
+```
+
+"First" means the leading bytes of `D(e)` in network byte order. `h_128(e)` is
+the first 16 bytes. `h_64(e)` is the first 8 bytes interpreted as an unsigned
+big-endian integer.
+
+### Matrix event-ID binding
+
+For Matrix event-ID sets, `D(e)` is derived as follows. For room versions 3 and
+later, event IDs are already derived from SHA-256 event hashes, so no auxiliary
+hash is required. Implementations derive `D(e)` from the decoded event ID using
+the room-version-specific event-ID alphabet:
 
 - room versions 1 and 2: hash the UTF-8 event ID string with SHA-256;
 - room version 3: decode the event ID as unpadded standard Base64;
 - room versions 4 and later: decode event ID as unpadded URL-safe Base64.
 
-```text
-h_128(e) = first 128 bits of decoded_event_id_hash(e)
-h_64(e)  = first  64 bits of decoded_event_id_hash(e)
-```
-
-"First" means the leading bytes of the SHA-256 byte string in network byte
-order. `h_128(e)` is the first 16 bytes. `h_64(e)` is the first 8 bytes
-interpreted as an unsigned big-endian integer.
-
 Because minisketch set elements are nonzero, if the first 8-byte chunk is zero
-the implementation MUST use the next nonzero 8-byte chunk of the decoded SHA-256
-hash; if all four chunks are zero, it MUST use the integer value 1.
+the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if all four
+chunks are zero, it MUST use the integer value 1.
 
-Room versions whose event IDs are not hash-derived MUST either hash their event
-IDs with SHA-256 before truncation, or be excluded from the compared population
-by the consumer. This profile does not use XXH3 or any other auxiliary hash.
+Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
+SHA-256 digest of the event-ID string, or exclude the event from the compared
+population. This Matrix binding does not use XXH3 or any other auxiliary hash.
 
 ## Field
 
@@ -292,7 +297,7 @@ canonical feature flag for this profile is:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0503.digest.algebraic_v1": true
+    "tk.nutra.msc0500.digest.algebraic_v1": true
   }
 }
 ```
@@ -351,7 +356,7 @@ are independently verifiable by signature and hash. Left to a future
 | Proposed final identifier | Purpose     | Development identifier                 |
 | ------------------------- | ----------- | -------------------------------------- |
 | `algebraic_v1`            | digest type | `algebraic_v1`                         |
-| feature flag              | capability  | `tk.nutra.msc0503.digest.algebraic_v1` |
+| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1` |
 
 <!-- markdownlint-enable MD013 -->
 

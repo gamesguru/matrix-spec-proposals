@@ -15,7 +15,7 @@ requiring full state map comparisons or new room versions.
 
 **Companion documents.** The digest algebra — field, hash derivation, sketch
 encoding, decoder contract, and capacity budgets — is specified separately in
-MSC0503 (`algebraic_v1` digest profile). The design rationale, rejected
+MSC0500 (`algebraic_v1` digest profile). The design rationale, rejected
 alternatives, and operational tuning guidance are in the MSC0501 architecture
 note. This document specifies the protocol and its wire contract.
 
@@ -131,11 +131,11 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 | Field                    | Type               | Required | Description                                                                                                                                |
 | ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC0503.                   |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC0500.                   |
 | `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                              |
 | `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
 | `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                |
-| `strata`                 | [string]           | Yes      | The required 32-entry strata estimator, per MSC0503. Each entry is a base64url-encoded 64-byte sketch. (Efficiency/performance gain).      |
+| `strata`                 | [string]           | Yes      | The required 32-entry strata estimator, per MSC0500. Each entry is a base64url-encoded 64-byte sketch. (Efficiency/performance gain).      |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
 | `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                  |
@@ -157,9 +157,9 @@ in `K`; their soft-fail status specifically is not part of reconciliation.
 <!-- Edit marker. -->
 
 Given that population, `digest` and `known_event_count` are the level-0
-accumulator and count defined in MSC0503, and `strata` is that profile's strata
+accumulator and count defined in MSC0500, and `strata` is that profile's strata
 estimator. MSC0501 requires the estimator on `room_digest`; other consumers of
-MSC0503 MAY use it only when their wire contract includes it. This MSC adds no
+MSC0500 MAY use it only when their wire contract includes it. This MSC adds no
 arithmetic of its own.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
@@ -253,7 +253,7 @@ MUST then abandon algebraic reconciliation for that frame and fall back to
 retired, the responder MUST NOT claim that a digest mismatch proves an event-set
 divergence.
 
-**Validation is a transport-layer responsibility.** Before invoking the MSC0503
+**Validation is a transport-layer responsibility.** Before invoking the MSC0500
 kernel, the responder MUST resolve and validate the requested `frame_id` and
 confirm that it matches the frame used by the supplied digest metadata. A
 missing, expired, or mismatched frame MUST terminate the request before the
@@ -287,7 +287,7 @@ MUST NOT send `(type, state_key) -> event_id` map entries, and the requester
 MUST rerun state resolution locally after admitting any returned PDUs. For
 `scope: "resolved_state"`, `state_at` MUST be present in the negotiated frame
 and both servers MUST hold and resolve that event under the same room version.
-MSC0503 identifier derivation applies to state event IDs exactly as to timeline
+MSC0500 identifier derivation applies to state event IDs exactly as to timeline
 event IDs. A peer that cannot establish these conditions MUST reject the request
 with `M_INVALID_PARAM` or `M_UNSUPPORTED_ROOM_VERSION` before comparing digests.
 
@@ -451,7 +451,7 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   the repair frontier, but MUST treat `truncated: true` as non-repair progress
   until the walk reaches known ancestry.
 - Otherwise, or after frontier repair, use `sketch` mode, provisioning
-  `sketch_capacity` per the MSC0503 budget from the count residual
+  `sketch_capacity` per the MSC0500 budget from the count residual
   `c = abs(local_known_event_count - remote_known_event_count)`.
 
 #### `extremity` mode
@@ -554,7 +554,7 @@ The responding server:
    requested frame, at `sketch_capacity` in unbucketed mode, or as the
    concatenation of one per-bucket sketch in ascending `bucket_id` order.
 6. Subtracts the requester's sketch from its own and decodes the symmetric
-   difference as 64-bit short identifiers, per MSC0503.
+   difference as 64-bit short identifiers, per MSC0500.
 7. Partitions the decoded short identifiers into `responder_side` and
    `requester_side`. For `responder_side`, the responder resolves each short ID
    to a full event ID it holds and computes the 128-bit accumulator over those
@@ -570,7 +570,7 @@ The responding server:
    `truncated: true`.
 
 If `include_bucket_summary` is true, the responder also returns a bucket summary
-with `bucket_count = 256`, as defined in MSC0503. Bucket summaries are used only
+with `bucket_count = 256`, as defined in MSC0500. Bucket summaries are used only
 after the count residual is zero or a direct decode fails, both of which
 indicate a two-sided difference; they are not sent on the common one-sided lag
 path. After receiving one, a requester MAY issue another `sketch` request with
@@ -838,7 +838,7 @@ force an unconditional digest comparison at least once every 16 consecutive
 ### Performance resilience
 
 - **Digest computation cost.** The accumulator and resident bucket summaries are
-  maintained incrementally when events are persisted or purged, per MSC0503.
+  maintained incrementally when events are persisted or purged, per MSC0500.
   Implementations that do not maintain the resident structure may need to scan
   room history to answer `sketch` requests and SHOULD apply stricter rate
   limits.
@@ -947,7 +947,7 @@ recomputed depth) rather than trusting the `depth` field of received events.
 
 ### Accumulator integrity
 
-XOR accumulators are fault-detecting, not authenticators; MSC0503 states the
+XOR accumulators are fault-detecting, not authenticators; MSC0500 states the
 linear-algebra limit precisely. Nothing in this MSC relies on the accumulator
 being binding against a malicious peer. It is an integrity anchor for accidental
 decode failure and benign desync, while returned PDUs still MUST be verified by
@@ -978,7 +978,7 @@ endpoints.
 
 ## Dependencies
 
-This MSC depends on MSC0503 (`algebraic_v1` digest profile) for its digest
+This MSC depends on MSC0500 (`algebraic_v1` digest profile) for its digest
 construction. It has no hard dependencies on other unaccepted MSCs.
 
 It is designed to complement:
