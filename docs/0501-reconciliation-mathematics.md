@@ -260,3 +260,148 @@ where `W_M` is adversarial hub weight and `mu` is the adversarial Sybil
 fraction. The floor makes `p<1` whenever the adversary lacks a Sybil majority,
 but the tail bound should determine `f`; the mean alone is insufficient for a
 security target.
+
+## 9. Convergence and Scheduling
+
+The protocol separates three quantities that are often conflated:
+
+1. **detection latency:** how long before a peer notices a mismatch;
+2. **contact rounds:** how many rounds before it samples a peer that can supply
+   the missing data; and
+3. **repair latency:** contact rounds multiplied by round duration, plus PDU
+   transfer and validation time.
+
+There is no universal minimum polling period. A period is a deployment parameter
+determined by acceptable detection latency, federation load, and the probability
+that a room is actively changing. The mathematics supplies bounds once those
+parameters are chosen.
+
+### Proposition 9: periodic detection
+
+Let successive poll intervals be independently chosen within `[(1-j)P,(1+j)P]`,
+where `0 < j < 1`. If a divergence begins immediately after a poll, the next
+detection time `D` satisfies
+
+$$
+(1-j)P \le D \le (1+j)P,
+$$
+
+For uniform jitter, the expected interval is `P`; for a divergence at an
+arbitrary phase, the residual wait depends on that phase and the exact jitter
+schedule. Thus `P` controls detection latency directly, while jitter changes
+peer correlation and herd probability rather than creating a stronger latency
+guarantee. Event-triggered polling can reduce normal-case latency, but the
+periodic term is still required to bound detection for dormant rooms and
+partitions.
+
+### Theorem 10: rounds to a useful peer
+
+Suppose each selected peer independently has probability `q` of holding the
+missing event and being reachable. With fanout `f`, the probability that a round
+finds no useful peer is
+
+$$
+r=(1-q)^f.
+$$
+
+After `R` independent rounds, the failure probability is `r^R`, and therefore
+the number of rounds needed to achieve failure probability at most `\delta` is
+
+$$
+R \geq
+\left\lceil\frac{\ln \delta}{f\ln(1-q)}\right\rceil.
+$$
+
+**Proof.** A single selection fails with probability `1-q`; all `f` selections
+fail with probability `(1-q)^f`. Independence across rounds gives `r^R`. Solving
+`r^R <= delta` for `R` gives the bound.
+
+$$
+\square
+$$
+
+The bound is about useful-peer availability, not merely graph connectivity. A
+peer can be honest yet lack the relevant frame or PDU. The value of `q` must
+therefore include reachability, frame overlap, and possession of the missing
+data.
+
+### Corollary 10.1: minimum fanout
+
+For a target of at most `\delta` failure after `R` rounds, fanout must satisfy
+
+$$
+f \geq
+\left\lceil\frac{\ln(\delta)}{R\ln(1-q)}\right\rceil.
+$$
+
+This is the meaningful minimum fanout. `f=1` is sufficient for eventual
+convergence when `q>0` and rounds continue forever, but may be unacceptable for
+a finite repair SLO.
+
+### Corollary 10.2: polling-period budget
+
+If a repair must complete within time `T` with failure probability at most
+`\delta`, and each round takes at most `P_r` seconds including polling,
+transfer, and validation, then choosing `R=\lfloor T/P_r\rfloor` requires
+
+$$
+f \geq
+\left\lceil\frac{\ln(\delta)}{\lfloor T/P_r\rfloor\ln(1-q)}\right\rceil.
+$$
+
+This equation should drive operational choices. A shorter polling period helps
+detection, but increases request load; a larger fanout helps contact
+probability, but increases per-round work. Neither parameter has a
+protocol-universal minimum independent of `q`, `T`, and `\delta`.
+
+## 10. Selection Entropy and Hub Concentration
+
+Let `p_i` be the probability of selecting peer `i`. The Shannon entropy of one
+selection is
+
+$$
+H(p)=-\sum_{i=1}^{N}p_i\log_2 p_i.
+$$
+
+Uniform selection has maximum entropy `\log_2 N`. Hub-weighted selection has
+lower entropy and can improve freshness or availability, but it concentrates the
+failure surface. The uniform-floor policy
+
+$$
+p_i=(1-\varepsilon)w_i+\frac{\varepsilon}{N}
+$$
+
+ensures `p_i >= epsilon/N` for every peer. This is a per-peer liveness floor,
+not a guarantee of uniform behavior. The selection entropy is still determined
+by the measured weights `w_i`; operators should monitor it rather than treating
+`epsilon` as a complete decentralization proof.
+
+For a set `M` of adversarial peers, the probability of selecting an adversarial
+peer is
+
+$$
+p_M=(1-\varepsilon)W_M+\varepsilon\mu,
+$$
+
+where `W_M` is their weighted share and `\mu=|M|/N` their population share.
+Substituting `p_M` into Theorem 8 gives the eclipse tail. Entropy and the
+eclipse bound measure different properties: high entropy discourages
+concentration, while the tail bound states the probability that all selected
+peers are bad.
+
+## 11. Information and Polling Floors
+
+The digest lower bound in Theorem 2 gives a communication floor, not a time
+floor. Any minimum polling period must also account for transport and storage
+service capacity. If a server can process at most `C` reconciliation requests
+per second and each active room uses fanout `f` at period `P`, then a necessary
+load condition is
+
+$$
+\frac{R_{\mathrm{active}}f}{P} \le C.
+$$
+
+Combining this with Corollary 10.2 gives the actual operating region: choose `P`
+and `f` large enough to satisfy the repair target, but keep the aggregate
+request rate below the server and peer capacity. There is no mathematically
+meaningful polling threshold without both a reliability target and a load model.
