@@ -5,12 +5,15 @@
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known event or
-resolve state set. MSC0502 needs an analogous primitive for ephemeral state.
-Future diagnostic and audit endpoints will need it again.
+resolved state set. MSC0502 needs an analogous primitive for ephemeral state.
+Future diagnostic and audit endpoints may need it again in other contexts.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
-contract rather than restating them.
+contract rather than building them from scratch each time.
+
+The algorithm supports differences of up to 4,000 elements between sets of up to
+1 million total. It achieves this in under 50 ms with under 25 KB exchanged.
 
 `algebraic_v1` is a coordinated algebraic ladder. The resident bucket syndromes,
 strata estimator, and extraction sketch are views of one syndrome map. Separate
