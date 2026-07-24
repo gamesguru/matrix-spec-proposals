@@ -200,7 +200,7 @@ is unknown until the proof solution is known.
 ```text
 minting_object = {
     "action": "fn-dsa-minting-object",
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen",
     "nonce": nonce,
     "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "server_name": "example.com",
@@ -234,14 +234,14 @@ colliding `short_key_id` candidates.
 
 ```json
 {
-    "fn-dsa-512:<short_key_id>": {
-        "key": "<unpadded-base64-fn-dsa-512-pubkey>",
-        "pow": {
-            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
-            "nonce": 8137226,
-            "solution": [123, 456, 789, "..."]
-        }
+  "fn-dsa-512:<short_key_id>": {
+    "key": "<unpadded-base64-fn-dsa-512-pubkey>",
+    "pow": {
+      "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen",
+      "nonce": 8137226,
+      "solution": [123, 456, 789, "..."]
     }
+  }
 }
 ```
 
@@ -251,9 +251,11 @@ that graph; then computes `key_id` from the canonical minting object. The
 enclosing key's advertised `short_key_id` MUST equal the first 20 base64url
 characters of that final `key_id`.
 
-**Graph derivation.** A given graph contains a 42-cycle only with some
-probability, so the prover iterates the nonce until the resulting graph is
-solvable. For each nonce, compute:
+### Graph derivation
+
+A given graph contains a 42-cycle only with some probability, so the prover
+iterates the nonce until the resulting graph is solvable. For each nonce,
+compute:
 
 ```text
 SHA3-256(
@@ -291,16 +293,16 @@ bound. Implementations calibrating a different deployment's expected solve time
 MUST NOT do so by changing `edge_bits` without minting a new, explicitly
 identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
-`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting` names one fixed
+`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen` names one fixed
 parameterization so that all conforming implementations impose the same cost.
 
 The proof response is:
 
 ```json
 {
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
-    "nonce": 8137226,
-    "solution": [123, 456, 789, "..."]
+  "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen",
+  "nonce": 8137226,
+  "solution": [123, 456, 789, "..."]
 }
 ```
 
@@ -333,9 +335,9 @@ later step once a step has failed:
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
 2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
-   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting`. Any other
-   value fails validation here as unrecognized; do not fall back to treating it
-   as the old plain-hash construction.
+   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen`. Any other value
+   fails validation here as unrecognized; do not fall back to treating it as the
+   old plain-hash construction.
 3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
    integers, each strictly less than `2^29`, in strictly increasing order, with
    no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any violation
@@ -515,35 +517,35 @@ server-key validation and MUST NOT change acceptance semantics.
 
 ```json
 {
-    "notary_observations": [
-        {
-            "notary_server_name": "notary.example",
-            "observed_server_name": "example.com",
-            "observed_at": 1798848000000,
-            "fetch_uri": "https://example.com/_matrix/key/v2/server",
-            "transport": "https",
-            "tls": {
-                "leaf_spki_sha256": "<unpadded-base64url-sha256>",
-                "leaf_cert_sha256": "<unpadded-base64url-sha256>",
-                "tls_13_provenance": {
-                    "transcript_hash_algorithm": "sha256",
-                    "handshake_transcript_hash": "<unpadded-base64url-hash>",
-                    "certificate_verify_signature_scheme": "ecdsa_secp256r1_sha256",
-                    "server_certificate_verify_signature": "<unpadded-base64url-signature>"
-                }
-            },
-            "key_id": "<unpadded-base64url-key-id>",
-            "server_key_package_sha256": "<unpadded-base64url-sha256>",
-            "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
-            "valid_until_ts": 1798848000000,
-            "signatures": {
-                "notary.example": {
-                    "ed25519:auto": "<base64-ed25519-signature>",
-                    "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
-                }
-            }
+  "notary_observations": [
+    {
+      "notary_server_name": "notary.example",
+      "observed_server_name": "example.com",
+      "observed_at": 1798848000000,
+      "fetch_uri": "https://example.com/_matrix/key/v2/server",
+      "transport": "https",
+      "tls": {
+        "leaf_spki_sha256": "<unpadded-base64url-sha256>",
+        "leaf_cert_sha256": "<unpadded-base64url-sha256>",
+        "tls_13_provenance": {
+          "transcript_hash_algorithm": "sha256",
+          "handshake_transcript_hash": "<unpadded-base64url-hash>",
+          "certificate_verify_signature_scheme": "ecdsa_secp256r1_sha256",
+          "server_certificate_verify_signature": "<unpadded-base64url-signature>"
         }
-    ]
+      },
+      "key_id": "<unpadded-base64url-key-id>",
+      "server_key_package_sha256": "<unpadded-base64url-sha256>",
+      "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
+      "valid_until_ts": 1798848000000,
+      "signatures": {
+        "notary.example": {
+          "ed25519:auto": "<base64-ed25519-signature>",
+          "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -759,37 +761,37 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
 
 ```json
 {
-    "notary_equivocations": [
-        {
-            "record_version": 1,
-            "observed_server_name": "example.com",
-            "algorithm": "fn-dsa-512",
-            "short_key_id": "<short_key_id>",
-            "first": {
-                "key_id": "<unpadded-base64url-key-id>",
-                "server_key_package_sha256": "<unpadded-base64url-sha256>",
-                "first_observed_ts": 1798848000000,
-                "observed_via": "direct"
-            },
-            "conflicting": {
-                "key_id": "<unpadded-base64url-key-id>",
-                "server_key_package_sha256": "<unpadded-base64url-sha256>",
-                "first_observed_ts": 1798848600000,
-                "observed_via": "notary"
-            },
-            "first_response": { "...": "optional, full origin key response" },
-            "conflicting_response": {
-                "...": "optional, full origin key response"
-            },
-            "notary_server_name": "notary.example",
-            "signatures": {
-                "notary.example": {
-                    "ed25519:auto": "<base64-ed25519-signature>",
-                    "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
-                }
-            }
+  "notary_equivocations": [
+    {
+      "record_version": 1,
+      "observed_server_name": "example.com",
+      "algorithm": "fn-dsa-512",
+      "short_key_id": "<short_key_id>",
+      "first": {
+        "key_id": "<unpadded-base64url-key-id>",
+        "server_key_package_sha256": "<unpadded-base64url-sha256>",
+        "first_observed_ts": 1798848000000,
+        "observed_via": "direct"
+      },
+      "conflicting": {
+        "key_id": "<unpadded-base64url-key-id>",
+        "server_key_package_sha256": "<unpadded-base64url-sha256>",
+        "first_observed_ts": 1798848600000,
+        "observed_via": "notary"
+      },
+      "first_response": { "...": "optional, full origin key response" },
+      "conflicting_response": {
+        "...": "optional, full origin key response"
+      },
+      "notary_server_name": "notary.example",
+      "signatures": {
+        "notary.example": {
+          "ed25519:auto": "<base64-ed25519-signature>",
+          "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
         }
-    ]
+      }
+    }
+  ]
 }
 ```
 
