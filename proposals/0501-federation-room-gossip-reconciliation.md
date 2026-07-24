@@ -148,8 +148,9 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 The digest covers the known event identifier set
 
 $$
-K_\Phi = \mathrm{Acc}\Phi \cup \mathrm{Rej}\Phi,
+K = E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}
 $$
+
 
 where `Acc` is the accepted event set and `Rej` is the set of locally rejected
 event tombstones, restricted to the negotiated frame. Soft-failed events are
