@@ -1,4 +1,4 @@
-# MSC0500: `algebraic_v1`, a group-valued digest for set reconciliation
+# MSC0500: An algebraic, group-valued digest for fast set reconciliation
 
 <!-- Edit marker. -->
 
