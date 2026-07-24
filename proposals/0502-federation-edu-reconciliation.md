@@ -1,4 +1,4 @@
-# MSC0F02: Federation EDU State Reconciliation
+# MSC0502: Federation EDU State Reconciliation
 
 Matrix federation delivers Ephemeral Data Units (EDUs) via the same `/send`
 transaction mechanism as PDUs. When transactions are dropped — due to rate
@@ -36,7 +36,7 @@ diagnose:
 
 ### Why This Is Different From PDU Reconciliation
 
-MSC0F01 addresses PDU divergence in the room DAG. PDUs are:
+MSC0501 addresses PDU divergence in the room DAG. PDUs are:
 
 - **Persistent** — they are stored permanently and form a cryptographically
   linked graph.
@@ -308,7 +308,7 @@ no graph to traverse — only snapshots to compare:
 ### Gossip Scheduling
 
 EDU reconciliation SHOULD be scheduled independently from PDU reconciliation
-(MSC0F01), with different intervals reflecting the urgency of each EDU type. To
+(MSC0501), with different intervals reflecting the urgency of each EDU type. To
 prevent cluster-wide "thundering herd" synchronization waves during large
 homeserver restarts or network partition recovery, implementations MUST apply a
 **randomized scheduling jitter of ±15%** to all base scheduling intervals:
@@ -333,7 +333,7 @@ homeserver restarts or network partition recovery, implementations MUST apply a
 ### ETag Optimization
 
 The `edu_digest` endpoint supports conditional requests using the same pattern
-as MSC0F01:
+as MSC0501:
 
 ```http
 GET /_matrix/federation/v1/edu_digest?edu_type=m.presence
@@ -386,16 +386,16 @@ This was rejected because:
 ### Per-Room EDU Sync
 
 An alternative design would scope EDU reconciliation to individual rooms
-(similar to MSC0F01's per-room approach). This was rejected because:
+(similar to MSC0501's per-room approach). This was rejected because:
 
 1. Presence and device lists are per-user, not per-room. A per-room approach
    would require redundant queries for users in multiple shared rooms.
 2. The version-vector approach naturally handles per-user state with a single
    digest query per peer.
 
-### Extending MSC0F01
+### Extending MSC0501
 
-EDU reconciliation could be added as an extension to MSC0F01 rather than a
+EDU reconciliation could be added as an extension to MSC0501 rather than a
 separate proposal. This was rejected because:
 
 1. The data models are fundamentally different (DAG vs. last-writer-wins).
@@ -443,8 +443,8 @@ development:
 
 | Proposed final identifier           | Development identifier                                       |
 | ----------------------------------- | ------------------------------------------------------------ |
-| `/_matrix/federation/v1/edu_digest` | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_digest` |
-| `/_matrix/federation/v1/edu_state`  | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_state`  |
+| `/_matrix/federation/v1/edu_digest` | `/_matrix/federation/unstable/org.matrix.msc0502/edu_digest` |
+| `/_matrix/federation/v1/edu_state`  | `/_matrix/federation/unstable/org.matrix.msc0502/edu_state`  |
 
 <!-- markdownlint-enable MD013 -->
 
