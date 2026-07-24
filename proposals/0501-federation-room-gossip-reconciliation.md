@@ -63,7 +63,7 @@ in this room, and if so, which ones?"**
 This proposal adapts three mechanisms from the gossip protocol literature
 (Demers et al., 1987; Birman, 1999) to Matrix's federated DAG model:
 
-1. **Anti-entropy via digest comparison** — O(1) divergence detection using
+1. **Anti-entropy via digest comparison** — `O(1)` divergence detection using
    compact room digests
 2. **Pull-based reconciliation** — the lagging server requests exactly the
    events it needs
