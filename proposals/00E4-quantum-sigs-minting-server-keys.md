@@ -2,12 +2,131 @@
 
 This draft contains notary observations, detached notary provenance bundles, and
 TLS 1.3 compact provenance material split from the archived 00E1 draft, plus the
-[Key minting Proof-of-Work](#key-minting-proof-of-work) mechanism. The version
-of that mechanism here supersedes the plain SHA-256 key identifier construction
+[profile-bound key minting](#canonical-key-object) mechanism. The version of
+that mechanism here supersedes the plain SHA-256 key identifier construction
 still on record in the now-frozen 00E1 draft: this file is normative for FN-DSA
 key minting and observation going forward.
 
-## Algorithm profile (`fn-dsa-512`)
+## Algorithm profile (`fndsa512`)
+
+This section defines the only key-minting profile currently registered by this
+MSC. It supersedes the legacy construction retained later in this document for
+historical context; the legacy construction is non-normative and MUST NOT be
+accepted by implementations of this profile.
+
+The profile token is the opaque string `tk.nutra.msc45xx.serverkey.v1`.
+Implementations MUST compare it by exact string equality against a closed
+registry. They MUST NOT parse it to recover algorithm parameters. The registry
+entry fixes FN-DSA-512, SHA3-256, Matrix Canonical JSON, Cuckoo
+`edge_bits = 29`, `proof_size = 42`, the short-ID encoding, and the action tags
+below.
+
+### Canonical key object
+
+The normative shape is:
+
+```json
+{
+  "server_name": "nutra.tk",
+  "valid_until_ts": 1815632341240,
+  "verify_keys": {
+    "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": {
+      "key": "<unpadded-base64-fn-dsa-512-public-key>",
+      "profile": "tk.nutra.msc45xx.serverkey.v1",
+      "pow": {
+        "nonce": 84,
+        "solution": [15721871, 27250623, "...", 517987691]
+      }
+    }
+  },
+  "signatures": {
+    "nutra.tk": {
+      "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<signature>"
+    }
+  }
+}
+```
+
+`trusted_notary_keys`, `claims`, `fips_206_revision`, `pow.algorithm`, and empty
+optional containers are not part of this profile. Empty optional containers MUST
+be omitted. Every field inside a `verify_keys` entry is either fixed by the
+profile or committed by the key ID preimage; therefore one key name identifies
+one key entry.
+
+The key name uses lowercase hexadecimal and the fixed algorithm token
+`fndsa512`. Its 32-character suffix is the first 128 bits of the recomputed
+SHA3-256 key ID. Base64url and hyphenated algorithm names MUST NOT be used in
+this key-name position.
+
+### Bound preimages
+
+Let `N` be an integer with `0 <= N < 2^32`, `P` the exact profile token, `S` the
+server name, and `K` the decoded public-key bytes. `base64_unpadded(K)` is the
+canonical public-key string in the object. The graph seed is:
+
+$$
+G = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+  "action": "tk.nutra.msc45xx.serverkey.v1.graph",
+  "nonce": N,
+  "profile": P,
+  "public_key": \operatorname{base64\_unpadded}(K),
+  "server_name": S
+}))
+$$
+
+The key ID is:
+
+$$
+I = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+  "action": "tk.nutra.msc45xx.serverkey.v1.keyid",
+  "nonce": N,
+  "profile": P,
+  "public_key": \operatorname{base64\_unpadded}(K),
+  "server_name": S,
+  "solution": [e_0,\ldots,e_{41}]
+}))
+$$
+
+The solution is exactly 42 strictly ascending edge indices, each less than
+`2^29`. The profile registry defines the short-ID truncation and encoding. There
+is no separately serialized full key ID, algorithm parameter string, or nonce
+suffix.
+
+### Verification
+
+A verifier MUST reject at the first failed step and MUST perform these checks in
+order:
+
+1. Match `profile` exactly against the closed registry.
+2. Decode `key` and require exactly the registry's public-key length.
+3. Require exactly 42 unsigned solution entries, strictly ascending, with each
+   entry less than `2^29`; require `nonce < 2^32`.
+4. Compute `G` and verify the Cuckoo proof using the registry parameters.
+5. Compute `I` and require the map key to equal `fndsa512:` followed by the
+   registry-defined short form of `I`.
+6. Require the top-level `server_name` to be the name used in the preimages and
+   verify `signatures[server_name][key_name]` over the canonical signing bytes.
+
+The proof is a co-generation stamp, not proof of private-key possession. The
+self-signature supplies possession; both checks are mandatory. FN-DSA signatures
+MUST have the exact registry-defined length and any fixed-length padding bytes
+MUST be zero; nonzero padding is invalid.
+
+Implementations MUST reject duplicate, unsorted, out-of-range, non-integer, or
+non-canonical proof values before graph evaluation. A valid proof may expose a
+small number of additional valid cycles. The security property is that a key ID
+cannot be exhibited without a valid proof, and the expected number of key IDs
+per solved graph is `1 + O(1/42)`; strict one-proof-per-key-ID is not claimed.
+
+There is no deployed v0 compatibility path. A change to the profile, graph
+parameters, hash, canonicalization, action tags, or key-ID encoding MUST use a
+new opaque profile token and a separately registered profile.
+
+The remaining algorithm and key-generation text below is retained only as
+historical background. Where it conflicts with `tk.nutra.msc45xx.serverkey.v1`,
+the profile, preimages, object shape, and validation procedure above control.
+
+### FN-DSA implementation background
 
 This MSC defines `fn-dsa-512` as the post-quantum server signing algorithm for
 Matrix federation. It targets FN-DSA-512 (`n=512`, `q=12289`) as specified by
@@ -116,7 +235,7 @@ that preserves verifier safety:
   during migration, and rely on a follow-up MSC or room version before becoming
   mandatory.
 
-## Key minting Proof-of-Work
+## Legacy key minting construction (non-normative)
 
 Homeservers and notaries that support this MSC MUST require a valid
 co-generation proof-of-work for every newly generated FN-DSA key body — the
@@ -468,10 +587,10 @@ Notaries MUST validate the remote server's FN-DSA self-signature for the queried
 `server_name`, recompute and validate the minting-derived `short_key_id` from
 the advertised key body, `server_name`, proof nonce, and canonical proof
 solution, and verify the proof-of-work as specified in
-[Key minting Proof-of-Work](#key-minting-proof-of-work) before attesting to the
-key; if any check fails, the notary MUST NOT include that FN-DSA key in its
-response. Notary responses are themselves signed objects; notaries that support
-this MSC MUST include FN-DSA signatures on their responses.
+[profile-bound key minting](#canonical-key-object) before attesting to the key;
+if any check fails, the notary MUST NOT include that FN-DSA key in its response.
+Notary responses are themselves signed objects; notaries that support this MSC
+MUST include FN-DSA signatures on their responses.
 
 Before attesting to an FN-DSA key, a notary MUST also check its retained
 observations for the same `(server_name, algorithm, short_key_id)` with a
@@ -806,7 +925,7 @@ Field semantics:
   learned of earlier, per its own `first_observed_ts`.
 - `key_id` in each observation is the unpadded base64url-encoded full key
   identifier for that key body, derived as specified in
-  [Key minting Proof-of-Work](#key-minting-proof-of-work).
+  [profile-bound key minting](#canonical-key-object).
 - `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest
   of that observation's origin `/_matrix/key/v2/server` response, after Matrix
   Canonical JSON serialization with `signatures` and `unsigned` removed,
