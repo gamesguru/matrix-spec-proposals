@@ -111,7 +111,7 @@ $$
 
 **Proof.** Set the requester's set to the empty set. The responder's message
 must distinguish every possible `d`-element responder set, so the message map
-must be injective over `\binom{2^\ell}{d}` possibilities. Therefore
+must be injective over $$\binom{2^\ell}{d}$$ possibilities. Therefore
 
 $$
 M \geq \log_2 {2^\ell \choose d}.
@@ -338,8 +338,8 @@ $$
 
 field multiplications in the bounded decoder. A local work budget therefore sets
 a practical direct-decode capacity; the profile's `k=64` cap is the wire and
-local-policy boundary used by MSC0503. Given an estimate `\widehat{\Delta}` and
-a per-bucket safe occupancy `\lambda`, choose the bucket depth
+local-policy boundary used by MSC0503. Given an estimate $$\widehat{\Delta}$$
+and a per-bucket safe occupancy $$\lambda$$, choose the bucket depth
 
 $$
 d=\left\lceil\log_2\left(\frac{\widehat{\Delta}}{\lambda}\right)\right\rceil,
@@ -470,7 +470,7 @@ r=(1-q)^f.
 $$
 
 After `R` independent rounds, the failure probability is `r^R`, and therefore
-the number of rounds needed to achieve failure probability at most `\delta` is
+the number of rounds needed to achieve failure probability at most $$\delta$$ is
 
 $$
 R \geq
@@ -500,7 +500,7 @@ for adaptive fanout rather than treating `f` as a universal constant.
 
 ### Corollary 10.1: minimum fanout
 
-For a target of at most `\delta` failure after `R` rounds, fanout must satisfy
+For a target of at most $$\delta$$ failure after `R` rounds, fanout must satisfy
 
 $$
 f \geq
@@ -518,8 +518,8 @@ resampled model, fanout and rounds trade off through `fR`.
 ### Corollary 10.2: polling-period budget
 
 If a repair must complete within time `T` with failure probability at most
-`\delta`, and each round takes at most `P_r` seconds including polling,
-transfer, and validation, then choosing `R=\lfloor T/P_r\rfloor` requires
+$$\delta$$, and each round takes at most `P_r` seconds including polling,
+transfer, and validation, then choosing $$R=\lfloor T/P_r\rfloor$$ requires
 
 $$
 f \geq
@@ -529,7 +529,7 @@ $$
 This equation should drive operational choices. A shorter polling period helps
 detection, but increases request load; a larger fanout helps contact
 probability, but increases per-round work. Neither parameter has a
-protocol-universal minimum independent of `q`, `T`, and `\delta`.
+protocol-universal minimum independent of `q`, `T`, and $$\delta$$.
 
 ### Corollary 10.3: adaptive fanout
 
@@ -554,7 +554,7 @@ $$
 H(p)=-\sum_{i=1}^{N}p_i\log_2 p_i.
 $$
 
-Uniform selection has maximum entropy `\log_2 N`. Hub-weighted selection has
+Uniform selection has maximum entropy $$\log_2 N$$. Hub-weighted selection has
 lower entropy and can improve freshness or availability, but it concentrates the
 failure surface. The uniform-floor policy
 
@@ -574,7 +574,7 @@ $$
 p_M=(1-\varepsilon)W_M+\varepsilon\mu,
 $$
 
-where `W_M` is their weighted share and `\mu=|M|/N` their population share.
+where `W_M` is their weighted share and $$\mu=|M|/N$$ their population share.
 Substituting `p_M` into Theorem 8 gives the eclipse tail. Entropy and the
 eclipse bound measure different properties: high entropy discourages
 concentration, while the tail bound states the probability that all selected
@@ -597,7 +597,7 @@ $$
 p_i=(1-\varepsilon)w_i\widehat h_i+\frac{\varepsilon}{N},
 $$
 
-where `\widehat h_i` is a normalized liveness estimate.
+where $$\widehat h_i$$ is a normalized liveness estimate.
 
 ## 11. Information and Polling Floors
 
@@ -624,7 +624,7 @@ $$
 \Lambda_j=\sum_i R_{ij}\frac{f_i}{P_i}w_{ji}.
 $$
 
-Operators should enforce an inbound capacity bound `\Lambda_j\le C_j` through
+Operators should enforce an inbound capacity bound $$Lambda_j\le C_j$$ through
 advertised minimum periods, `Retry-After`, or admission control. This is why the
 polling period usually dominates hub load: increasing `f` improves repair
 probability, while decreasing `P` multiplies every room's request rate.
