@@ -214,7 +214,11 @@ bucket localization, or abandoning the comparison.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
-difference.
+difference. Strata summaries accurately estimate the residual only when both
+sides use the same validated frame, stratum assignment, hash mapping, and
+coordinate order. If any of those boundaries shift, the estimate is meaningless.
+A server MUST NOT estimate or subtract across differing frames; the estimator
+MUST NOT substitute for or override frame validation.
 
 ## Decode and verification
 
@@ -278,6 +282,21 @@ concurrently during the round trip.
 If decode fails at `k`, retry at larger `k` up to the cap, or request a bucket
 summary to localize a two-sided difference. Because sketches subtract, a retry
 at higher capacity is a continuation of the same comparison, not a restart.
+Additive extension is valid only when the syndrome coordinates are strictly
+prefix-compatible: the frame anchor, hash mapping, field size, and coordinate
+order MUST remain unchanged. If no compatible frame exists, peers MUST perform
+frame discovery or backfill before retrying.
+
+The escalation sequence is:
+
+1. Validate the frame and abort, or use topology backfill, if the frame anchor
+   does not match.
+2. Execute the compact `algebraic_v1` exchange.
+3. Resolve small over-capacity differences by additive syndrome extension.
+4. Isolate failures independently through bucket-level extraction.
+5. For large or extreme differences beyond the profile's bounded capacities,
+   return an explicit capability-required response for a separately negotiated
+   rateless profile. That profile is not defined by `algebraic_v1`.
 
 ## Resident structure
 
@@ -367,9 +386,16 @@ for the common no-difference path.
 group-valued family and remove the need to choose capacity up front. This
 profile keeps BCH/PinSketch-style syndromes as the baseline because they are
 more compact per unit of extraction capacity, extend additively, and can be
-maintained cheaply in the resident bucket array. A future profile MAY define a
-rateless encoding for large or heavy-tailed differences; the two are
-complementary rather than competing.
+maintained cheaply in the resident bucket array.
+
+A future profile MAY define a rateless encoding for large or heavy-tailed
+differences. Such a fallback cannot be a zero-state, infinitely maintained
+extension of the resident kernel. In an adversarial federation environment it
+MUST define its own wire format with signed fixed-width count semantics,
+overflow bounds, checksum and domain separation, chunk authentication, explicit
+negotiated materialization limits such as finite prefixes, and a termination
+rule. It remains a separately negotiated capability rather than a partial
+implementation within `algebraic_v1`.
 
 **Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
 monoid: it supports membership tests but not subtraction. See the MSC0501
