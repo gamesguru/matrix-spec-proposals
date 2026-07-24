@@ -18,9 +18,27 @@ exchange less than 25 KiB in total, excluding event bodies. Larger differences
 require bucket-capacity escalation or a frame-extension and bulk-retrieval
 protocol; they are not guaranteed to remain within these latency or wire-size
 bounds, and above these limits additional MSCs with better asymptotic complexity
-may be preferred. The extraction decoder has approximately $O(k^2 \log k)$
-field-operation complexity, where `k` is the configured capacity; bucketed
-decoding reduces the effective `k` for each sub-problem.
+may be preferred. The extraction decoder has approximately
+
+$$
+O(k^2 \log k)
+$$
+
+field-operation complexity, where `k` is the configured capacity. With `b`
+buckets and per-bucket capacities `k_i`, bucketed decoding has total cost
+
+$$
+\sum_{i=1}^{b} O\!\left(k_i^2 \log k_i\right).
+$$
+
+For a balanced difference of size `\Delta`, each bucket has approximately
+`\Delta / b` elements, giving total cost
+
+$$
+O\!\left(\frac{\Delta^2}{b}\log\frac{\Delta}{b}\right),
+$$
+
+up to bucket imbalance and capacity overhead.
 
 `algebraic_v1` is a coordinated algebraic ladder. The resident bucket syndromes,
 strata estimator, and extraction sketch are views of one syndrome map. Separate
