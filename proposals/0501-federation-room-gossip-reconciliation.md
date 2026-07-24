@@ -138,17 +138,22 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `strata`                 | [string]           | No       | Optional 32-entry strata estimator, per MSC0503. Each entry is a base64url-encoded 64-byte sketch.                                         |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
-| `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                                  |
-| `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                                 |
+| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                  |
+| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                 |
 
 <!-- markdownlint-enable MD013 -->
 
 #### The digested population
 
-The digest covers the known event identifier set `K = Acc ∪ Rej`, where `Acc` is
-the accepted event set and `Rej` is the set of locally rejected event
-tombstones, restricted to the negotiated frame. Soft-failed events are stored
-events and are therefore in `K`; their soft-fail status is not part of
+The digest covers the known event identifier set
+
+$$
+K_\Phi = \mathrm{Acc}\Phi \cup \mathrm{Rej}\Phi,
+$$
+
+where `Acc` is the accepted event set and `Rej` is the set of locally rejected
+event tombstones, restricted to the negotiated frame. Soft-failed events are
+stored events and are therefore in `K`; their soft-fail status is not part of
 reconciliation.
 
 Given that population, `digest` and `known_event_count` are exactly the level-0
