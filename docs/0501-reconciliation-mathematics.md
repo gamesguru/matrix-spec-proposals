@@ -306,6 +306,14 @@ $$
 This estimate is advisory and is used to choose direct extraction versus bucket
 localization; frame equality remains a prerequisite for every subtraction.
 
+The occupancy and fanout equations below have the same algebraic shape. In this
+section, the per-trial rate `1/b` is known and the number of trials `Delta` is
+estimated from the observed empty fraction. In Section 11.1, the useful-peer
+rate `q` is measured and the number of trials per round, `f`, is selected to
+meet a failure target. Both follow by taking logarithms of a repeated-survival
+probability; they are the same inversion applied to bucket occupancy and peer
+contact respectively.
+
 ### 6.2 Poisson provisioning bound
 
 Under the independent bucket approximation, a bucket has occupancy
