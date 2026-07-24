@@ -59,10 +59,10 @@ incompletely, and servers restart mid-transaction. The result is _Swiss cheese_:
 two servers whose event sets differ by a small, arbitrarily-distributed set of
 holes, with no topological hint as to where the holes are.
 
-MSC0501 proposes to repair this with a digest exchange: an $O(1)$ XOR
-accumulator (`room_xor_sum`) as an ETag for the agreement case, and a windowed
-Bloom filter over the most recent 5,000 events for the disagreement case, backed
-by a bounded graph walk.
+MSC0501 proposes to repair this with a digest exchange: a 16-byte accumulator
+as an agreement check, plus `algebraic_v1` sketch/estimator layers (MSC0503) to
+localize and extract small symmetric differences over the room's known-event set,
+with loud decode failure and bounded fallbacks when differences are large.
 
 ### 1.2 The question this paper answers
 
