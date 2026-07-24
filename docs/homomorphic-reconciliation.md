@@ -816,22 +816,22 @@ is no longer the only thing standing between the room and a retry storm.
 ## 12. Summary of the argument
 
 1. Digests are homomorphisms. Group-valued ones subtract; semilattice-valued
-   ones do not. (Thm 1)
+   ones do not. (Theorem 1)
 2. Everything except the Bloom filter is one object, $\sigma_k$, at different
    truncations. Extension is incrementing $k$; the ETag is $\sigma_1$; the
-   verifier is free. (Thm 2)
+   verifier is free. (Theorem 2)
 3. Bloom's $\Theta(n)$ cost, silent misses, and non-extensibility are
    corollaries of non-invertibility, not tuning problems. (Cor 1.1–1.3)
 4. The capacity cliff is an information-theoretic necessity. Every correct
-   protocol is adaptive. (Thm 3)
+   protocol is adaptive. (Theorem 3)
 5. Protocols therefore differ in _how_ they adapt: additively, destructively, or
    silently. Only silence is not self-correcting. (Cor 3.1)
 6. On a causal graph, exact recovery preserves closure and arbitrary partial
    recovery does not — so silence is not merely inefficient, it produces
-   unusable batches. (Thm 5)
+   unusable batches. (Theorem 5)
 7. A windowed probabilistic filter has absorbing failure states and is not
    self-stabilizing. A full-frame group digest with loud additive failure and
-   ergodic sampling is. (Thm 6, 7)
+   ergodic sampling is. (Theorems 6 and 7)
 8. $\Delta$ need not be guessed. Bucket counts bound it deterministically and
    exactly in the one-sided case; occupancy estimates it in the two-sided case.
    (Prop 2, §7.2)
