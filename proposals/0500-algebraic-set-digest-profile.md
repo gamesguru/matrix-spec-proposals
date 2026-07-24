@@ -391,19 +391,24 @@ size to decode successfully. `algebraic_v1` requires exactly one field element
 per unit of capacity, making it cheaper to maintain in the resident bucket
 array.
 
-**Rateless IBLT (RIBLT).** Rateless variants remove the need to choose capacity
-up front. A future profile MAY define a rateless encoding for large or
-heavy-tailed differences. Such a fallback cannot be a zero-state, infinitely
-maintained extension of the resident kernel. In an adversarial federation
-environment it MUST define its own wire format with signed fixed-width count
+**Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
+capacity up front while staying group-valued, but securing them against an
+adversarial peer requires their own wire format: signed fixed-width count
 semantics, overflow bounds, checksum and domain separation, chunk
 authentication, explicit negotiated materialization limits such as finite
-prefixes, and a termination rule. It remains a separately negotiated capability
-rather than a partial implementation within `algebraic_v1`.
+prefixes, and a termination rule — on top of a second decoder implementation
+distinct from PinSketch. MSC0501 instead handles heavy-tailed differences with
+`bloom_v1` (below), which reuses this profile's existing `D(e)` digest and needs
+no new decoder, accepting probabilistic rather than exact recovery in exchange.
 
-**Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
-monoid: it supports membership tests but not subtraction. See the MSC0501
-architecture note for the full argument.
+**Bloom filters.** Rejected as a replacement for the baseline: a Bloom filter is
+a homomorphism into an idempotent monoid, so it supports membership tests but
+not subtraction. MSC0501 defines `bloom_v1`, a separately negotiated
+`digest_type` used only past this profile's capacity limit, gated by an
+extremity-convergence precondition and a mandatory exact-recovery termination
+rule. Like RIBLT, it is not a partial extension of `algebraic_v1`. See the
+MSC0501 architecture note and the `bloom_v1` heavy-tail fallback section of
+MSC0501 for the full argument.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
 higher per-update cost. Appropriate where accumulator evidence must be

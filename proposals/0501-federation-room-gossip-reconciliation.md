@@ -373,27 +373,31 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                       | Type     | Required                | Description                                                                                                                                                                                                                               |
-| --------------------------- | -------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes                     | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                      |
-| `scope`                     | string   | No                      | `event_set` (default), or `resolved_state`. The latter compares resolved state event IDs at `state_at` and is never a state-map adoption mechanism.                                                                                       |
-| `state_at`                  | string   | If scope=resolved_state | Common event ID at which both servers resolve state. It MUST be in the negotiated frame.                                                                                                                                                  |
-| `local_extremity_event_ids` | [string] | If mode=extremity       | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                  |
-| `have_event_ids`            | [string] | If mode=extremity       | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                       |
-| `frame_negotiation`         | bool     | No                      | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                              |
-| `frame_event_ids`           | [string] | If frame negotiation    | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                      |
-| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                       |
-| `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                     |
-| `digest_type`               | string   | If mode=sketch          | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                             |
-| `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                       |
-| `sketch_capacity`           | integer  | If mode=sketch          | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 64 on the wire.                                                                                                                                                    |
-| `local_sketch`              | string   | If mode=sketch          | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, capacity, and optional bucket selection.                                                                                                    |
-| `buckets`                   | [object] | No                      | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` and positive `capacity`. Entries MUST have strictly increasing `bucket_id` values; duplicates and non-increasing IDs MUST be rejected before subtraction. |
-| `bucket_count`              | integer  | No                      | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                                                                                                |
-| `include_bucket_summary`    | bool     | No                      | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                                                                                                     |
-| `max_depth_delta`           | integer  | No                      | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                       |
-| `max_events`                | integer  | No                      | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                          |
-| `limit`                     | integer  | No                      | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                         |
+| Field                       | Type     | Required                                      | Description                                                                                                                                                                                                                                                                                                            |
+| --------------------------- | -------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes                                           | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                   |
+| `scope`                     | string   | No                                            | `event_set` (default), or `resolved_state`. The latter compares resolved state event IDs at `state_at` and is never a state-map adoption mechanism.                                                                                                                                                                    |
+| `state_at`                  | string   | If scope=resolved_state                       | Common event ID at which both servers resolve state. It MUST be in the negotiated frame.                                                                                                                                                                                                                               |
+| `local_extremity_event_ids` | [string] | If mode=extremity, or if digest_type=bloom_v1 | The requesting server's current forward extremities. In `extremity` mode, included in the `have` set for the merge-base walk. In `sketch` mode with `digest_type=bloom_v1`, this is the precondition check the responder uses to confirm both peers already agree on the frontier; see `bloom_v1` heavy-tail fallback. |
+| `have_event_ids`            | [string] | If mode=extremity                             | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                    |
+| `frame_negotiation`         | bool     | No                                            | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                           |
+| `frame_event_ids`           | [string] | If frame negotiation                          | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                   |
+| `frame_id`                  | string   | If mode=sketch                                | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                    |
+| `local_digest`              | string   | If mode=sketch                                | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                  |
+| `digest_type`               | string   | If mode=sketch                                | The digest profile used. One of `algebraic_v1` or `bloom_v1`. Servers MUST support `algebraic_v1`; `bloom_v1` MAY be negotiated as the capacity-exceeded heavy-tail fallback, see below.                                                                                                                               |
+| `local_known_event_count`   | integer  | If mode=sketch                                | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                    |
+| `sketch_capacity`           | integer  | If mode=sketch, digest_type=algebraic_v1      | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 64 on the wire.                                                                                                                                                                                                                                 |
+| `local_sketch`              | string   | If mode=sketch, digest_type=algebraic_v1      | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, capacity, and optional bucket selection.                                                                                                                                                                                 |
+| `salt`                      | string   | If digest_type=bloom_v1                       | Base64url-encoded 8-byte value, generated fresh and uniformly at random for this round. MUST NOT be reused across rounds.                                                                                                                                                                                              |
+| `bloom_k`                   | integer  | If digest_type=bloom_v1                       | Number of hash rounds used to set/test bits in the filter.                                                                                                                                                                                                                                                             |
+| `bloom_m`                   | integer  | If digest_type=bloom_v1                       | Bit array size. MUST NOT exceed the negotiated ceiling (default 4 MiB, max 16 MiB, expressed in bits).                                                                                                                                                                                                                 |
+| `bit_array`                 | string   | If digest_type=bloom_v1                       | Base64url-encoded, byte-padded bit array, provisioned by the peer with the smaller `local_known_event_count` for the frame.                                                                                                                                                                                            |
+| `buckets`                   | [object] | No                                            | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` and positive `capacity`. Entries MUST have strictly increasing `bucket_id` values; duplicates and non-increasing IDs MUST be rejected before subtraction.                                                                              |
+| `bucket_count`              | integer  | No                                            | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                                                                                                                                                                             |
+| `include_bucket_summary`    | bool     | No                                            | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                                                                                                                                                                                  |
+| `max_depth_delta`           | integer  | No                                            | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                    |
+| `max_events`                | integer  | No                                            | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                       |
+| `limit`                     | integer  | No                                            | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                      |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -543,6 +547,9 @@ merge-base within the first few hundred events of its backward walk.
 
 #### `sketch` mode
 
+This subsection describes `digest_type: "algebraic_v1"` processing; see
+`bloom_v1` heavy-tail fallback below for `digest_type: "bloom_v1"`.
+
 The responding server:
 
 1. Validates that `digest_type` is `algebraic_v1`, `local_digest` is exactly 16
@@ -583,6 +590,77 @@ indicate a two-sided difference; they are not sent on the common one-sided lag
 path. After receiving one, a requester MAY issue another `sketch` request with
 `buckets` limited to the differing buckets and per-bucket capacities derived
 from the bucket count residuals.
+
+#### `bloom_v1` heavy-tail fallback
+
+`bloom_v1` is a non-algebraic `digest_type` for `sketch` mode, used only after
+`algebraic_v1` reports `sketch_status: "capacity_exceeded"`. It trades exact
+recovery for brute-force scale: a peer with a smaller known-event count for the
+frame provisions a salted Bloom filter over its own population, and the other
+peer scans its local set against it, at O(known set size) cost instead of
+decoding a bounded syndrome.
+
+**Precondition.** `bloom_v1` MUST NOT be used unless both peers already agree on
+the frontier. The request MUST include `local_extremity_event_ids`. The
+responder MUST compare it against its own current forward extremities at
+request-processing time and reject the request with `M_EXTREMITY_DIVERGENCE` if
+they do not match exactly. This check is self-contained per request; it does not
+depend on the outcome of any prior call. Requiring frontier agreement first
+ensures the "interior" population `bloom_v1` digests is identical on both sides
+— without it, the two peers could silently provision filters over different
+populations.
+
+**Provisioning.** The requester MUST size the filter from its strata-estimated
+difference `Δ`, not from the raw population, targeting a bounded expected miss
+count (`p × Δ`) rather than an abstract false-positive rate. `bloom_m` MUST NOT
+exceed the negotiated ceiling (default 4 MiB, max 16 MiB, expressed in bits).
+`bloom_k` is derived as `round((bloom_m / n) * ln 2)`, where `n` is the size of
+the population inserted into the filter.
+
+**Hash derivation.** Let `D(e)` be the MSC0500 canonical digest and `salt` an
+8-byte value chosen fresh, uniformly at random, for every round:
+
+```text
+H       = SHA3-256(salt || D(e))
+h_1(e)  = H[0..8]   (first 8 bytes, big-endian unsigned integer)
+h_2(e)  = H[8..16]  (next 8 bytes, big-endian unsigned integer)
+h_i(e)  = (h_1(e) + i * h_2(e)) mod bloom_m,  for i in 0..bloom_k-1
+```
+
+This reuses the digest primitive `algebraic_v1` already requires; no auxiliary
+hash function is introduced. A fresh salt every round is REQUIRED, not optional
+— reusing a salt makes any masked event's collision deterministic across rounds,
+which breaks the convergence argument below entirely.
+
+**Exchange.** The peer with the smaller `local_known_event_count` for the frame
+provisions the `bloom_m`-bit array (little-endian, zero-padded to a byte
+boundary, base64url-encoded as `bit_array`), sets each of `h_0(e)..h_{k-1}(e)`
+for every element of its known set, and sends `salt`, `bloom_k`, `bloom_m`, and
+`bit_array`. The other peer tests each of its own elements against the filter;
+any element for which some bit is unset is returned in `missing_event_ids`.
+
+**`missing_event_ids` is probabilistic under `bloom_v1`**, unlike the exact
+extraction `algebraic_v1` provides. An element that collides on all `bloom_k`
+bits is silently omitted even though it may be genuinely missing. Causal closure
+(below) recovers most, but not all, of these: if the omitted element has a
+descendant that later needs to be admitted, that descendant's `prev_events`
+reference fails to resolve locally, forcing an explicit `room_events` fetch that
+recovers the missing ancestor. This does not apply to events with no descendant
+— the current forward extremities are excluded by the precondition above, but
+the tips of rejected or superseded forks remain in the digested population
+(`K = E_accepted ∪ E_rejected`) and may never acquire a descendant. For those,
+causal closure provides no backstop.
+
+**Termination rule.** Because `bloom_v1` recovery is probabilistic, it MUST NOT
+be relied on indefinitely. A requester MUST cap `bloom_v1` retries at 5 rounds
+per reconciliation attempt, MUST use a fresh `salt` on every round, and MUST
+track the strata-estimated `Δ` across rounds. If `Δ` fails to strictly decrease
+across two consecutive rounds, or the retry cap is reached with `Δ` nonzero, the
+requester MUST abandon `bloom_v1` and fall back to `algebraic_v1` bucket
+localization (`include_bucket_summary`) or full `/backfill`. `bloom_v1` is a
+scale optimization layered on an exact mechanism, not a replacement for one: the
+termination rule, not the causal-closure property, is what bounds the residual
+risk of a permanently missed event.
 
 #### Causal closure and truncation
 
@@ -895,12 +973,18 @@ architecture note. Summary of the conclusions:
   problem when it is a graph repair problem; it also requires persistent
   auxiliary state and adds write amplification. It remains available later as a
   separate `digest_type`.
-- **Bloom filters** are not group-valued: peers cannot subtract them, false
-  positives are silent in the reconciliation direction, and a larger filter
-  restarts rather than extends an exchange.
-- **RIBLT** is in the same group-valued family and is a plausible future
-  profile, but syndrome sketches are more compact for the small one-sided
-  differences expected to dominate.
+- **Bloom filters** are not group-valued and are rejected for the baseline:
+  peers cannot subtract them, false positives are silent, and a larger filter
+  restarts rather than extends an exchange. They are adopted as `bloom_v1`, a
+  separately negotiated heavy-tail fallback used only past `algebraic_v1`'s
+  capacity limit, gated by an extremity-convergence precondition and a mandatory
+  exact-recovery termination rule; see `bloom_v1` heavy-tail fallback above.
+- **RIBLT** is in the same group-valued family as PinSketch and would preserve
+  exact recovery, but requires its own wire format (signed counts, overflow
+  bounds, chunk authentication, a termination rule) and a second decoder to be
+  safe against an adversarial peer. `bloom_v1` reuses the existing digest
+  primitive and sketch endpoint instead, at the cost of exactness; that tradeoff
+  is what this MSC adopts for the heavy-tail case.
 - **Push reconciliation** creates O(servers²) traffic and forfeits the natural
   self-rate-limiting of pull.
 
@@ -944,6 +1028,12 @@ whose aggregate capacity exceeds 4096, oversized decoded responses, oversized
 bucket summaries, and requests exceeding per-peer or per-room CPU budgets.
 Servers SHOULD reject requests whose `local_known_event_count` is grossly
 inconsistent with the supplied accumulator history or negotiated frame.
+
+The same applies to `bloom_v1`: servers MUST reject `bloom_m` above the
+negotiated ceiling (default 4 MiB, max 16 MiB), MUST reject a `bit_array` whose
+decoded length does not match `bloom_m`, and MUST reject a request that reuses a
+`salt` already seen from that peer for the same frame, which would otherwise let
+a peer force deterministic, non-decaying false positives across rounds.
 
 ### Depth manipulation
 

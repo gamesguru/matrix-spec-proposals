@@ -170,16 +170,42 @@ emerges, Merkle reconciliation can be introduced later as a separate
 
 ### 3.3 Bloom filters
 
-Covered in §1. Rejected for the baseline because they are not group-valued.
+Rejected for the baseline for the reasons in §1: not group-valued, so no
+subtraction, false positives silent in the reconciliation direction, and a
+resized filter restarts rather than extends an exchange.
 
-### 3.4 IBLT and RIBLT alternatives
+Accepted as `bloom_v1`, a separately negotiated `digest_type` used only when
+`algebraic_v1` reports `capacity_exceeded`. Three changes make that tradeoff
+acceptable there in a way it is not for the baseline:
+
+1. **Extremity convergence is a precondition, not an assumption.** `bloom_v1`
+   MUST NOT be negotiated until both peers' forward extremities already match,
+   enforced per-request by the responder rather than inferred from a prior call.
+   This guarantees both peers digest the same "interior" population — without
+   it, the filters would silently cover different sets.
+2. **Causal closure recovers most, not all, silent misses.** If a masked
+   interior event has a live descendant, admitting that descendant fails closure
+   and forces an explicit fetch of the missing ancestor. This does not apply to
+   events with no descendant: forward extremities are excluded by the
+   precondition above, but rejected or superseded fork tips remain in `K` and
+   can still be silently missed, with no backstop from the graph.
+3. **A mandatory termination rule, not the causal-closure property, bounds the
+   residual risk.** Retries are capped, each round uses a fresh salt, and if the
+   strata-estimated delta does not strictly decrease, the requester MUST fall
+   back to `algebraic_v1` bucket localization or full backfill. `bloom_v1` is a
+   scale optimization layered on an exact mechanism, not a standalone
+   replacement for one.
+
+The hash derivation reuses MSC0500's `D(e)` rather than introducing a new
+primitive: `h_1, h_2` are the two halves of `SHA3-256(salt ‖ D(e))`, combined by
+standard double hashing. No auxiliary hash function is required.
+
+### 3.4 IBLT and RIBLT
 
 Invertible Bloom Lookup Tables (IBLT) can recover missing IDs directly from the
-digest exchange. Rateless variants (RIBLT) remove the need to choose capacity up
-front, which is a genuine advantage over fixed-capacity syndromes.
-
-Both are in the same group-valued family as PinSketch, making this a choice
-between siblings rather than a rejection on principle. MSC0501 keeps
+digest exchange. Both fixed-capacity IBLT and its rateless variant (RIBLT) are
+in the same group-valued family as PinSketch, making the fixed-capacity choice a
+decision between siblings rather than a rejection on principle. MSC0501 keeps
 BCH/PinSketch-style syndromes as the baseline because of density. An IBLT cell
 requires a `count`, an `id_sum`, and a `hash_sum` checksum, and the table must
 be provisioned at approximately 1.35x to 1.5x the expected difference. PinSketch
@@ -187,14 +213,18 @@ requires exactly one field element per unit of extraction capacity. Because
 normal federation repair is dominated by small, one-sided differences, density
 and resident-memory efficiency are more important than avoiding capacity limits.
 
-Future profiles may define a rateless encoding for heavy-tailed differences
-where the difference size far exceeds practical bucket bounds. A deployment
-routinely exceeding capacity 64 is a deployment that should eventually have a
-rateless option. However, RIBLT requires strict limits to be safe: signed
-fixed-width counts, overflow bounds, authenticated chunks, and finite memory
-prefixes. Because these adversarial defenses add substantial specification and
-implementation complexity, rateless streaming is deferred to a future profile
-rather than made a mandatory baseline.
+RIBLT is rejected outright rather than deferred. It would remove the need to
+choose capacity up front while preserving exact, group-valued recovery, which is
+a real advantage over both PinSketch and Bloom filters. But making it safe
+against an adversarial peer requires its own wire format — signed fixed-width
+counts, overflow bounds, authenticated chunks, finite memory prefixes, and a
+termination rule — on top of a second decoder implementation (peeling-cascade,
+distinct from PinSketch's Galois-field decode). MSC0501 instead handles
+heavy-tailed differences with `bloom_v1` (§3.3), which reuses PinSketch's
+existing `D(e)` digest and needs no new decoder at all, at the cost of giving up
+exact recovery for a probabilistic one bounded by an explicit termination rule.
+Keeping the total spec surface to two decoders (PinSketch and a bit-array scan)
+instead of three outweighs RIBLT's exactness advantage for this MSC.
 
 ### 3.5 Server-initiated push
 
