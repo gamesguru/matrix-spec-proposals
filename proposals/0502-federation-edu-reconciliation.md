@@ -77,11 +77,15 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
+<!-- markdownlint-disable MD013 -->
+
 | Parameter  | Type   | Required | Description                                                                                            |
 | :--------- | :----- | :------- | :----------------------------------------------------------------------------------------------------- |
 | `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                        |
 | `since`    | string | No       | Pagination token from previous response. Incremental updates pass `next_batch` from previous response. |
 | `limit`    | int    | No       | Max user entries to return. Default 100, max 1000.                                                     |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
@@ -104,6 +108,8 @@ GET /_matrix/federation/v1/edu_digest
 
 **Fields (response):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                  | Type    | Required | Description                                                                                 |
 | ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------- |
 | `users`                | object  | Yes      | Sorted map of userID-to-version metadata.                                                   |
@@ -111,6 +117,8 @@ GET /_matrix/federation/v1/edu_digest
 | `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes even if version counters drift.   |
 | `next_batch`           | string  | No       | Pagination token. If present, more users are available.                                     |
 | `edu_type`             | string  | Yes      | The EDU type this digest covers.                                                            |
+
+<!-- markdownlint-enable MD013 -->
 
 **Version Semantics:**
 
@@ -167,11 +175,15 @@ POST /_matrix/federation/v1/edu_state
 
 **Fields (request):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field      | Type     | Required | Description                                      |
 | ---------- | -------- | -------- | ------------------------------------------------ |
 | `edu_type` | string   | Yes      | The EDU type to fetch.                           |
 | `user_ids` | [string] | Yes      | User IDs to fetch state for. Max 200 per request |
 |            |          |          | to prevent abuse.                                |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
@@ -201,6 +213,8 @@ POST /_matrix/federation/v1/edu_state
 
 **Fields (response):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field              | Type     | Required | Description                                                        |
 | ------------------ | -------- | -------- | ------------------------------------------------------------------ |
 | `edu_type`         | string   | Yes      | The EDU type.                                                      |
@@ -209,9 +223,13 @@ POST /_matrix/federation/v1/edu_state
 | `states.*.content` | object   | Yes      | The full EDU content body.                                         |
 | `unknown_user_ids` | [string] | Yes      | User IDs from the request that the server does not have state for. |
 
+<!-- markdownlint-enable MD013 -->
+
 ### Supported EDU Types
 
 The following EDU types are eligible for state reconciliation:
+
+<!-- markdownlint-disable MD013 -->
 
 | EDU Type               | Scope         | Reconciliation Strategy                   |
 | ---------------------- | ------------- | ----------------------------------------- |
@@ -222,6 +240,8 @@ The following EDU types are eligible for state reconciliation:
 |                        |               | -once delivery; cannot be replayed)       |
 | `m.typing`             | Per-user-room | NOT reconcilable (inherently transient;   |
 |                        |               | stale within seconds)                     |
+
+<!-- markdownlint-enable MD013 -->
 
 **Per-user-room scoping (receipts):**
 
@@ -419,10 +439,14 @@ version.
 The following mapping will be used for identifiers in this MSC during
 development:
 
+<!-- markdownlint-disable MD013 -->
+
 | Proposed final identifier           | Development identifier                                       |
 | ----------------------------------- | ------------------------------------------------------------ |
 | `/_matrix/federation/v1/edu_digest` | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_digest` |
 | `/_matrix/federation/v1/edu_state`  | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_state`  |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Dependencies
 
