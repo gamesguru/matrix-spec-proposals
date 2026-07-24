@@ -58,13 +58,15 @@ MSC0503 defines a coordinated algebraic ladder with separate layers:
 sigma_k(S) = (sum h(e), sum h(e)^3, ..., sum h(e)^(2k-1))
 ```
 
-The 256-bucket summary, strata estimator, and extraction sketch are views of the
-syndrome construction. The 128-bit accumulator is a separate XOR accumulator
-over `h_128`, coordinated with that syndrome layer as an integrity anchor. They
-are not literally one map evaluated at different widths. This is why the
-resident structure is 23 KiB rather than four separate indices, and why a peer
-can escalate from "are we different?" through "how different?" to "which
-elements differ?" without recomputing the population from storage.
+The resident bucket syndromes, strata estimator, and extraction sketch are views
+of the syndrome construction. The wire bucket summary instead exposes
+coordinated per-bucket `h_128` XOR accumulators and counts. The 128-bit room
+accumulator is also a separate XOR accumulator over `h_128`, coordinated with
+the syndrome layer as an integrity anchor. These are not literally one map
+evaluated at different widths. This is why the resident structure is 23 KiB
+rather than four separate indices, and why a peer can escalate from "are we
+different?" through "how different?" to "which elements differ?" without
+recomputing the population from storage.
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: `s_{2i} = s_i^2`. This halves the wire cost for free.
