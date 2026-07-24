@@ -52,18 +52,19 @@ accumulator over a whole frame never forgets.
 
 ### The truncation ladder
 
-MSC0503 defines one syndrome map and reads it at four widths:
+MSC0503 defines a coordinated algebraic ladder with separate layers:
 
 ```text
 sigma_k(S) = (sum h(e), sum h(e)^3, ..., sum h(e)^(2k-1))
 ```
 
-The 128-bit accumulator, the 256-bucket summary, the strata estimator, and the
-extraction sketch are truncations of that single construction, not four
-independent mechanisms bolted together. This is why the resident structure is 23
-KiB rather than four separate indices, and why a peer can escalate from "are we
-different?" through "how different?" to "which elements differ?" without
-recomputing anything.
+The 256-bucket summary, strata estimator, and extraction sketch are views of the
+syndrome construction. The 128-bit accumulator is a separate XOR accumulator
+over `h_128`, coordinated with that syndrome layer as an integrity anchor. They
+are not literally one map evaluated at different widths. This is why the
+resident structure is 23 KiB rather than four separate indices, and why a peer
+can escalate from "are we different?" through "how different?" to "which
+elements differ?" without recomputing the population from storage.
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: `s_{2i} = s_i^2`. This halves the wire cost for free.
@@ -304,13 +305,12 @@ both of which it does well. Every returned PDU is still verified independently
 by event ID, hashes, signatures, and authorization rules, which is where the
 actual security guarantee lives.
 
-Two escape hatches exist for deployments that need more. Per-link salting of
-transmitted 64-bit sketches, over already-localized buckets, while keeping
-resident 128-bit accumulators unsalted and shared, raises the cost of targeting
-a specific peer without multiplying resident state. And MSC4511's Ed25519-signed
-overlay attestations provide responder accountability where transferable
-evidence is required. An LtHash-style binding accumulator remains available as a
-future `digest_type` for deployments willing to pay its per-update cost.
+Deployments needing stronger transferable evidence can use MSC4511's Ed25519-
+signed overlay attestations. A future digest profile may define negotiated
+per-link salting for transmitted extraction sketches, but `algebraic_v1` leaves
+that out because its fixed `h_64` mapping is intentionally interoperable. An
+LtHash-style binding accumulator remains available as a future `digest_type` for
+deployments willing to pay its per-update cost.
 
 The same reasoning applies to the ETag. A `304` means the responder's view has
 not changed since the requester last observed it. It does not mean the two

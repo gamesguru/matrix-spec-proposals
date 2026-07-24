@@ -213,11 +213,14 @@ binding. Consumers MUST verify transferred objects by their own rules —
 signatures, hashes, authorization — and MUST NOT treat accumulator agreement as
 evidence of authenticity.
 
-Deployments needing adversarial robustness SHOULD compute transmitted 64-bit
-sketches with a per-link salt over already-localized buckets, while keeping the
-resident 128-bit accumulators unsalted and shared across peers. Deployments
-needing transferable accumulator evidence should look to an LtHash-style profile
-under a future `digest_type` rather than to `algebraic_v1`.
+Deployments needing adversarial robustness MAY define a future profile with
+negotiated per-link salting for transmitted extraction sketches. Such a profile
+MUST specify salt negotiation, salt derivation, the salted identifier mapping,
+and how both sides identify the profile before subtraction. `algebraic_v1`
+defines no salting and its fixed `h_64` mapping MUST remain byte-compatible
+across implementations. Deployments needing transferable accumulator evidence
+should look to an LtHash-style profile under a future `digest_type` rather than
+to `algebraic_v1`.
 
 ## Capacity provisioning
 

@@ -577,13 +577,16 @@ from the bucket count residuals.
 #### Causal closure and truncation
 
 A recovery set can be integrated iff it is downward-closed relative to the
-requester's existing store. Exact set recovery satisfies this for the whole
-difference. A truncated backward walk from the responder's frontier does not: it
-collects descendants before ancestors, so its minimal returned events may still
-have parents in neither the requester's store nor the returned set. Such a walk
-can transfer useful bytes, but it does not repair the DAG until it reaches known
-ancestry. Responders MUST therefore report `truncated: true`, and requesters
-MUST NOT treat a truncated walk as resolving the gap.
+requester's existing store and the returned identifiers have retrievable,
+validated PDUs. Exact set recovery satisfies this for the whole difference only
+when the frame's retained event bodies and required auth-chain dependencies are
+available; a rejected tombstone records knowledge of an ID but cannot itself be
+integrated as an event. A truncated backward walk from the responder's frontier
+does not: it collects descendants before ancestors, so its minimal returned
+events may still have parents in neither the requester's store nor the returned
+set. Such a walk can transfer useful bytes, but it does not repair the DAG until
+it reaches known ancestry. Responders MUST therefore report `truncated: true`,
+and requesters MUST NOT treat a truncated walk as resolving the gap.
 
 **Handling truncation (requesting server).** On `truncated: true`, the requester
 MUST NOT immediately retry an identical request. If the response is non-empty,
@@ -682,10 +685,12 @@ POST /_matrix/federation/v1/room_events/{roomId}
 <!-- markdownlint-enable MD013 -->
 
 **Event ordering.** Events in both `events` and `auth_chain_events` MUST be
-returned in topological order such that for any event E, all events referenced
-by E's `auth_events` and `prev_events` appear earlier in the combined list
-(`auth_chain_events` concatenated with `events`). This allows the requesting
-server to process events in a single pass without dependency resolution.
+returned in topological order. For any event E, each referenced `auth_events` or
+`prev_events` event that is included in the response MUST appear earlier in the
+combined list (`auth_chain_events` concatenated with `events`). References to
+events identified by the requester's `known_event_ids` MAY be omitted from the
+response and need not appear in the combined list. The requester MUST still
+verify that those dependencies are present locally before admitting E.
 
 **Authorization.** Same as `room_digest`. Additionally, the responding server
 MUST NOT return events that the requesting server would not be allowed to see
