@@ -480,7 +480,15 @@ $$
 The bound is about useful-peer availability, not merely graph connectivity. A
 peer can be honest yet lack the relevant frame or PDU. The value of `q` must
 therefore include reachability, frame overlap, and possession of the missing
-data.
+data. More specifically, for a particular missing event, use
+
+$$
+q=q_{\mathrm{reach}}q_{\mathrm{frame}}q_{\mathrm{hold}}.
+$$
+
+This is event-specific, not a fixed property of the network. Implementations
+SHOULD estimate `q` from observed useful-peer hit rates and use that estimate
+for adaptive fanout rather than treating `f` as a universal constant.
 
 ### Corollary 10.1: minimum fanout
 
@@ -493,7 +501,11 @@ $$
 
 This is the meaningful minimum fanout. `f=1` is sufficient for eventual
 convergence when `q>0` and rounds continue forever, but may be unacceptable for
-a finite repair SLO.
+a finite repair SLO. In particular, `N` does not appear in the bound: under
+constant `q`, the minimum fanout is constant as `N` grows and `f/N` tends to
+zero. The familiar `ln N` requirement applies to connectivity of one static
+random graph, not to anti-entropy that resamples peers over many rounds. In the
+resampled model, fanout and rounds trade off through `fR`.
 
 ### Corollary 10.2: polling-period budget
 
@@ -510,6 +522,20 @@ This equation should drive operational choices. A shorter polling period helps
 detection, but increases request load; a larger fanout helps contact
 probability, but increases per-round work. Neither parameter has a
 protocol-universal minimum independent of `q`, `T`, and `\delta`.
+
+### Corollary 10.3: adaptive fanout
+
+After observing `H` rounds with `h` useful contacts, an implementation can use
+the smoothed estimate
+
+$$
+\widehat q=\frac{h+1}{H+2}
+$$
+
+and recompute Corollary 10.1 for the remaining repair SLO. Leaves usually
+observe higher hit rates from hubs and can reduce fanout; hubs may observe lower
+hit rates for events held only by small origin servers and should increase
+fanout or lengthen the deadline.
 
 ## 10. Selection Entropy and Hub Concentration
 
@@ -544,7 +570,26 @@ where `W_M` is their weighted share and `\mu=|M|/N` their population share.
 Substituting `p_M` into Theorem 8 gives the eclipse tail. Entropy and the
 eclipse bound measure different properties: high entropy discourages
 concentration, while the tail bound states the probability that all selected
-peers are bad.
+peers are bad. The tail assumes fresh independent selections. Persistent offline
+peers, sticky connections, or an adversary holding a slot violate that
+assumption; peer rotation is therefore required, and the uniform floor must be
+applied over the full peer set rather than only currently live peers.
+
+If an offline fraction `rho` consumes slots persistently, a first-order
+effective fanout approximation is
+
+$$
+f_{\mathrm{eff}}\approx f(1-\rho).
+$$
+
+The same floor serves three purposes: H3 ergodic sampling, eclipse resistance,
+and rediscovery of peers after recovery. A liveness-weighted policy can use
+
+$$
+p_i=(1-\varepsilon)w_i\widehat h_i+\frac{\varepsilon}{N},
+$$
+
+where `\widehat h_i` is a normalized liveness estimate.
 
 ## 11. Information and Polling Floors
 
@@ -562,3 +607,16 @@ Combining this with Corollary 10.2 gives the actual operating region: choose `P`
 and `f` large enough to satisfy the repair target, but keep the aggregate
 request rate below the server and peer capacity. There is no mathematically
 meaningful polling threshold without both a reliability target and a load model.
+
+Hub weighting also concentrates inbound load. For peer `j`, let `w_{ji}` be the
+probability that peer `i` selects `j` in a shared room, and let `R_{ij}` be the
+number of shared active rooms. The inbound rate is
+
+$$
+\Lambda_j=\sum_i R_{ij}\frac{f_i}{P_i}w_{ji}.
+$$
+
+Operators should enforce an inbound capacity bound `\Lambda_j\le C_j` through
+advertised minimum periods, `Retry-After`, or admission control. This is why the
+polling period usually dominates hub load: increasing `f` improves repair
+probability, while decreasing `P` multiplies every room's request rate.
