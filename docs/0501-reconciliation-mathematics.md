@@ -181,7 +181,7 @@ with false-positive probability `\varepsilon`.
 
 ### Proposition 4: expected integrable yield
 
-The expected fraction of returned events that can be integrated immediately is
+The expected fraction of the missing set that is immediately integrable is
 
 $$
 Y = \frac{1}{|D|}\sum_{e\in D}

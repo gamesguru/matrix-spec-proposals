@@ -114,6 +114,16 @@ The event signature covers the canonical signed envelope containing this root:
 }
 ```
 
+An individual proof is self-contained only when it carries this complete
+envelope together with the signature and the signing server identity. The
+verifier MUST canonicalize the envelope with Matrix Canonical JSON, using the
+exact `room_id`, `room_version`, and `event_root` values shown, remove no
+additional fields, and verify the signature over the resulting UTF-8 bytes.
+Implementations MUST NOT infer `room_id` or `room_version` from an outer query
+or accept a proof that omits an envelope member; a deployment that uses trusted
+request context instead MUST specify that context as part of its room-version
+profile.
+
 For room versions adopting this format, a future room-version MSC MUST specify
 how the root signature interacts with, or replaces, existing event authorization
 and verification rules. This keeps the proposal focused on the topology query

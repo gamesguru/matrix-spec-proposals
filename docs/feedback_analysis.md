@@ -1,11 +1,11 @@
 # Unpacking the Detailed Feedback on MSC4499 Test Suite
 
 This analysis walks through every claim in
-[detailed-feedback-001.md](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/detailed-feedback-001.md),
+[detailed-feedback-001.md](https://github.com/matrix-org/complement/blob/main/tests/msc4499/detailed-feedback-001.md),
 cross-references it against the actual
-[MSC4499 text](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md)
+[MSC4499 text](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md)
 and the
-[test code](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/msc4499_key_uniqueness_test.go),
+[test code](https://github.com/matrix-org/complement/blob/main/tests/msc4499/msc4499_key_uniqueness_test.go),
 and gives a verdict on each point.
 
 ---
@@ -20,7 +20,7 @@ and gives a verdict on each point.
 > proposal_ behavior, not current-spec behavior.
 
 The MSC itself acknowledges this in its backwards compatibility section
-([4499-key-caching.md:L404-L415](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L404-L415)):
+([4499-key-caching.md:L404-L415](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L404-L415)):
 
 > _"This proposal is fully backwards-compatible ... No protocol wire changes ...
 > Misconfigured servers experience a clarified failure mode."_
@@ -32,18 +32,18 @@ The feedback is right to flag this distinction.
 ### Claim: Negative caching is not a current-spec requirement
 
 > **Verdict: Correct.** The MSC introduces this at
-> [4499-key-caching.md:L49-L58](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L49-L58)
+> [4499-key-caching.md:L49-L58](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L49-L58)
 > with explicit MUST/SHOULD language. No prior spec mandates exponential backoff
 > for key fetch failures.
 
 ### Claim: Coalescing is a quality-of-implementation property the MSC wants to make normative
 
 > **Verdict: Correct.** The MSC uses SHOULD language at
-> [L55-L57](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L55-L57):
+> [L55-L57](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L55-L57):
 > _"Implementations SHOULD coalesce concurrent outgoing key fetch
 > requests..."_  
 > However, note it's a **SHOULD**, not a MUST. The test
-> [TestKeyFetchCoalescing](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/msc4499_key_uniqueness_test.go#L369-L429)
+> [TestKeyFetchCoalescing](https://github.com/matrix-org/complement/blob/main/tests/msc4499/msc4499_key_uniqueness_test.go#L369-L429)
 > asserts `reqCount > 2` as a failure, which is a reasonable threshold for a
 > SHOULD, but the feedback is correct that this isn't even a hard MUST in the
 > proposal.
@@ -52,14 +52,14 @@ The feedback is right to flag this distinction.
 
 > **Verdict: Partially correct, but needs nuance.** The MSC does codify
 > timestamp-aware key validity at
-> [L254-L263](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L254-L263).
+> [L254-L263](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L254-L263).
 > However, the _existing_ spec already says that `expired_ts` indicates when a
 > key stopped being valid. Whether Dendrite's failure here is a current-spec bug
 > or an MSC4499-only requirement depends on how you interpret the existing
 > spec's language around `old_verify_keys` — but `gomatrixserverlib`'s
 > verification API is indeed timestamp-aware, so if Dendrite isn't using it
 > correctly, that's arguable as a current bug.
-
+>
 > [!IMPORTANT] **Key takeaway from Section 1:** The framing "Synapse fails
 > compliance" is misleading. The accurate statement is "Synapse hasn't
 > implemented a draft proposal." Only Dendrite's historical-event verification
@@ -104,9 +104,10 @@ resp, err := fedClient.Post("https://hs1/_matrix/key/v2/query", "application/jso
 > reuses `bodyBytes` which has `minimum_valid_until_ts: 0`. Since the control
 > case already cached a key valid for 24 hours, the homeserver has zero reason
 > to re-fetch. The mock's `shouldCollide = true` state is never consulted. The
+>
 > test is proving that "Synapse has a cache" — not that "Synapse accepts
 > colliding payloads."
-
+>
 > [!CAUTION] The Synapse intra-payload rejection result should be considered
 > **unproven** until this test is fixed.
 
@@ -126,7 +127,7 @@ resp, err := fedClient.Post("https://hs1/_matrix/key/v2/query", "application/jso
 **Cross-referencing the MSC:**
 
 The MSC at
-[L141-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L141-L147)
+[L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147)
 says:
 
 > _"If a receiving server detects a key ID collision within a single HTTP
@@ -147,10 +148,10 @@ feedback's point is:
 > **Verdict: Valid.** The correct assertion should be content-level: `200`
 > status, and the colliding key **absent** from `server_keys`. The test's
 > non-200 assertion would cause a fully compliant implementation to fail.
-
+>
 > [!WARNING]  
 > This is a spec gap the feedback identifies at
-> [Section 3, L39](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/detailed-feedback-001.md#L39):
+> [Section 3, L39](https://github.com/matrix-org/complement/blob/main/tests/msc4499/detailed-feedback-001.md#L39):
 > the MSC must define "observable rejection semantics per surface."
 
 ### 2c: `TestIntraPayloadRejection` — Mischaracterized Threat Model
@@ -160,7 +161,7 @@ feedback's point is:
 > JSON. It's not a "duplicate JSON key" attack.
 
 **Verifying against the mock code** at
-[L73-L91](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/msc4499_key_uniqueness_test.go#L73-L91):
+[L73-L91](https://github.com/matrix-org/complement/blob/main/tests/msc4499/msc4499_key_uniqueness_test.go#L73-L91):
 
 ```go
 rawJSON := fmt.Sprintf(`{
@@ -189,11 +190,11 @@ rawJSON := fmt.Sprintf(`{
 > object. Every JSON parser handles this identically. The feedback correctly
 > identifies **three distinct threat cases** the MSC needs to distinguish:
 
-| Case  | Description                                                                             | Tested?                                                            | MSC Coverage                                                                                                                                                                                                                                                                             |
-| ----- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **A** | Literal duplicate keys within a single JSON object (raw-bytes parser-divergence attack) | ❌ Not tested (Go maps can't represent it; need hand-crafted JSON) | [L141-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L141-L147) — partially                                                                                                                                                               |
-| **B** | Same key ID in `verify_keys` and `old_verify_keys` with **different** material          | ✅ Currently tested                                                | [L141-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L141-L147) — covered: _"A single key response payload MUST NOT contain multiple different public key bodies for the same key ID (e.g., across `verify_keys` and `old_verify_keys`)"_ |
-| **C** | Same key ID in both maps with **identical** material                                    | ❌ Not tested                                                      | [L144-L145](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L144-L145) — explicitly legal: _"The same key body appearing under one key ID in both `verify_keys` and `old_verify_keys` is legal."_                                                |
+| Case  | Description                                                                             | Tested?                                                            | MSC Coverage                                                                                                                                                                                                                                                                          |
+| ----- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A** | Literal duplicate keys within a single JSON object (raw-bytes parser-divergence attack) | ❌ Not tested (Go maps can't represent it; need hand-crafted JSON) | [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147) — partially                                                                                                                                                               |
+| **B** | Same key ID in `verify_keys` and `old_verify_keys` with **different** material          | ✅ Currently tested                                                | [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147) — covered: _"A single key response payload MUST NOT contain multiple different public key bodies for the same key ID (e.g., across `verify_keys` and `old_verify_keys`)"_ |
+| **C** | Same key ID in both maps with **identical** material                                    | ❌ Not tested                                                      | [L144-L145](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L144-L145) — explicitly legal: _"The same key body appearing under one key ID in both `verify_keys` and `old_verify_keys` is legal."_                                                |
 
 > [!NOTE] The MSC **does** explicitly distinguish cases B and C. The feedback
 > says it needs to — but actually reading the MSC text shows it already does at
@@ -209,7 +210,7 @@ rawJSON := fmt.Sprintf(`{
 > returning `200` with the server omitted.
 
 **Checking the test code** at
-[L218-L221](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/msc4499_key_uniqueness_test.go#L218-L221):
+[L218-L221](https://github.com/matrix-org/complement/blob/main/tests/msc4499/msc4499_key_uniqueness_test.go#L218-L221):
 
 ```go
 // Force re-fetch with minimum_valid_until_ts > cached valid_until_ts
@@ -220,7 +221,7 @@ queryNotary(t, fedClient, "https://hs1", string(originName), string(keyID), minV
 ```
 
 And
-[queryNotary](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/msc4499_key_uniqueness_test.go#L133-L166)
+[queryNotary](https://github.com/matrix-org/complement/blob/main/tests/msc4499/msc4499_key_uniqueness_test.go#L133-L166)
 hard-asserts `foundKey == expectedKeyBase64`.
 
 > **Verdict: Valid.** The test is over-specified. The MSC's actual invariant is
@@ -235,7 +236,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 > assert `foundKey != keyB` (empty or A both acceptable), then follow up with a
 > `minimum_valid_until_ts: 0` query to prove A is still cached (cache wasn't
 > poisoned).
-
+>
 > [!TIP] The feedback's additional suggestion — sending an event signed by key B
 > and asserting rejection — is excellent. It tests the _actual security
 > property_ (event verification) rather than just the proxy (notary endpoint
@@ -248,7 +249,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 ### 3a: Observable rejection semantics per surface
 
 > **Verdict: Valid gap.** The MSC says "MUST be rejected as malformed" at
-> [L146-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L146-L147)
+> [L146-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L146-L147)
 > but doesn't define what "rejected" looks like to the caller of the notary
 > endpoint. This directly caused the test's non-200 assertion problem.
 
@@ -257,7 +258,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 > **Verdict: Partially valid.** As noted above, the MSC _does_ distinguish case
 > B (different material, cross-map → MUST reject) from case C (identical
 > material → legal) at
-> [L141-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L141-L147).
+> [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147).
 > But case A (literal duplicate JSON keys) is not addressed. The MSC says _"or
 > duplicated within the same dictionary"_ at L143, which implies it's aware of
 > the case, but doesn't specify how servers should handle JSON parsers that
@@ -266,7 +267,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 ### 3c: Negative caching as SHOULD with test-observable bounds
 
 > **Verdict: Reasonable suggestion.** The MSC uses MUST at
-> [L49-L51](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L49-L51)
+> [L49-L51](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L49-L51)
 > for the general requirement and specifies backoff parameters ("starting at 1
 > minute, capping at 1 hour"). The suggestion to express test-observable bounds
 > is practical for implementors.
@@ -275,16 +276,16 @@ hard-asserts `foundKey == expectedKeyBase64`.
 
 > **Verdict: Already addressed.** The MSC includes a dedicated "Recovery from
 > key loss" section at
-> [L220-L231](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L220-L231)
+> [L220-L231](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L220-L231)
 > and manual cache eviction at
-> [L239-L251](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L239-L251).
+> [L239-L251](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L239-L251).
 > The feedback may not have seen the full MSC text. The HPKP-style objection is
 > explicitly handled.
 
 ### 3e: Experimental flag gating
 
 > **Verdict: Contradicted by MSC.** The MSC's unstable prefix section at
-> [L391-L396](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L391-L396)
+> [L391-L396](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L391-L396)
 > explicitly states: _"This MSC does not introduce new protocol identifiers and
 > does not require an unstable prefix."_ The rationale is that these are
 > cache-policy changes that don't alter wire format. The feedback's suggestion
@@ -324,7 +325,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 
 1. **Claims MSC doesn't distinguish collision cases B and C** — it does,
    explicitly at
-   [L144-L145](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L144-L145)
+   [L144-L145](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L144-L145)
 2. **Claims MSC doesn't address recovery** — it has dedicated sections on key
    loss recovery and manual cache eviction
 3. **Acknowledges not reading the MSC** — _"I tried to pull the actual MSC4499

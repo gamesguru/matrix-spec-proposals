@@ -1,17 +1,6 @@
-Edited tests.rs
-Ran command: `gs
-On branch guru/feat/msc4499-server-key-caching-facelift
-Your branch is up to date with 'origin/guru/feat/msc4499-server-key-caching-facelift'.
-Untracked files:
-  (use "git add <file>..." to include in what will be committed)
-        tests/msc4499/dendrite-fails.log
-        tests/msc4499/detailed-feedback-001.md
-        tests/msc4499/synapse-fails.log
-nothing added to commit but untracked files present (use "git add" to track)`
-
 Your instinct is right — a SHOULD is too weak for this. Here's why:
 
-**The MSC already says MUST at [L141-L147](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md#L141-L147):**
+**The MSC already says MUST at [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147):**
 
 > *"A single key response payload MUST NOT contain multiple different public key bodies for the same key ID (e.g., across `verify_keys` and `old_verify_keys`, **or duplicated within the same dictionary**) ... the entire response MUST be rejected as malformed."*
 
@@ -21,8 +10,10 @@ So the normative requirement is already MUST reject. The only question is whethe
 2. **The payload is a cryptographic identity document.** This isn't a chat message where leniency is tolerable. It's server signing keys. The bar should be high.
 3. **Detection is cheap.** Every major language has a path:
    - Python: `json.loads(data, object_pairs_hook=check_dupes)` — trivial one-liner
-   - Go: `json.Decoder` token-by-token scan, or a raw-byte regex pre-scan
-   - Rust: `serde_json` with a custom `Visitor`, or a pre-scan
+   - Go: `json.Decoder` token-by-token scan, parser hooks, custom visitors, or
+     equivalent parser configuration
+   - Rust: `serde_json` with a custom `Visitor`, tokenizer hooks, or equivalent
+     parser configuration
 4. **A SHOULD here means "you can skip it."** And if implementors skip it, you get exactly the parser-divergence attack the MSC is trying to prevent — just at a different layer.
 
 **What I'd recommend for the MSC text** (stronger than what was proposed):
@@ -37,7 +28,7 @@ The three changes the MSC still needs are:
 2. **Duplicate JSON key detection** — upgrade from SHOULD to MUST, scoped to key payloads — not yet applied  
 3. **Negative caching bounds** — ✅ already applied
 
-Want me to make both remaining edits to [4499-key-caching.md](file:///run/media/shane/shane4tb-ent/repos/complement/tests/msc4499/4499-key-caching.md)?
+Want me to make both remaining edits to [4499-key-caching.md](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md)?
 
 ---
 

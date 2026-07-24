@@ -31,6 +31,7 @@ leaf set is:
 - `event_id`
 - `room_id`
 - `prev_events`
+- `prev_state_events` (or `null` for room versions that do not support it)
 - `auth_events`
 - `sender_localpart`
 - `sender_domain`
@@ -103,14 +104,16 @@ existing federation signing key:
   "room_id": "!room:example.org",
   "response_root": "base64url_sha3_256_hash",
   "event_count": 42,
-  "origin_server_ts": 1716000000000,
+  "attestation_ts": 1716000000000,
   "fields_version": "msc4511.overlay.v1"
 }
 ```
 
-The signature proves only that the responder made the assertion. It does not
-prove that the asserted values are true, that the event exists, or that the
-event ID is bound to those values by the room version.
+`attestation_ts` is the responder's signing time. It is distinct from the event
+leaf `origin_server_ts` and MUST NOT be substituted for it. The signature proves
+only that the responder made the assertion. It does not prove that the asserted
+values are true, that the event exists, or that the event ID is bound to those
+values by the room version.
 
 `fields_version` identifies the fixed overlay leaf set, tree construction, and
 domain-separation strings together. A verifier MUST reject an overlay proof with
@@ -133,7 +136,7 @@ that commitment:
     "room_id": "!room:example.org",
     "response_root": "base64url_sha3_256_hash",
     "event_count": 42,
-    "origin_server_ts": 1716000000000,
+    "attestation_ts": 1716000000000,
     "fields_version": "msc4511.overlay.v1",
     "signatures": {
       "example.org": {
@@ -289,7 +292,7 @@ stable, authorization-equivalent queries are therefore cacheable in a way that
 linear `/backfill` responses are not: a cached sparse topology answer can remain
 useful even when later room history advances.
 
-Signed overlay attestations include `origin_server_ts` in the signed envelope so
+Signed overlay attestations include `attestation_ts` in the signed envelope so
 contradictory response roots can be ordered approximately in time. The attested
 field set is restricted to event-intrinsic metadata, so an old attestation
 should remain valid evidence that the responder made that assertion at the
@@ -298,7 +301,7 @@ signed timestamp. Responder-local hint fields such as `rejected` and
 can change over time.
 
 For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
-overlay attestations whose signed `origin_server_ts` is more than 24 hours old,
+overlay attestations whose signed `attestation_ts` is more than 24 hours old,
 unless local policy or operator tooling is explicitly evaluating historical
 evidence.
 
@@ -364,7 +367,7 @@ limited period.
 Signed overlay attestations make this evidence transferable. A requester that
 obtains an `overlay_proofs` entry can show a third party that the responding
 server signed a response root containing a particular commitment for
-`(room_id, event_id, fields_version)` at the envelope's `origin_server_ts`. This
+`(room_id, event_id, fields_version)` at the envelope's `attestation_ts`. This
 still does not prove the attested metadata is true, but it does make
 contradictions between responders, or contradictions with a later fetched PDU,
 auditable outside the original requester's local logs.

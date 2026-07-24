@@ -131,7 +131,10 @@ MUST omit `state_commitments` unless a future profile makes state commitments
 mandatory.
 
 The response has content type `application/octet-stream`. The body is not
-Base64-wrapped in JSON. It starts with a 32-bit little-endian manifest length,
+Base64-wrapped in JSON. `manifest_len` MUST be at least 1 and MUST NOT exceed
+`1 MiB` (1,048,576 bytes). Receivers MUST reject zero or oversized values
+before allocating a manifest buffer or reading the declared payload. The body
+starts with a 32-bit little-endian manifest length,
 followed by that many bytes of Matrix canonical JSON response manifest, followed
 by the raw compressed chunk stream for the selected `encoding`:
 
@@ -140,6 +143,11 @@ manifest_len uint32-le
 manifest      manifest_len bytes of Matrix canonical JSON
 chunk_stream  remaining bytes
 ```
+
+Receivers MUST read the four-byte little-endian `manifest_len` value before
+allocating or reading the manifest. Values of zero or greater than 1 MiB MUST
+be rejected with `400 M_INVALID_PARAM`; receivers MUST NOT allocate based on
+such a value.
 
 The manifest has this shape:
 
@@ -201,8 +209,14 @@ not one of the `compression` values requested in the request, if a supplied
 requested in the request, or if the request's `aggregate_policy` is `required`
 and `bls_aggregate` is absent.
 
-`transfer_id` is scoped to the responding server, room ID, request range, and
-encoding. A receiver MAY resume a dropped transfer by repeating the request with
+`transfer_id` is scoped to the responding server and the complete original
+request: room ID, start, limit, direction, depth bounds, encoding, compression
+preferences, aggregate policy, state-commitment options, and every other
+response-affecting option. A resumed request MUST match those parameters and
+the sender MUST preserve the original full-transfer manifest, hashes, and
+commitments. `resume.first_chunk` MUST be a non-negative integer less than the
+original `chunk_count`; senders MUST reject invalid or out-of-range values
+before streaming. A receiver MAY resume a dropped transfer by repeating the request with
 `resume.first_chunk` set to the first missing chunk. Senders SHOULD keep
 transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
 under resource pressure. A resumed response contains the suffix beginning at
@@ -279,7 +293,9 @@ bytes do not match its `decoded_sha256`. Each chunk is decoded and verified
 independently before its events are passed to the event-stream decoder. Chunk
 indices are zero-based and refer to this stream order. A resumed response whose
 manifest `first_chunk` is nonzero contains the same stream format starting at
-that chunk index.
+that chunk index. Its xzip header MUST set `chunk_count` to the suffix count,
+`original_chunk_count - first_chunk`; receivers MUST reject a mismatch before
+decoding. The manifest retains the complete-transfer `chunk_count`.
 
 ### Receiver contract
 

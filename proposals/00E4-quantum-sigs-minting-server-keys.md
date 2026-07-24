@@ -74,6 +74,16 @@ G = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
 }))
 $$
 
+The 32 bytes of `G` are interpreted as four little-endian unsigned 64-bit words
+`k0`, `k1`, `k2`, and `k3`, in that order, forming the SipHash-2-4 key. For edge
+index `i`, encoded as an unsigned 64-bit little-endian message, compute endpoint
+messages `2*i` and `2*i+1`, also as unsigned 64-bit little-endian values.
+SipHash-2-4 with `(k0,k1,k2,k3)` produces each 64-bit endpoint; the result is
+reduced modulo `2^29`. The endpoint from `2*i` is in partition U and the
+endpoint from `2*i+1` is in partition V. These action tags, byte orders, widths,
+and the reduction rule are normative; implementations MUST NOT use the legacy
+SHA-256 graph function.
+
 The key ID is:
 
 $$
@@ -653,14 +663,14 @@ server-key validation and MUST NOT change acceptance semantics.
           "server_certificate_verify_signature": "<unpadded-base64url-signature>"
         }
       },
-      "key_id": "<unpadded-base64url-key-id>",
+      "key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
       "server_key_package_sha256": "<unpadded-base64url-sha256>",
       "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
       "valid_until_ts": 1798848000000,
       "signatures": {
         "notary.example": {
           "ed25519:auto": "<base64-ed25519-signature>",
-          "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
+          "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<base64-fn-dsa-signature>"
         }
       }
     }
@@ -884,16 +894,16 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
     {
       "record_version": 1,
       "observed_server_name": "example.com",
-      "algorithm": "fn-dsa-512",
-      "short_key_id": "<short_key_id>",
+      "algorithm": "fndsa512",
+      "short_key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
       "first": {
-        "key_id": "<unpadded-base64url-key-id>",
+        "key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848000000,
         "observed_via": "direct"
       },
       "conflicting": {
-        "key_id": "<unpadded-base64url-key-id>",
+        "key_id": "1a4b6c8d9e0f112233445566778899aa",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848600000,
         "observed_via": "notary"
@@ -906,7 +916,7 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
       "signatures": {
         "notary.example": {
           "ed25519:auto": "<base64-ed25519-signature>",
-          "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
+          "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<base64-fn-dsa-signature>"
         }
       }
     }
