@@ -10,10 +10,11 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than restating them.
 
-`algebraic_v1` is a truncation ladder over a single syndrome map. The 128-bit
-accumulator, the 256-bucket summary, the strata estimator, and the extraction
-sketch are the same construction evaluated at different widths. Increasing
-extraction capacity extends an exchange additively; it does not restart it.
+`algebraic_v1` is a coordinated algebraic ladder. The resident bucket syndromes,
+strata estimator, and extraction sketch are views of one syndrome map. Separate
+128-bit XOR accumulators—at room and bucket scope—provide agreement checks,
+localization, and decode verification. Increasing extraction capacity extends an
+exchange additively; it does not restart it.
 
 ## Scope
 
@@ -31,8 +32,8 @@ This profile defines:
 This profile does **not** define endpoints, frames, authorization, negotiation,
 or scheduling. Those belong to the consuming MSC. A consumer MUST validate that
 both sides of a comparison are digesting the same population before invoking
-this kernel; the kernel MUST NOT be given the responsibility of deciding
-whether two digests are comparable.
+this kernel; the kernel MUST NOT be given the responsibility of deciding whether
+two digests are comparable.
 
 ## Identifier derivation
 
@@ -97,8 +98,8 @@ $$
 \end{aligned}
 $$
 
-$$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values. The digest is
-encoded as 16 raw bytes using unpadded base64url.
+$$\bigoplus$$ denotes bitwise XOR over all selected 128-bit values. The digest
+is encoded as 16 raw bytes using unpadded base64url.
 
 Insertion and removal are the same operation: XOR the same `h_128(e)` value into
 the accumulator and increment or decrement the count. There is no rebuild path
@@ -109,8 +110,8 @@ The count residual `c = abs(count_A - count_B)` is an exact measurement of
 case. When both digest and count match over the same population, the two sets
 agree except with negligible probability from an accidental 128-bit collision.
 
-The accumulator is an integrity anchor, not an authenticator. See
-"Decode verification" and the consuming MSC's security considerations.
+The accumulator is an integrity anchor, not an authenticator. See "Decode
+verification" and the consuming MSC's security considerations.
 
 ## Syndrome sketch
 
@@ -134,13 +135,13 @@ A sketch of capacity `k` is therefore exactly `8 * k` bytes, encoded on the wire
 as unpadded base64url.
 
 **Subtraction.** Two sketches over the same population and capacity are
-subtracted by XOR. The result is the syndrome of the symmetric difference.
-This is the property that makes the profile group-valued and the reason a failed
+subtracted by XOR. The result is the syndrome of the symmetric difference. This
+is the property that makes the profile group-valued and the reason a failed
 exchange can be extended rather than restarted.
 
 **Capacity bounds.** An unbucketed sketch MUST NOT exceed capacity 64 on the
-wire. In bucketed mode, the sum of per-bucket capacities MUST NOT exceed 4096.
-A future profile MAY raise these caps; `algebraic_v1` MUST NOT.
+wire. In bucketed mode, the sum of per-bucket capacities MUST NOT exceed 4096. A
+future profile MAY raise these caps; `algebraic_v1` MUST NOT.
 
 ## Bucket summary
 
@@ -334,20 +335,20 @@ complementary rather than competing.
 monoid: it supports membership tests but not subtraction. See the MSC0501
 architecture note for the full argument.
 
-**LtHash / homomorphic hashing.** Provides binding accumulators at
-substantially higher per-update cost. Appropriate where accumulator evidence
-must be transferable to a third party; unnecessary where, as here, transferred
-objects are independently verifiable by signature and hash. Left to a future
+**LtHash / homomorphic hashing.** Provides binding accumulators at substantially
+higher per-update cost. Appropriate where accumulator evidence must be
+transferable to a third party; unnecessary where, as here, transferred objects
+are independently verifiable by signature and hash. Left to a future
 `digest_type`.
 
 ## Unstable prefix
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier | Purpose         | Development identifier                     |
-| ------------------------- | --------------- | ------------------------------------------ |
-| `algebraic_v1`            | digest type     | `algebraic_v1`                             |
-| feature flag              | capability      | `tk.nutra.msc0503.digest.algebraic_v1`     |
+| Proposed final identifier | Purpose     | Development identifier                 |
+| ------------------------- | ----------- | -------------------------------------- |
+| `algebraic_v1`            | digest type | `algebraic_v1`                         |
+| feature flag              | capability  | `tk.nutra.msc0503.digest.algebraic_v1` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -365,8 +366,8 @@ Known consumers and possible consumers:
 ## References
 
 - Gennaro Boneh et al., PinSketch / set reconciliation via BCH syndromes
-- Pieter Wuille, libminisketch — the byte-compatibility reference for field
-  size 64
+- Pieter Wuille, libminisketch — the byte-compatibility reference for field size
+  64
 - Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
   Reconciliation without Prior Context" (strata estimator, IBLT)
 - Bessani et al., rateless IBLT constructions
