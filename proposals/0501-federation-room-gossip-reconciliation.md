@@ -56,8 +56,6 @@ this room, and if so, which ones?"**
 
 ### Design philosophy
 
-<!-- Edit marker. -->
-
 This proposal adapts three mechanisms from the gossip protocol literature ([1],
 [2]) to Matrix's federated DAG model:
 
@@ -88,7 +86,7 @@ endpoint revisions can be added without changing the stable version document.
 {
   "unstable_features": {
     "tk.nutra.msc0501.reconciliation": true,
-    "tk.nutra.msc0503.digest.algebraic_v1": true
+    "algebraic_v1": true
   }
 }
 ```
@@ -100,14 +98,16 @@ period unless an operator explicitly overrides the cache.
 ### Room digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
-event graph. Two servers can compare digests in O(1) to determine whether their
-DAGs have diverged.
+event set. Two servers can compare digests in `O(1)` to determine whether their
+event sets have diverged (about 50 ms compute and 20 KB of bandwidth).
 
 **Request:**
 
 ```http
 GET /_matrix/federation/v1/room_digest/{roomId}
 ```
+
+<!-- Edit marker. -->
 
 **Response:**
 
