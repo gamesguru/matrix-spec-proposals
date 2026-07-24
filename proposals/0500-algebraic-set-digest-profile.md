@@ -1,7 +1,5 @@
 # MSC0500: An algebraic, group-valued digest for fast set reconciliation
 
-<!-- Edit marker. -->
-
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known event or
@@ -61,29 +59,31 @@ big-endian integer.
 ### Matrix event-ID binding
 
 For Matrix event-ID sets, `D(e)` is derived as follows. For room versions 3 and
-later, event IDs are already derived from SHA-256 event hashes, so no auxiliary
-hash is required. Implementations derive `D(e)` from the decoded event ID using
-the room-version-specific event-ID alphabet:
+later, event IDs are already derived from `SHA3-256` event hashes, so no
+auxiliary hash is required. Implementations derive `D(e)` from the decoded event
+ID using the room-version-specific event-ID alphabet:
 
-- room versions 1 and 2: hash the UTF-8 event ID string with SHA-256;
+- room versions 1 and 2: hash the UTF-8 event ID string with `SHA3-256`;
 - room version 3: decode the event ID as unpadded standard Base64;
 - room versions 4 and later: decode event ID as unpadded URL-safe Base64.
 
-Because minisketch set elements are nonzero, if the first 8-byte chunk is zero
+Because `minisketch` set elements are nonzero, if the first 8-byte chunk is zero
 the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if all four
 chunks are zero, it MUST use the integer value 1.
 
 Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
-SHA-256 digest of the event-ID string, or exclude the event from the compared
-population. This Matrix binding does not use XXH3 or any other auxiliary hash.
+`SHA3-256` digest of the event-ID string, or exclude the event from the compared
+population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
 
 ## Field
 
+<!-- Edit marker. -->
+
 The 64-bit field is:
 
-```text
+$$
 GF(2)[x] / (x^64 + x^4 + x^3 + x + 1)
-```
+$$
 
 `h_64` values are mapped to field elements by treating bit `i` of the integer as
 the coefficient of `x^i`.
