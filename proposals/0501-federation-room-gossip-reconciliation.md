@@ -154,7 +154,7 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 | `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame. See Digest Construction below. |
 | `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `algebraic_v1`.                                                           |
 | `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
-| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                 |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                |
 | `strata`                 | [string]           | No       | Optional 32-entry strata estimator. Each entry is a base64url-encoded 64-byte sketch containing `s1` through `s15` for one stratum.        |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
@@ -311,11 +311,22 @@ policy based on memory pressure. Servers MUST NOT assume that a negotiated frame
 remains permanently available and are not required to track per-peer frame
 adoption before evicting it. If a requester submits a `frame_id` that has been
 pruned, expired, or is unknown, the responder MUST reject the request with HTTP
-400 and `M_UNKNOWN_FRAME` (or return an equivalent `frame_status: "none"`
-response before comparing any digest). The requester MUST then abandon
-algebraic reconciliation for that frame and fall back to `extremity` mode,
-frame extension, or historical backfill. If an old frame is retired, the
-responder MUST NOT claim that a digest mismatch proves an event-set divergence.
+400 or 404 and a standard Matrix error code such as `M_NOT_FOUND`. The error
+response MUST include `frame_status: "none"`, for example:
+
+```json
+{
+  "errcode": "M_NOT_FOUND",
+  "error": "The requested reconciliation frame is unknown or has expired.",
+  "frame_status": "none"
+}
+```
+
+The responder MUST return this signal before comparing any digest. The requester
+MUST then abandon algebraic reconciliation for that frame and fall back to
+`extremity` mode, frame extension, or historical backfill. If an old frame is
+retired, the responder MUST NOT claim that a digest mismatch proves an event-set
+divergence.
 
 MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
 `edges.oldest` response field is an antichain that can become the next frame
@@ -439,7 +450,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `have_event_ids`            | [string] | If mode=extremity       | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                       |
 | `frame_negotiation`         | bool     | No                      | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                              |
 | `frame_event_ids`           | [string] | If frame negotiation    | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true and ignored otherwise.                                |
-| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                     |
+| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                       |
 | `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte `algebraic_v1` accumulator for the negotiated frame.                                                                      |
 | `digest_type`               | string   | If mode=sketch          | The digest algorithm used. MUST be `algebraic_v1` for this MSC.                                                                                           |
 | `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                       |
@@ -483,23 +494,23 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `expected_requester_side_accumulator` | string   | No                      | In `sketch` mode, `residual_digest XOR accumulator(responder_side)`, encoded as a 16-byte unpadded base64url value. The requester verifies this against the full event IDs it resolves from `requester_only_short_ids`.                                         |
 | `remote_known_event_count`            | integer  | Yes                     | The responding server's known-event count for the negotiated frame.                                                                                                                                                                                             |
 | `remote_extremity_event_ids`          | [string] | Yes                     | The responding server's current forward extremities.                                                                                                                                                                                                            |
-| `frame_id`                            | string   | Yes                     | The exact frame identifier used for the response.                                                                                                                                                                                                                |
+| `frame_id`                            | string   | Yes                     | The exact frame identifier used for the response.                                                                                                                                                                                                               |
 | `frame_status`                        | string   | If negotiation          | `common`, `none`, or `not_requested`. A `common` response selects `negotiated_frame_event_ids` for subsequent digest and diff operations.                                                                                                                       |
 | `negotiated_frame_event_ids`          | [string] | If frame_status=common  | The complete canonical frame anchor antichain selected by negotiation.                                                                                                                                                                                          |
 | `scope`                               | string   | Yes                     | The comparison scope used by the response: `event_set` or `resolved_state`.                                                                                                                                                                                     |
 | `state_at`                            | string   | If scope=resolved_state | The common DAG point used for local state resolution.                                                                                                                                                                                                           |
-| `inline_events`                       | [PDU]    | No                      | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
+| `inline_pdus`                         | [PDU]    | No                      | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
 | `sketch_status`                       | string   | No                      | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode.                                                                                                                                                                                 |
 | `bucket_summary`                      | object   | No                      | Optional bucket accumulator/count summary for two-sided localization. Present only when requested and supported.                                                                                                                                                |
 | `truncated`                           | bool     | Yes                     | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling Truncation.                                                                                                               |
 
 <!-- markdownlint-enable MD013 -->
 
-When `inline_events` is present, the responder MUST include only PDUs whose
-event IDs occur in `missing_event_ids` and MUST enforce the same per-event and
-total response-size limits as `room_events`. The requester MUST independently
-validate each inline PDU's event ID, room, hashes, signatures, authorization,
-and ancestry; it MUST NOT rely on array position or the responder's claimed
+When `inline_pdus` is present, the responder MUST include only PDUs whose event
+IDs occur in `missing_event_ids` and MUST enforce the same per-event and total
+response-size limits as `room_events`. The requester MUST independently validate
+each inline PDU's event ID, room, hashes, signatures, authorization, and
+ancestry; it MUST NOT rely on array position or the responder's claimed
 association. If an inline PDU is absent, oversized, malformed, or fails
 validation, the requester MUST fetch that event through `room_events` or the
 ordinary federation event endpoints. Inline PDUs do not alter the state-map
