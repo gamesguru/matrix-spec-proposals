@@ -10,12 +10,21 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
-The algorithm supports differences of up to 4,000 elements between sets of up to
-1 million total. It achieves this in under 50 ms with under 25 KB exchanged.
+The profile is provisioned for aggregate, bucketed differences of up to
+approximately 4,000 elements between sets containing up to 1 million elements.
+With the resident bucket structure in the reference implementation, the
+common-case exchange is designed to complete within approximately 50 ms and
+exchange less than 25 KiB in total, excluding event bodies. Larger differences
+require bucket-capacity escalation or a frame-extension and bulk-retrieval
+protocol; they are not guaranteed to remain within these latency or wire-size
+bounds, and above these limits additional MSCs with better asymptotic complexity
+may be preferred. The extraction decoder has approximately $O(k^2 \log k)$
+field-operation complexity, where `k` is the configured capacity; bucketed
+decoding reduces the effective `k` for each sub-problem.
 
 `algebraic_v1` is a coordinated algebraic ladder. The resident bucket syndromes,
 strata estimator, and extraction sketch are views of one syndrome map. Separate
-128-bit XOR accumulators—at room and bucket scope—provide agreement checks,
+128-bit XOR accumulators at room and bucket scope provide agreement checks,
 localization, and decode verification. Increasing extraction capacity extends an
 exchange additively; it does not restart it.
 
