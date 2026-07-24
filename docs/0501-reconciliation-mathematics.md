@@ -6,7 +6,7 @@ requirements; this note gives the proofs and assumptions behind them.
 
 ## 1. Group-Valued Reconciliation
 
-Let `U` be an identifier universe and let `S` be a finite subset of `U`.
+Let $$U$$ be an identifier universe and let $$S$$ be a finite subset of $$U$$.
 
 ### Theorem 1: subtractability
 
@@ -53,7 +53,7 @@ $$
 
 ### Theorem 1.1: linear filtration
 
-The maps `sigma_k` are linear over `GF(2)` and project by prefix:
+The maps $$\sigma_k$$ are linear over $$GF(2)$$ and project by prefix:
 
 $$
 \sigma_k(A\triangle B)=\sigma_k(A)+\sigma_k(B),
@@ -66,10 +66,10 @@ inverse, so sums over a symmetric difference equal sums of the two set sums.
 Projection is immediate from the coordinate definition. $$\square$$
 
 The first coordinate is the XOR accumulator. Applying that coordinate to each
-partition bucket gives the bucketed accumulator; `sigma_k` is PinSketch; and a
-rateless IBLT chooses the transmitted prefix length at send time. Increasing `k`
-is an additive sketch extension, and the first coordinate is already available
-to verify a decode.
+partition bucket gives the bucketed accumulator; $$\sigma_k$$ is PinSketch; and
+a rateless IBLT chooses the transmitted prefix length at send time. Increasing
+$$k$$ is an additive sketch extension, and the first coordinate is already
+available to verify a decode.
 
 Even coordinates are redundant because Frobenius squaring gives
 
@@ -83,7 +83,7 @@ answers every bucket probe whose extraction capacity is at most eight.
 ### 1.2 Identifier-space assumptions
 
 For hash-derived event IDs, the identifier bytes are uniform enough for
-leading-bit bucket assignment and trailing-zero strata assignment. For `n`
+leading-bit bucket assignment and trailing-zero strata assignment. For $$n$$
 identifiers and an $$\ell$$-bit short hash, the birthday collision estimate is
 
 $$
@@ -97,12 +97,13 @@ authority when a short-ID candidate is resolved.
 ## 2. Information Lower Bound
 
 Let identifiers have $$\ell$$ bits and suppose the responder sends one message
-of `M` bits. The requester must recover a responder-only difference of size `d`.
+of $$M$$ bits. The requester must recover a responder-only difference of size
+$$d$$.
 
 ### Theorem 2: bounded messages must adapt
 
 Any non-adaptive one-message protocol that is correct for every difference of
-size `d` requires
+size $$d$$ requires
 
 $$
 M \geq \log_2 {2^\ell \choose d}
@@ -110,7 +111,7 @@ M \geq \log_2 {2^\ell \choose d}
 $$
 
 **Proof.** Set the requester's set to the empty set. The responder's message
-must distinguish every possible `d`-element responder set, so the message map
+must distinguish every possible $$d$$-element responder set, so the message map
 must be injective over $$\binom{2^\ell}{d}$$ possibilities. Therefore
 
 $$
@@ -140,11 +141,11 @@ $$
 
 where $$\preceq$$ is the ancestor relation. A set is $$\Phi$$-closed when it
 contains every retained relevant parent of each event it contains within
-`Fr(Phi)`. Closed sets are closed under union, which is why exact recovery
-preserves closure.
+$$\operatorname{Fr}(\Phi)$$. Closed sets are closed under union, which is why
+exact recovery preserves closure.
 
-Let `A` and `B` be the event sets held by two peers, both restricted to the same
-$$\Phi$$ frame. Let $$\operatorname{par}(e)$$ contain the `prev_events` and
+Let $$A$$ and $$B$$ be the event sets held by two peers, both restricted to the
+same $$\Phi$$ frame. Let $$\operatorname{par}(e)$$ contain the `prev_events` and
 `auth_events` parents of $$e$$, restricted to that frame.
 
 ### Theorem 3: closure criterion
@@ -190,12 +191,17 @@ Y = \frac{1}{|D|}\sum_{e\in D}
 (1-\varepsilon)^{a_e+1}.
 $$
 
-**Proof.** Event `e` is integrable exactly when neither `e` nor any of its
-in-difference ancestors is omitted. There are `a_e+1` independently tested
-events in that condition, so its probability is `(1-epsilon)^(a_e+1)`. Linearity
-of expectation gives the average over `D`. $$\square$$
+**Proof.** Event $$e$$ is integrable exactly when neither $$e$$ nor any of its
+in-difference ancestors is omitted. There are $$a_e+1$$ independently tested
+events in that condition, so its probability is $$(1-\varepsilon)^{a_e+1}$$.
+Linearity of expectation gives the average over $$D$$.
 
-For an antichain, `a_e=0` and `Y=1-epsilon`. For a causal chain, the yield is
+$$
+\square
+$$
+
+For an antichain, $$a_e=0$$ and $$Y=1-\varepsilon$$. For a causal chain, the
+yield is
 
 $$
 Y_{\mathrm{chain}} =
@@ -244,8 +250,8 @@ Those cases require frame negotiation or historical backfill.
 
 ## 6. Provisioning and Buckets
 
-Let the two one-sided differences be `d^+` and `d^-`. With counts already on the
-wire, define
+Let the two one-sided differences be $$d^+$$ and $$d^-$$. With counts already on
+the wire, define
 
 $$
 c = \left|\,|A|-|B|\,\right|=|d^+-d^-|.
@@ -261,8 +267,8 @@ with equality exactly when the difference is one-sided. Thus `c` is an exact
 capacity measurement in the common lagging-peer case. If $$c < \Delta$$, the
 divergence is two-sided and localization is needed.
 
-For `b` buckets, let `d_j^+` and `d_j^-` be the two sides in bucket `j`. The
-bucket count residual
+For $$b$$ buckets, let $$d_j^+$$ and $$d_j^-$$ be the two sides in bucket $$j$$.
+The bucket count residual
 
 $$
 L=\sum_{j=1}^{b}|d_j^+-d_j^-|
@@ -289,11 +295,11 @@ $$
 \approx\frac{\sqrt{b(e^t-t-1)}}{\Delta}.
 $$
 
-The estimator saturates as `D` approaches `b`; it is useful for sparse and
+The estimator saturates as $$D$$ approaches $$b$$; it is useful for sparse and
 moderate differences, but must not be treated as unbounded. The resident strata
-estimator avoids this failure mode. Stratum `i` receives values with exactly `i`
-trailing zero bits, with stratum 31 receiving the remaining tail. Its expected
-population is approximately
+estimator avoids this failure mode. Stratum $$i$$ receives values with exactly
+$$i$$ trailing zero bits, with stratum 31 receiving the remaining tail. Its
+expected population is approximately
 
 $$
 \lambda_i\approx\Delta 2^{-(i+1)}.
@@ -510,9 +516,9 @@ f \geq
 \left\lceil\frac{\ln(\delta)}{R\ln(1-q)}\right\rceil.
 $$
 
-This is the meaningful minimum fanout. `f=1` is sufficient for eventual
-convergence when `q>0` and rounds continue forever, but may be unacceptable for
-a finite repair SLO. In particular, `N` does not appear in the bound: under
+This is the meaningful minimum fanout. $$f=1$$ is sufficient for eventual
+convergence when $$q>0$$ and rounds continue forever, but may be unacceptable
+for a finite repair SLO. In particular, `N` does not appear in the bound: under
 constant `q`, the minimum fanout is constant as `N` grows and `f/N` tends to
 zero. The familiar `ln N` requirement applies to connectivity of one static
 random graph, not to anti-entropy that resamples peers over many rounds. In the
@@ -565,10 +571,10 @@ $$
 p_i=(1-\varepsilon)w_i+\frac{\varepsilon}{N}
 $$
 
-ensures `p_i >= epsilon/N` for every peer. This is a per-peer liveness floor,
-not a guarantee of uniform behavior. The selection entropy is still determined
-by the measured weights `w_i`; operators should monitor it rather than treating
-`epsilon` as a complete decentralization proof.
+ensures $$p_i \geq \varepsilon/N$$ for every peer. This is a per-peer liveness
+floor, not a guarantee of uniform behavior. The selection entropy is still
+determined by the measured weights `w_i`; operators should monitor it rather
+than treating `epsilon` as a complete decentralization proof.
 
 For a set `M` of adversarial peers, the probability of selecting an adversarial
 peer is
@@ -577,7 +583,7 @@ $$
 p_M=(1-\varepsilon)W_M+\varepsilon\mu,
 $$
 
-where `W_M` is their weighted share and $$\mu=|M|/N$$ their population share.
+where $$W_M$$ is their weighted share and $$\mu=|M|/N$$ their population share.
 Substituting `p_M` into Theorem 8 gives the eclipse tail. Entropy and the
 eclipse bound measure different properties: high entropy discourages
 concentration, while the tail bound states the probability that all selected
@@ -627,7 +633,7 @@ $$
 \Lambda_j=\sum_i R_{ij}\frac{f_i}{P_i}w_{ji}.
 $$
 
-Operators should enforce an inbound capacity bound $$Lambda_j\le C_j$$ through
+Operators should enforce an inbound capacity bound $$\lambda_j\le C_j$$ through
 advertised minimum periods, `Retry-After`, or admission control. This is why the
 polling period usually dominates hub load: increasing `f` improves repair
 probability, while decreasing `P` multiplies every room's request rate.
@@ -635,8 +641,8 @@ probability, while decreasing `P` multiplies every room's request rate.
 ### 11.1 Feasible fanout
 
 Combining the repair SLO with the inbound capacity ceiling gives a feasible
-fanout band. Let `rho` be the persistent offline fraction, let
-`R=\lfloor T/P_r\rfloor`, and let `alpha` be the peer's effective share of
+fanout band. Let $$\rho$$ be the persistent offline fraction, let
+$$R=\lfloor T/P_r\rfloor$$, and let $$\alpha$$ be the peer's effective share of
 room-directed requests. Then
 
 $$
@@ -653,7 +659,8 @@ is the inbound load constraint solved for fanout. `N` appears in neither bound:
 under constant event-specific `q`, the connectivity ratio `f/N` tends to zero as
 the room grows.
 
-For illustration, with `delta=0.01` and `R=5`, the SLO floor is approximately:
+For illustration, with $$\delta=0.01$$ and $$R=5$$, the SLO floor is
+approximately:
 
 | useful-peer probability `q` | minimum `f` |
 | --------------------------: | ----------: |
