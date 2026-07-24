@@ -363,7 +363,7 @@ colliding `short_key_id` candidates.
 
 ```json
 {
-  "fn-dsa-512:<short_key_id>": {
+  "fndsa512:<32-lowercase-hex>": {
     "key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "pow": {
       "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-cogen",
@@ -455,7 +455,7 @@ Receivers SHOULD cache successful stamp verification by `key_id`.
 
 The checks above are scattered across the preceding prose as individual MUSTs.
 This section states them as one ordered procedure. Receiving servers and
-notaries MUST validate an advertised `fn-dsa-512:<short_key_id>` key object in
+notaries MUST validate an advertised `fndsa512:<32-lowercase-hex>` key object in
 this order, rejecting the entire key at the first failing step and performing no
 later step once a step has failed:
 
@@ -508,7 +508,7 @@ needed for deployment.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:<short_key_id>",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fndsa512:<32-lowercase-hex>",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for
@@ -856,8 +856,8 @@ Trust and enforcement boundaries:
   fidelity.
 
 FN-DSA keys follow identical validity semantics to Ed25519 keys: a signature
-made by `fn-dsa-512:<short_key_id>` is valid if the key was valid at the time of
-the signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
+made by `fndsa512:<32-lowercase-hex>` is valid if the key was valid at the time
+of the signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
 

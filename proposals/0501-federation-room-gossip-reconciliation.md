@@ -523,13 +523,14 @@ already possesses, working backwards from its extremities:
 3. Stop sampling after 32 samples per extremity, or when the walk reaches the
    room's create event.
 
-This produces approximately 32×E event IDs (where E is the number of
+This produces at most approximately 32×E event IDs (where E is the number of
 extremities, typically 1–5), totaling 32–160 event IDs, giving dense coverage
-near the frontier where divergence is most likely, sparse coverage deep in the
-DAG where both servers are likely synchronized, and O(log N) total samples for a
-DAG of depth N. In practice the responder finds a merge-base within the first
-few hundred events of its backward walk, making the algorithm O(delta) —
-proportional to the number of missing events, not to total room size.
+near the frontier where divergence is most likely and sparse coverage deep in
+the DAG where both servers are likely synchronized. The logarithmic sample count
+is a property of this bounded per-extremity traversal, not a universal
+convergence bound; actual work depends on DAG depth, extremity count, merge-base
+location, and the configured limits. In practice the responder often finds a
+merge-base within the first few hundred events of its backward walk.
 
 #### `sketch` mode
 
