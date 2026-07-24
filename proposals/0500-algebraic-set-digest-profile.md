@@ -294,9 +294,65 @@ The escalation sequence is:
 2. Execute the compact `algebraic_v1` exchange.
 3. Resolve small over-capacity differences by additive syndrome extension.
 4. Isolate failures independently through bucket-level extraction.
-5. For large or extreme differences beyond the profile's bounded capacities,
-   return an explicit capability-required response for a separately negotiated
-   rateless profile. That profile is not defined by `algebraic_v1`.
+5. For a difference that still exceeds the 4096 aggregate capacity at 256
+   buckets, escalate to `algebraic_v1_deep` (below): a separately negotiated
+   `digest_type` that recursively subdivides only the buckets that overflow.
+   That profile is not defined by `algebraic_v1`.
+
+## Deep bucket subdivision (`algebraic_v1_deep`)
+
+`algebraic_v1_deep` is a distinct `digest_type`, advertised separately, for
+differences that exceed `algebraic_v1`'s fixed 4096 aggregate capacity. It
+reuses `algebraic_v1`'s field, hash derivation, accumulator, and syndrome
+construction unchanged. The only difference is that bucket addressing is
+recursive instead of fixed at a single 256-way partition.
+
+**Bucket paths.** `algebraic_v1` assigns `h_64(e)` to one of 256 buckets by its
+leading 8 bits. `algebraic_v1_deep` generalizes this to a `bucket_path`: a
+`(depth, prefix)` pair, where `prefix` is the unsigned integer value of the
+leading `depth` bits of `h_64(e)`. A depth-8 path is exactly an `algebraic_v1`
+`bucket_id`; the two schemes are bit-compatible views of the same hash space, so
+an `algebraic_v1` bucket summary can be reused directly as the depth-8 starting
+point for `algebraic_v1_deep` refinement.
+
+**Refinement.** When a bucket's count residual exceeds the capacity a peer is
+willing to provision for it, the peer requests a bucket summary for that
+bucket's two depth-`(d+1)` children (`prefix‖0` and `prefix‖1`) instead of
+raising that bucket's own capacity. This is recursive: a child that still
+overflows is split again. Each split strictly partitions its parent's
+population, so the recursion terminates — population at depth `d` is bounded by
+population at depth `d-1`, and depth is bounded by `h_64`'s 64 bits.
+
+**Capacity cap and depth cap.** Each sketch request, at any depth, is bounded by
+the same per-request capacity limit as `algebraic_v1`'s bucketed mode.
+`algebraic_v1_deep` additionally bounds recursion at a negotiated maximum depth
+(default 20, max 32) to bound worst-case round trips against a pathological or
+adversarial hash distribution. A peer that would need to exceed the depth cap
+MUST report `depth_exceeded` and fall back to backfill rather than continue
+subdividing.
+
+**Provisioning.** The strata estimator still gives an initial size estimate `Δ̂`
+for choosing a starting capacity per depth-8 bucket, so refinement is the
+exception rather than the common path. `Δ̂` informs only the initial choice;
+correctness never depends on it, because an under-provisioned bucket produces a
+loud decode failure — exactly `algebraic_v1`'s existing `capacity_exceeded`
+signal, one level deeper — rather than a silent one.
+
+**Why this and not a probabilistic filter.** Every node in the recursion uses
+the same PinSketch decoder `algebraic_v1` already requires; no second decoder is
+introduced. Every failure is loud, per "Decode and verification," at every
+depth. There is no equivalent of a false positive: a bucket either decodes
+exactly at its offered capacity, or it is split and tried again. This is why
+`algebraic_v1_deep` is preferred over both RIBLT and Bloom filters as the
+heavy-tail fallback; see Alternatives.
+
+**Scope.** `algebraic_v1_deep` is for a large but bounded difference within an
+otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case. A
+difference approaching the size of the population itself (e.g. a server
+restoring from near-zero state) is not a reconciliation problem. Peers SHOULD
+recognize this from the count residual or an early, broadly-overflowing bucket
+summary and fall back to backfill or a frame-extension protocol rather than
+recursing through most of the hash space.
 
 ## Resident structure
 
@@ -348,10 +404,15 @@ canonical feature flag for this profile is:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0500.digest.algebraic_v1": true
+    "tk.nutra.msc0500.digest.algebraic_v1": true,
+    "tk.nutra.msc0500.digest.algebraic_v1_deep": true
   }
 }
 ```
+
+`algebraic_v1_deep` support is advertised independently. A server MAY support
+`algebraic_v1` without `algebraic_v1_deep`; it then reports `capacity_exceeded`
+without an escalation path for differences beyond the fixed caps.
 
 A future profile that changes the field, the hash derivation, the coordinate
 ordering, or the capacity caps MUST use a new `digest_type` name. Profiles are
@@ -363,9 +424,9 @@ no defined meaning and must fail at negotiation rather than at decode.
 **Fixed capacity caps.** The 64 and 4096 caps are conservative and chosen for
 the small one-sided differences expected to dominate normal federation repair.
 Populations with routinely large or heavy-tailed differences will hit the cap
-and fall back to bucket localization more often than necessary. A rateless
-encoding (see Alternatives, below) is the natural answer, at the cost of a
-second decoder.
+and fall back to bucket localization more often than necessary.
+`algebraic_v1_deep` (above) is the answer for those populations, and unlike a
+rateless encoding it requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
 population sizes in scope this is rare, and the 128-bit verification step
@@ -397,18 +458,18 @@ adversarial peer requires their own wire format: signed fixed-width count
 semantics, overflow bounds, checksum and domain separation, chunk
 authentication, explicit negotiated materialization limits such as finite
 prefixes, and a termination rule — on top of a second decoder implementation
-distinct from PinSketch. MSC0501 instead handles heavy-tailed differences with
-`bloom_v1` (below), which reuses this profile's existing `D(e)` digest and needs
-no new decoder, accepting probabilistic rather than exact recovery in exchange.
+distinct from PinSketch. `algebraic_v1_deep` (above) handles heavy-tailed
+differences instead, reusing PinSketch's existing decoder and `D(e)` digest with
+no capacity guess and no second decoder, while remaining exact.
 
-**Bloom filters.** Rejected as a replacement for the baseline: a Bloom filter is
-a homomorphism into an idempotent monoid, so it supports membership tests but
-not subtraction. MSC0501 defines `bloom_v1`, a separately negotiated
-`digest_type` used only past this profile's capacity limit, gated by an
-extremity-convergence precondition and a mandatory exact-recovery termination
-rule. Like RIBLT, it is not a partial extension of `algebraic_v1`. See the
-MSC0501 architecture note and the `bloom_v1` heavy-tail fallback section of
-MSC0501 for the full argument.
+**Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
+monoid: it supports membership tests but not subtraction. A salted,
+extremity-gated `bloom_v1` fallback was drafted and discarded in favor of
+`algebraic_v1_deep`: both handle the same heavy-tail case, but
+`algebraic_v1_deep` stays exact (loud decode failure at every step, no false
+positives) and needs no new decoder, where a Bloom-based fallback would still
+need a termination rule to bound its residual risk of a silently, permanently
+missed event. See the MSC0501 architecture note for the full argument.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
 higher per-update cost. Appropriate where accumulator evidence must be

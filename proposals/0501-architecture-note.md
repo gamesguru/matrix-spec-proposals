@@ -174,33 +174,19 @@ Rejected for the baseline for the reasons in §1: not group-valued, so no
 subtraction, false positives silent in the reconciliation direction, and a
 resized filter restarts rather than extends an exchange.
 
-Accepted as `bloom_v1`, a separately negotiated `digest_type` used only when
-`algebraic_v1` reports `capacity_exceeded`. Three changes make that tradeoff
-acceptable there in a way it is not for the baseline:
+A salted, extremity-gated `bloom_v1` was drafted as a heavy-tail fallback —
+`SHA3-256(salt ‖ D(e))`-derived double hashing, a per-request extremity-match
+precondition, and a mandatory termination rule capping retries and escalating to
+exact recovery when the strata-estimated delta stalled. It was discarded, not
+shipped: the termination rule and the precondition existed only to bound a
+residual risk `algebraic_v1_deep` (§3.4) doesn't have in the first place —
+rejected or superseded fork tips have no descendant to trigger causal-closure
+recovery, so `bloom_v1` could still silently and permanently drop such an event
+even with every safeguard in place. An exact mechanism that reuses the same
+decoder is strictly better than a probabilistic one bolted on next to it, once
+one exists.
 
-1. **Extremity convergence is a precondition, not an assumption.** `bloom_v1`
-   MUST NOT be negotiated until both peers' forward extremities already match,
-   enforced per-request by the responder rather than inferred from a prior call.
-   This guarantees both peers digest the same "interior" population — without
-   it, the filters would silently cover different sets.
-2. **Causal closure recovers most, not all, silent misses.** If a masked
-   interior event has a live descendant, admitting that descendant fails closure
-   and forces an explicit fetch of the missing ancestor. This does not apply to
-   events with no descendant: forward extremities are excluded by the
-   precondition above, but rejected or superseded fork tips remain in `K` and
-   can still be silently missed, with no backstop from the graph.
-3. **A mandatory termination rule, not the causal-closure property, bounds the
-   residual risk.** Retries are capped, each round uses a fresh salt, and if the
-   strata-estimated delta does not strictly decrease, the requester MUST fall
-   back to `algebraic_v1` bucket localization or full backfill. `bloom_v1` is a
-   scale optimization layered on an exact mechanism, not a standalone
-   replacement for one.
-
-The hash derivation reuses MSC0500's `D(e)` rather than introducing a new
-primitive: `h_1, h_2` are the two halves of `SHA3-256(salt ‖ D(e))`, combined by
-standard double hashing. No auxiliary hash function is required.
-
-### 3.4 IBLT and RIBLT
+### 3.4 IBLT, RIBLT, and deep bucket subdivision
 
 Invertible Bloom Lookup Tables (IBLT) can recover missing IDs directly from the
 digest exchange. Both fixed-capacity IBLT and its rateless variant (RIBLT) are
@@ -219,12 +205,21 @@ a real advantage over both PinSketch and Bloom filters. But making it safe
 against an adversarial peer requires its own wire format — signed fixed-width
 counts, overflow bounds, authenticated chunks, finite memory prefixes, and a
 termination rule — on top of a second decoder implementation (peeling-cascade,
-distinct from PinSketch's Galois-field decode). MSC0501 instead handles
-heavy-tailed differences with `bloom_v1` (§3.3), which reuses PinSketch's
-existing `D(e)` digest and needs no new decoder at all, at the cost of giving up
-exact recovery for a probabilistic one bounded by an explicit termination rule.
-Keeping the total spec surface to two decoders (PinSketch and a bit-array scan)
-instead of three outweighs RIBLT's exactness advantage for this MSC.
+distinct from PinSketch's Galois-field decode).
+
+MSC0501 instead handles heavy-tailed differences with `algebraic_v1_deep`
+(MSC0500's "Deep bucket subdivision"), which generalizes the bucket mechanism
+this profile already has: `algebraic_v1` assigns `h_64(e)` to one of 256 buckets
+by its leading 8 bits, so a deeper partition by more leading bits is the same
+primitive, not a new one. When a bucket's local difference still exceeds its
+provisioned capacity, only that bucket is subdivided into two children and
+retried — recursion terminates by construction, since each split strictly
+shrinks the population being decoded, and every step either decodes exactly or
+fails loudly, with no probabilistic gap and no termination rule needed for
+safety (only a depth cap, for worst-case round-trip bounding). This keeps the
+total spec surface to one decoder, stays exact throughout, and dominates RIBLT's
+advantage (avoiding a capacity guess) without RIBLT's cost (a second decoder and
+its adversarial-hardening wire format).
 
 ### 3.5 Server-initiated push
 
