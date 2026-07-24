@@ -1,4 +1,4 @@
-# MSC0503: `algebraic_v1` — a group-valued set digest profile for Matrix federation
+# MSC0503: `algebraic_v1`, a group-valued digest for 256-bit set reconciliation
 
 <!-- Edit marker. -->
 
@@ -23,7 +23,7 @@ exchange additively; it does not restart it.
 This profile defines:
 
 - derivation of short identifiers from 256-bit IDs;
-- the finite field and its libminisketch compatibility contract;
+- the finite field and its `libminisketch` compatibility contract;
 - the level-0 accumulator;
 - the syndrome sketch, its serialization, and its capacity bounds;
 - the bucket summary and strata estimator;
@@ -39,8 +39,9 @@ two digests are comparable.
 
 ## Identifier derivation
 
-The profile operates over a set `S` of Matrix event IDs, room IDs, key IDs, or other 256-bit indentifiers. Consumers define what
-`S` contains; the kernel treats it as an opaque set of identifiers.
+The profile operates over a set `S` of Matrix event IDs, room IDs, key IDs, or
+other 256-bit indentifiers. Consumers define what `S` contains; the kernel
+treats it as an opaque set of identifiers.
 
 For room versions 3 and later, event IDs are already derived from SHA-256 event
 hashes, so no auxiliary hash is required. Implementations derive short
@@ -48,10 +49,8 @@ identifiers directly from the decoded event ID hash, using the
 room-version-specific event-ID alphabet:
 
 - room versions 1 and 2: hash the UTF-8 event ID string with SHA-256;
-- room version 3: decode the event ID reference hash as unpadded standard
-  Base64;
-- room versions 4 and later: decode the event ID reference hash as unpadded
-  URL-safe Base64.
+- room version 3: decode the event ID as unpadded standard Base64;
+- room versions 4 and later: decode event ID as unpadded URL-safe Base64.
 
 ```text
 h_128(e) = first 128 bits of decoded_event_id_hash(e)
@@ -81,7 +80,7 @@ GF(2)[x] / (x^64 + x^4 + x^3 + x + 1)
 `h_64` values are mapped to field elements by treating bit `i` of the integer as
 the coefficient of `x^i`.
 
-`algebraic_v1` sketches MUST be byte-for-byte compatible with libminisketch at
+`algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
 field size 64 for the same inserted `h_64` values. This compatibility is the
 normative interoperability test for the profile: an implementation that produces
 a different byte string for the same input set is non-conforming, regardless of
@@ -131,7 +130,7 @@ order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
 64-bit **little-endian** integer. The big-endian hash parsing in "Identifier
 derivation" and the little-endian coordinate serialization here are both
 normative and are deliberately different; the first follows Matrix hash
-conventions and the second follows libminisketch.
+conventions and the second follows `libminisketch`.
 
 A sketch of capacity `k` is therefore exactly `8 * k` bytes, encoded on the wire
 as unpadded base64url.
@@ -370,8 +369,8 @@ Known consumers and possible consumers:
 ## References
 
 - Gennaro Boneh et al., PinSketch / set reconciliation via BCH syndromes
-- Pieter Wuille, libminisketch — the byte-compatibility reference for field size
-  64
+- Pieter Wuille, `libminisketch` — the byte-compatibility reference for field
+  size 64
 - Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
   Reconciliation without Prior Context" (strata estimator, IBLT)
 - Bessani et al., rateless IBLT constructions

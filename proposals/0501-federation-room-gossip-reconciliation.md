@@ -156,7 +156,7 @@ in `K`; their soft-fail status specifically is not part of reconciliation.
 
 <!-- Edit marker. -->
 
-Given that population, `digest` and `known_event_count` are exactly the level-0
+Given that population, `digest` and `known_event_count` are the level-0
 accumulator and count defined in MSC0503, and `strata` is that profile's strata
 estimator. MSC0501 requires the estimator on `room_digest`; other consumers of
 MSC0503 MAY use it only when their wire contract includes it. This MSC adds no
