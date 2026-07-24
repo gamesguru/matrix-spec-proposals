@@ -620,3 +620,39 @@ Operators should enforce an inbound capacity bound `\Lambda_j\le C_j` through
 advertised minimum periods, `Retry-After`, or admission control. This is why the
 polling period usually dominates hub load: increasing `f` improves repair
 probability, while decreasing `P` multiplies every room's request rate.
+
+### 11.1 Feasible fanout
+
+Combining the repair SLO with the inbound capacity ceiling gives a feasible
+fanout band. Let `rho` be the persistent offline fraction, let
+`R=\lfloor T/P_r\rfloor`, and let `alpha` be the peer's effective share of
+room-directed requests. Then
+
+$$
+\frac{\ln\delta}
+{(1-\rho)\lfloor T/P_r\rfloor
+ \ln\left(1-q_{\mathrm{reach}}q_{\mathrm{frame}}q_{\mathrm{hold}}\right)}
+\leq f \leq
+\frac{P C}{R_{\mathrm{active}}\alpha}.
+$$
+
+The lower bound is Corollary 10.2 with useful-peer probability factored into
+measurable components and persistent offline slots discounted. The upper bound
+is the inbound load constraint solved for fanout. `N` appears in neither bound:
+under constant event-specific `q`, the connectivity ratio `f/N` tends to zero as
+the room grows.
+
+For illustration, with `delta=0.01` and `R=5`, the SLO floor is approximately:
+
+| useful-peer probability `q` | minimum `f` |
+| --------------------------: | ----------: |
+|                        0.10 |           9 |
+|                        0.30 |           3 |
+|                        0.60 |           2 |
+|                        0.90 |           1 |
+
+In ordinary deployments these operational bounds are usually slack. Fanout is
+therefore selected primarily from the eclipse tail in Section 8, not from
+network size or eventual-convergence mathematics. The period `P` deserves closer
+capacity review because it directly controls detection latency and multiplies
+hub inbound load.
