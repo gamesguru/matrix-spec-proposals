@@ -379,7 +379,8 @@ canonical feature flag for this profile is:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0500.digest.algebraic_v1": true
+    "tk.nutra.msc0500.digest.algebraic_v1": true,
+    "tk.nutra.msc0500.digest.algebraic_v1_deep": true
   }
 }
 ```
@@ -455,10 +456,11 @@ are independently verifiable by signature and hash. Left to a future
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier | Purpose     | Development identifier                 |
-| ------------------------- | ----------- | -------------------------------------- |
-| `algebraic_v1`            | digest type | `algebraic_v1`                         |
-| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1` |
+| Proposed final identifier | Purpose     | Development identifier                      |
+| ------------------------- | ----------- | ------------------------------------------- |
+| `algebraic_v1`            | digest type | `algebraic_v1`                              |
+| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1`      |
+| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1_deep` |
 
 <!-- markdownlint-enable MD013 -->
 
