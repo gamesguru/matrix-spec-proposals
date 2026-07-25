@@ -220,9 +220,11 @@ request: room ID, start, limit, direction, depth bounds, encoding, compression
 preferences, aggregate policy, state-commitment options, and every other
 response-affecting option. A resumed request MUST match those parameters and the
 sender MUST preserve the original full-transfer manifest, hashes, and
-commitments. `resume.first_chunk` MUST be a non-negative integer less than the
-original `chunk_count`; senders MUST reject invalid or out-of-range values
-before streaming. A receiver MAY resume a dropped transfer by repeating the
+commitments. `chunk_count` and `resume.first_chunk` MUST be non-negative integers
+strictly less than `2^31 - 1` (`2147483647`) to conform to Matrix Canonical JSON
+integer limits and ensure safe allocation in 32-bit runtimes. `resume.first_chunk`
+MUST be less than the original `chunk_count`; senders MUST reject invalid or out-of-range
+values before streaming. A receiver MAY resume a dropped transfer by repeating the
 request with `resume.first_chunk` set to the first missing chunk. Senders SHOULD
 keep transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
 under resource pressure. A resumed response contains the suffix beginning at
@@ -242,9 +244,9 @@ newest to oldest for `direction: backwards`.
 
 The decoded canonical event stream is the concatenation of those length-prefixed
 canonical JSON byte strings. `canonical_events_sha256` is computed over that
-decoded stream and encoded as unpadded standard Base64. `content_sha256` is
+decoded stream and encoded as unpadded standard Base64 (RFC 4648 §4). `content_sha256` is
 computed over `chunk_stream`, excluding the manifest length and manifest bytes,
-and encoded as unpadded standard Base64. `canonical_events_sha256` duplicates
+and encoded as unpadded standard Base64 (RFC 4648 §4). `canonical_events_sha256` duplicates
 the per-chunk `decoded_sha256` coverage, but is retained as defense-in-depth
 over the complete decoded event sequence and event order.
 
