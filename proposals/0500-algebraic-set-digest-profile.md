@@ -175,8 +175,11 @@ exchange can be extended rather than restarted.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple (see "Dynamic tree
-extraction," below). The sum of `capacity` across all requests in a single
-exchange MUST NOT exceed 4096. A future profile MAY raise this cap;
+extraction," below). A single entry's `capacity` MUST NOT exceed 64; the sum of
+`capacity` across all requests in a single exchange MUST NOT exceed 4096. These
+are separate bounds for separate reasons: the per-entry cap bounds decode cost
+($O(k^2 \log k)$ per node), while the aggregate cap bounds total wire size and
+responder work across a whole exchange. A future profile MAY raise either cap;
 `algebraic_v1` MUST NOT.
 
 ## Dynamic tree extraction
@@ -201,6 +204,26 @@ verification," below: it either decodes within its capacity and passes the
 "bucket" primitive and no persistent per-node resident state — see "Resident
 structure." A `(depth, prefix)` pair is computed only when a peer actually
 requests it.
+
+**Requests MUST form an antichain.** No entry in a single exchange's `requests`
+may be a tree-ancestor of another entry (i.e. one entry's `(depth, prefix)`
+range MUST NOT contain another's). Overlapping entries would double-count
+elements in the aggregate capacity check and make their sketches non-independent
+for subtraction. A consumer MUST reject a request violating this before
+subtraction.
+
+**Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
+requires the subset of the population whose `h_64(e)` shares that `depth`-bit
+prefix. A responder MUST NOT satisfy this by scanning its full known-event set
+per request: since `h_64(e)` is a fixed 64-bit key per element, any
+`(depth, prefix)` subset is a contiguous range under `h_64`-sorted order.
+Implementations MUST maintain (or build and cache) an index of known event IDs
+ordered by `h_64`, so that a node's element subset is a range slice — O(log n)
+to locate plus the slice size — not a full-population scan. This index holds
+only IDs and `h_64` keys, not precomputed syndromes; it is far cheaper than the
+resident per-bucket syndrome array a fixed partition would require (see
+"Resident structure"), and unlike that array it serves every depth, not one
+fixed depth.
 
 ## Strata estimator
 
@@ -340,14 +363,20 @@ per-population structure:
 
 <!-- markdownlint-enable MD013 -->
 
-Total resident state is approximately 2 KiB per active population. Dynamic tree
-extraction (above) maintains no persistent per-node structure: sketches at any
-`(depth, prefix)` are computed on demand, from the store, only when a peer
-actually requests that node. This is a deliberate tradeoff against a prior
-design that additionally maintained a fixed 256-way partition at all times (a
-further ~21 KiB per population): that structure paid its cost on every
-population whether or not it ever diverged, where dynamic extraction pays cost
-only on the specific nodes a real difference touches.
+Fixed resident state is approximately 2 KiB per active population, independent
+of population size. Dynamic tree extraction (above) maintains no persistent
+per-node syndrome structure: sketches at any `(depth, prefix)` are computed on
+demand. That "on demand" computation is not a full-population scan —
+materializing a node requires the `h_64`-sorted index described in "Dynamic tree
+extraction," which is `O(n)` in population size, not part of the fixed 2 KiB.
+This is not new overhead specific to this profile: it is a sort key over
+identifiers implementations already store, and many implementations already
+maintain an equivalent index (e.g. a database index on the derived identifier)
+for other purposes. The comparison to the prior design is therefore: a fixed ~21
+KiB _per-population, precomputed-syndrome_ structure maintained continuously
+regardless of divergence, versus a `O(n)` _identifier_ index most
+implementations need anyway, plus computing a syndrome only for the specific
+nodes a real difference touches.
 
 **Update procedure.** On inserting or removing element `e`:
 
