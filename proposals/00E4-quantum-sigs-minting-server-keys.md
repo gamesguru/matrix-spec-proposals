@@ -265,7 +265,7 @@ that preserves verifier safety:
   during migration, and rely on a follow-up MSC or room version before becoming
   mandatory.
 
-## Legacy key minting construction (non-normative)
+## Legacy key minting construction
 
 Homeservers and notaries that support this MSC MUST require a valid
 co-generation proof-of-work for every newly generated FN-DSA key body — the
