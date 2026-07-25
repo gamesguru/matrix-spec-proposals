@@ -585,15 +585,25 @@ from graph structure, so there is nothing analogous to a probabilistic
 fallback's extremity-convergence requirement.
 
 The requester SHOULD use the strata-estimated `Δ` from `room_digest` to size the
-initial depth-0 request's *capacity* (bounded by the per-entry cap of 64, above)
+initial depth-0 request's _capacity_ (bounded by the per-entry cap of 64, above)
 — not its depth. This spec always starts a `sketch` exchange at depth 0 and
 splits one level at a time on `capacity_exceeded`; `Δ` informs how much of that
 64-capacity budget to request, not whether to skip ahead to a deeper starting
 depth. This is an efficiency choice, not a correctness one: an under-provisioned
 node produces `sketch_status: "capacity_exceeded"` for that node specifically,
-which is exactly the trigger for the next split, not a lost result. A future
-profile MAY define Δ-driven initial-depth selection to cut round trips for very
-large `Δ`; this MSC keeps the simpler always-start-at-0 rule.
+which is exactly the trigger for the next split, not a lost result.
+
+**This has a latency cost that is worth stating in concrete terms.** Because
+splitting is one level per round trip, resolving a difference of size `Δ` costs
+approximately `log2(Δ / 64)` sequential round trips: ~13 at `Δ = 500,000`, ~17
+at `Δ = 10,000,000`. Each round is gated on the previous response, so at typical
+federation RTT (50–200 ms) this is on the order of seconds, not milliseconds,
+for the largest differences dynamic tree extraction is meant to handle. A future
+profile MAY define Δ-driven initial-depth selection — issuing the
+depth-`⌈log2(Δ̂/64)⌉` sibling requests immediately, well-formed under the
+antichain rule already required above — to collapse this to one or two round
+trips; this MSC keeps the simpler always-start-at-0 rule and accepts the
+round-trip cost as the price of that simplicity.
 
 #### Causal closure and truncation
 
