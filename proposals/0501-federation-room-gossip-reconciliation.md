@@ -167,6 +167,14 @@ tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
 Server B sees that Server A is "missing" an event, returns it in `/room_diff`,
 Server A fetches it via `/room_events`, rejects it again, and the cycle repeats.
 
+When `/room_diff` identifies event IDs missing on Server A, Server A requests
+those events via `/room_events`. If Server B only holds a tombstone for a
+requested event or if Server A fetches an event PDU and locally rejects it,
+Server A MUST record and persist a tombstone entry carrying the event ID and
+rejection reason in its local `E_{\mathrm{rejected}}` population (and thus `K`).
+If Server A cannot persist a tombstone for a non-transferable rejected event, it
+MUST exclude that event ID from `K`.
+
 By including rejected event IDs in `K`, peers converge to `Δ = 0` even when they
 disagree about acceptance. If two servers have the same known-event set but
 different accepted-event sets, the problem is an authorization, room-version, or

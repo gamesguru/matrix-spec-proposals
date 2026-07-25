@@ -11,9 +11,9 @@ So the normative requirement is already MUST reject. The only question is whethe
 3. **Detection is cheap.** Every major language has a path:
    - Python: `json.loads(data, object_pairs_hook=check_dupes)` — trivial one-liner
    - Go: `json.Decoder` token-by-token scan, parser hooks, custom visitors, or
-     equivalent parser configuration
+     equivalent parser configuration that observes every object member before deserialization
    - Rust: `serde_json` with a custom `Visitor`, tokenizer hooks, or equivalent
-     parser configuration
+     parser configuration that observes every object member before deserialization
 4. **A SHOULD here means "you can skip it."** And if implementors skip it, you get exactly the parser-divergence attack the MSC is trying to prevent — just at a different layer.
 
 **What I'd recommend for the MSC text** (stronger than what was proposed):

@@ -106,10 +106,16 @@ The request body is:
 - `direction`: `backwards` in this MSC. Future extensions may define forward
   historical repair.
 - `min_depth`: Optional lower depth bound.
-- `resume`: Optional resumability hint. If present, `transfer_id` identifies a
-  previous response and `first_chunk` is the zero-based chunk index from which
-  the sender should resume. Senders MAY reject unknown or expired transfer IDs
-  with `400 M_INVALID_PARAM`.
+- `resume`: Optional resumability hint object containing `transfer_id` and
+  `first_chunk`. `transfer_id` is scoped to the original request parameters
+  (`start`, `limit`, `direction`, `min_depth`, `encoding`, `compression`,
+  `include_bls_aggregate`, `aggregate_policy`, and `state_commitments`). Resumed
+  requests MUST match those original parameters and preserve the full-transfer
+  manifest, hashes, and commitments. `first_chunk` MUST be a bounded
+  non-negative integer relative to that original transfer
+  (`0 <= first_chunk < chunk_count`). Senders MUST reject unknown or expired
+  transfer IDs, parameter mismatches, or out-of-range/invalid `first_chunk`
+  indices with `400 M_INVALID_PARAM` before streaming.
 - `compression`: Ordered list of compression encodings the receiver accepts. The
   sender MUST choose `encoding` from this list.
 - `include_bls_aggregate`: Whether the receiver wants an MSC00DA aggregate proof
@@ -132,11 +138,11 @@ mandatory.
 
 The response has content type `application/octet-stream`. The body is not
 Base64-wrapped in JSON. `manifest_len` MUST be at least 1 and MUST NOT exceed
-`1 MiB` (1,048,576 bytes). Receivers MUST reject zero or oversized values
-before allocating a manifest buffer or reading the declared payload. The body
-starts with a 32-bit little-endian manifest length,
-followed by that many bytes of Matrix canonical JSON response manifest, followed
-by the raw compressed chunk stream for the selected `encoding`:
+`1 MiB` (1,048,576 bytes). Receivers MUST reject zero or oversized values before
+allocating a manifest buffer or reading the declared payload. The body starts
+with a 32-bit little-endian manifest length, followed by that many bytes of
+Matrix canonical JSON response manifest, followed by the raw compressed chunk
+stream for the selected `encoding`:
 
 ```text
 manifest_len uint32-le
@@ -145,9 +151,9 @@ chunk_stream  remaining bytes
 ```
 
 Receivers MUST read the four-byte little-endian `manifest_len` value before
-allocating or reading the manifest. Values of zero or greater than 1 MiB MUST
-be rejected with `400 M_INVALID_PARAM`; receivers MUST NOT allocate based on
-such a value.
+allocating or reading the manifest. Values of zero or greater than 1 MiB MUST be
+rejected with `400 M_INVALID_PARAM`; receivers MUST NOT allocate based on such a
+value.
 
 The manifest has this shape:
 
@@ -212,20 +218,20 @@ and `bls_aggregate` is absent.
 `transfer_id` is scoped to the responding server and the complete original
 request: room ID, start, limit, direction, depth bounds, encoding, compression
 preferences, aggregate policy, state-commitment options, and every other
-response-affecting option. A resumed request MUST match those parameters and
-the sender MUST preserve the original full-transfer manifest, hashes, and
+response-affecting option. A resumed request MUST match those parameters and the
+sender MUST preserve the original full-transfer manifest, hashes, and
 commitments. `resume.first_chunk` MUST be a non-negative integer less than the
 original `chunk_count`; senders MUST reject invalid or out-of-range values
-before streaming. A receiver MAY resume a dropped transfer by repeating the request with
-`resume.first_chunk` set to the first missing chunk. Senders SHOULD keep
-transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
+before streaming. A receiver MAY resume a dropped transfer by repeating the
+request with `resume.first_chunk` set to the first missing chunk. Senders SHOULD
+keep transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
 under resource pressure. A resumed response contains the suffix beginning at
 `first_chunk`, but its manifest describes the complete transfer: `chunk_count`,
 `event_count`, `edges`, state commitments, and the global hashes retain their
-original full-transfer meaning. The receiver MUST retain the previously
-verified prefix and combine it with the resumed suffix before checking the
-global hashes, final event count, and boundary commitments. The expected number
-of chunks in a resumed suffix is `chunk_count - first_chunk`.
+original full-transfer meaning. The receiver MUST retain the previously verified
+prefix and combine it with the resumed suffix before checking the global hashes,
+final event count, and boundary commitments. The expected number of chunks in a
+resumed suffix is `chunk_count - first_chunk`.
 
 ### Event stream
 
@@ -238,10 +244,9 @@ The decoded canonical event stream is the concatenation of those length-prefixed
 canonical JSON byte strings. `canonical_events_sha256` is computed over that
 decoded stream and encoded as unpadded standard Base64. `content_sha256` is
 computed over `chunk_stream`, excluding the manifest length and manifest bytes,
-and encoded as unpadded standard Base64.
-`canonical_events_sha256` duplicates the per-chunk `decoded_sha256` coverage,
-but is retained as defense-in-depth over the complete decoded event sequence and
-event order.
+and encoded as unpadded standard Base64. `canonical_events_sha256` duplicates
+the per-chunk `decoded_sha256` coverage, but is retained as defense-in-depth
+over the complete decoded event sequence and event order.
 
 Receivers MUST verify both `content_sha256` and `canonical_events_sha256` over
 the complete transfer before parsing events for authorization. For a resumed

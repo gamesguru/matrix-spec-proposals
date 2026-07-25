@@ -111,7 +111,13 @@ order:
 2. Decode `key` and require exactly the registry's public-key length.
 3. Require exactly 42 unsigned solution entries, strictly ascending, with each
    entry less than `2^29`; require `nonce < 2^32`.
-4. Compute `G` and verify the Cuckoo proof using the registry parameters.
+4. Compute `G`, interpret its 32 bytes as four unsigned 64-bit little-endian
+   words `(k0, k1, k2, k3)` for SipHash-2-4, derive bipartite graph endpoints
+   $u_j = \operatorname{SipHash-2-4}(2 \cdot e_j) \bmod 2^{29}$ in partition U
+   and $v_j = \operatorname{SipHash-2-4}(2 \cdot e_j + 1) \bmod 2^{29}$ in
+   partition V for each edge index $e_j \in [e_0, \ldots, e_{41}]$, and verify
+   that the 42 edges form a valid closed 42-cycle in the graph with no repeated
+   vertices per partition.
 5. Compute `I` and require the map key to equal `fndsa512:` followed by the
    registry-defined short form of `I`.
 6. Require the top-level `server_name` to be the name used in the preimages and
@@ -268,11 +274,11 @@ redistribution without special handling.
 
 An origin MAY include a top-level `trusted_notary_keys` array in its
 `/_matrix/key/v2/server` response. Each entry is a full content-addressed FN-DSA
-server-key identifier of the form `fn-dsa-512:<key_id>`, where `<key_id>` is the
-unpadded base64url encoding of the 32-byte SHA3-256 `key_id` defined in this
-MSC. The field is part of the Matrix signing object and therefore covered by the
-origin's server-key signatures. If present but empty, it explicitly authorizes
-no notary-supplied historical keys.
+server-key identifier of the form `fndsa512:<32 lowercase hex>`, where the
+32-character hex string is the registry-defined short form of the 32-byte
+SHA3-256 `key_id` defined in this MSC. The field is part of the Matrix signing
+object and therefore covered by the origin's server-key signatures. If present
+but empty, it explicitly authorizes no notary-supplied historical keys.
 
 `trusted_notary_keys` lets the origin extend its own signed publication without
 embedding every historical key body in `old_verify_keys`. A listed identifier is
@@ -663,7 +669,7 @@ server-key validation and MUST NOT change acceptance semantics.
           "server_certificate_verify_signature": "<unpadded-base64url-signature>"
         }
       },
-      "key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
+      "key_id": "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2",
       "server_key_package_sha256": "<unpadded-base64url-sha256>",
       "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
       "valid_until_ts": 1798848000000,
@@ -897,13 +903,13 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
       "algorithm": "fndsa512",
       "short_key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
       "first": {
-        "key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
+        "key_id": "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848000000,
         "observed_via": "direct"
       },
       "conflicting": {
-        "key_id": "1a4b6c8d9e0f112233445566778899aa",
+        "key_id": "fndsa512:1a4b6c8d9e0f112233445566778899aa",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848600000,
         "observed_via": "notary"
@@ -933,7 +939,7 @@ Field semantics:
   conflicting key bodies. Despite the naming, the pair is unordered for dedup
   purposes (see below); `first` denotes whichever observation this notary
   learned of earlier, per its own `first_observed_ts`.
-- `key_id` in each observation is the unpadded base64url-encoded full key
+- `key_id` in each observation is the canonical `fndsa512:<32 lowercase hex>`
   identifier for that key body, derived as specified in
   [profile-bound key minting](#canonical-key-object).
 - `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest
