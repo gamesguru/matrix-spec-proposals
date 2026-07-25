@@ -148,10 +148,10 @@ events.
   verify historical signing keys for offline or unreachable servers, parallel
   network homeservers MUST NOT query mainnet key notaries. Instead, dedicated
   fallback notaries must be operated:
-    - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for
-      `testnet`)
-    - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for
-      `stagenet`)
+  - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for
+    `testnet`)
+  - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for
+    `stagenet`)
 
 ### Traffic bypass; negotiation and server discovery
 
@@ -164,17 +164,16 @@ discovery and ingress dropping are enforced.
 Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 
 1. **Distinct `.well-known` path:**
-    - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead
-      of `server`).
-    - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead
-      of `server`).
-    - **Schema:** The JSON schema for these parallel `.well-known` endpoints
-      MUST be strictly identical to the standard `/.well-known/matrix/server`
-      file (e.g., returning an `m.server` key mapping to the target host and
-      port).
+   - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead of
+     `server`).
+   - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead
+     of `server`).
+   - **Schema:** The JSON schema for these parallel `.well-known` endpoints MUST
+     be strictly identical to the standard `/.well-known/matrix/server` file
+     (e.g., returning an `m.server` key mapping to the target host and port).
 2. **Distinct SRV Records:**
-    - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
-    - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
+   - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
+   - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
 3. **Halt Discovery:** If discovery fails to resolve a valid destination via
    either the network-specific `.well-known` endpoint or the network-specific
    SRV record, the homeserver MUST immediately abort discovery and raise an
@@ -201,10 +200,10 @@ To allow clients to securely discover homeservers on parallel networks when
 triggered via network-specific URIs or custom Client settings:
 
 - **Distinct `.well-known` Client Paths:**
-    - Clients operating on the Testnet MUST query
-      `/.well-known/matrix/testnet-client`.
-    - Clients operating on the Stagenet MUST query
-      `/.well-known/matrix/stagenet-client`.
+  - Clients operating on the Testnet MUST query
+    `/.well-known/matrix/testnet-client`.
+  - Clients operating on the Stagenet MUST query
+    `/.well-known/matrix/stagenet-client`.
 - **Schema:** The JSON schema for these endpoints MUST be strictly identical to
   the standard `/.well-known/matrix/client` file (e.g., returning homeserver
   base URLs and identity server addresses).

@@ -59,52 +59,52 @@ designed by John Tromp).
 A room's proof-of-work policy is configured via a state event of type
 `m.room.proof_of_work_requirement` with an empty `state_key` (`""`).
 
-#### Event Schema:
+#### Event Schema
 
 The `content` of the state event contains the following fields:
 
 - `algorithm` (string; required): The hashing algorithm required. Supported
   values:
-    - `"cuckoo_cycle"`: The bipartite graph cycle-finding algorithm.
+  - `"cuckoo_cycle"`: The bipartite graph cycle-finding algorithm.
 - `parameters` (object; optional): Required if `algorithm` is `"cuckoo_cycle"`:
-    - `edge_bits` (integer; required): The bipartite graph size parameter $N$
-      where the number of edges is $2^{N}$ (e.g., `19` for $2^{19}$ edges,
-      requiring approx. 32 MiB of memory to solve).
+  - `edge_bits` (integer; required): The bipartite graph size parameter $N$
+    where the number of edges is $2^{N}$ (e.g., `19` for $2^{19}$ edges,
+    requiring approx. 32 MiB of memory to solve).
 - `requirements` (object; required): Mapping of event categories or types to
   their respective difficulties:
-    - Each key is an event type (e.g., `"m.room.member"`, `"m.room.message"`) or
-      the wildcard `"*"` (applying to all event types not explicitly listed).
-    - The value is an object containing:
-        - `difficulty` (integer; required): The suffix hash difficulty or
-          probability threshold required on the generated block (e.g., requiring
-          the first $K$ bits of the block hash to be zero).
-        - `exempt_power_level` (integer; optional): Any user whose active Power
-          Level (PL) in the room is equal to or greater than this value is
-          exempt from the PoW requirement. Defaults to `0`.
+  - Each key is an event type (e.g., `"m.room.member"`, `"m.room.message"`) or
+    the wildcard `"*"` (applying to all event types not explicitly listed).
+  - The value is an object containing:
+    - `difficulty` (integer; required): The suffix hash difficulty or
+      probability threshold required on the generated block (e.g., requiring the
+      first $K$ bits of the block hash to be zero).
+    - `exempt_power_level` (integer; optional): Any user whose active Power
+      Level (PL) in the room is equal to or greater than this value is exempt
+      from the PoW requirement. Defaults to `0`.
 
-#### Example Event Content:
+#### Example Event Content
 
 ```json
 {
-    "type": "m.room.proof_of_work_requirement",
-    "state_key": "",
-    "sender": "@admin:example.org",
-    "content": {
-        "algorithm": "cuckoo_cycle",
-        "parameters": {
-            "edge_bits": 19
-        },
-        "requirements": {
-            "m.room.member": {
-                "difficulty": 16,
-                "exempt_power_level": 0
-            },
-            "*": {
-                "difficulty": 10,
-                "exempt_power_level": 1
-            }
-        }
+  "type": "m.room.proof_of_work_requirement",
+  "state_key": "",
+  "sender": "@admin:example.org",
+  "content": {
+    "algorithm": "cuckoo_cycle",
+    "parameters": {
+      "edge_bits": 19
+    },
+    "requirements": {
+      "m.room.member": {
+        "difficulty": 16,
+        "exempt_power_level": 0
+      },
+      "*": {
+        "difficulty": 10,
+        "exempt_power_level": 1
+      }
     }
+  }
 }
 ```
 
@@ -133,7 +133,10 @@ concatenation of:
    Unix timestamp in seconds integer-divided by 3600 (creating a 1-hour validity
    window).
 
-$$CH = \text{SHA256}(\text{RoomID} \mathbin{\Vert} \text{SenderID} \mathbin{\Vert} \text{TipEventIDs} \mathbin{\Vert} T_{epoch})$$
+$$
+CH = \text{SHA256}(\text{RoomID} \mathbin{\Vert} \text{SenderID}
+\mathbin{\Vert} \text{TipEventIDs} \mathbin{\Vert} T_{epoch})
+$$
 
 Because an attacker cannot predict the hashes of future room tips, they cannot
 precompute a proof of work in advance. Computation must happen in real-time,
@@ -149,13 +152,17 @@ work is decoupled from the server-specific canonical JSON.
 
 The client solves the Cuckoo Cycle puzzle over a **Client Intent Payload**
 ($IP$):
-$$IP = \text{SHA256}(\text{CanonicalJSON}(\text{event.content}) \mathbin{\Vert} \text{event.type} \mathbin{\Vert} CH)$$
+
+$$
+IP = \text{SHA256}(\text{CanonicalJSON}(\text{event.content})
+\mathbin{\Vert} \text{event.type} \mathbin{\Vert} CH)
+$$
 
 The client iterates a 64-bit `nonce` inside their intent until they find a
 Cuckoo Cycle of length 42 in the graph seeded by $IP$. Once solved, the client
 attaches the proof to a reserved, top-level metadata object: `m.proof_of_work`.
 
-#### Client-Server API Submission Schema:
+#### Client-Server API Submission Schema
 
 ```json
 {
@@ -185,7 +192,7 @@ perfectly valid during federation transit.
 This MSC introduces a new room version (e.g., **Room Version 13**). Rooms of
 older versions cannot process these authorization rules.
 
-#### Redaction Preservation:
+#### Redaction Preservation
 
 In Room Version 13, the top-level `m.proof_of_work` key is added to the
 **Redaction Preserve Whitelist** (alongside fields like `event_id`, `sender`,
@@ -208,19 +215,20 @@ room:
 2. Check for the presence of an active `m.room.proof_of_work_requirement` state
    event.
 3. If present:
-    - Fetch the sender's active Power Level. If
-      $\text{PL} \ge \text{exempt\_power\_level}$ for $E$'s event type, bypass
-      validation and allow the event.
-    - Verify that $E$ contains a top-level `m.proof_of_work` object. If missing,
-      **reject the event**.
-    - Reconstruct the expected dynamic challenge $CH$ using the state's latest
-      DAG tips and the epoch window.
-    - Verify that the client's `proof` forms a valid cycle of length 42 in the
-      Cuckoo Graph seeded by:
-      $$IP = \text{SHA256}(\text{CanonicalJSON}(E.\text{content}) \mathbin{\Vert} E.\text{type} \mathbin{\Vert} CH)$$
-    - Verify that the double SHA-256 hash of the cycle proof block contains at
-      least `difficulty` leading zero bits.
-    - If any verification step fails, **reject the event**.
+   - Fetch the sender's active Power Level. If
+     $\text{PL} \ge \text{exempt\_power\_level}$ for $E$'s event type, bypass
+     validation and allow the event.
+   - Verify that $E$ contains a top-level `m.proof_of_work` object. If missing,
+     **reject the event**.
+   - Reconstruct the expected dynamic challenge $CH$ using the state's latest
+     DAG tips and the epoch window.
+   - Verify that the client's `proof` forms a valid cycle of length 42 in the
+     Cuckoo Graph seeded by:
+     $IP = \text{SHA256}(\text{CanonicalJSON}(E.\text{content})
+     \mathbin{\Vert} E.\text{type} \mathbin{\Vert} CH)$
+   - Verify that the double SHA-256 hash of the cycle proof block contains at
+     least `difficulty` leading zero bits.
+   - If any verification step fails, **reject the event**.
 
 ---
 

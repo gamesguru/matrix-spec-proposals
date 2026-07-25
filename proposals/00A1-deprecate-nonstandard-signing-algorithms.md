@@ -80,10 +80,14 @@ that taxonomy. It does not redefine soft-fail, outlier, or auth-rejection.
 
 The following signing algorithms are recognized for Matrix federation:
 
+<!-- markdownlint-disable MD013 -->
+
 | Algorithm    | Status      | Specification                                                             |
 | ------------ | ----------- | ------------------------------------------------------------------------- |
 | `ed25519`    | **Active**  | Matrix spec                                                               |
 | `fn-dsa-512` | **Pending** | [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1) |
+
+<!-- markdownlint-enable MD013 -->
 
 All other algorithm identifiers — including but not limited to custom elliptic
 curves, RSA-based schemes, vendor-specific key types, and any algorithm not
@@ -322,17 +326,17 @@ This proposal is backwards-compatible:
       specified in the MSC's PR description?
 - [x] Are all MSCs that this MSC depends on already accepted?
 - [ ] For each endpoint that is introduced or modified:
-    - [x] N/A — no endpoints are introduced or modified
+  - [x] N/A — no endpoints are introduced or modified
 - [x] Will the MSC require a new room version, and if so, has that been made
       clear?
-    - [x] Phase 2 requires a new room version. Phase 1 does not.
+  - [x] Phase 2 requires a new room version. Phase 1 does not.
 - [x] Are backwards-compatibility concerns appropriately addressed?
 - [x] An introduction exists and clearly outlines the problem being solved.
       Ideally, the first paragraph should be understandable by a non-technical
       audience.
 - [ ] All outstanding threads are resolved
-    - [ ] All feedback is incorporated into the proposal text itself, either as
-          a fix or noted as an alternative
+  - [ ] All feedback is incorporated into the proposal text itself, either as a
+        fix or noted as an alternative
 - [x] There is a dedicated "Security Considerations" section which detail any
       possible attacks/vulnerabilities this proposal may introduce, even if this
       is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
@@ -341,12 +345,12 @@ This proposal is backwards-compatible:
 - [x] The other section headings in the template are optional, but even if they
       are omitted, the relevant details should still be considered somewhere in
       the text of the proposal. Those section headings are:
-    - [x] Introduction
-    - [x] Proposal text
-    - [x] Potential issues
-    - [x] Alternatives
-    - [x] Unstable prefix
-    - [x] Dependencies
+  - [x] Introduction
+  - [x] Proposal text
+  - [x] Potential issues
+  - [x] Alternatives
+  - [x] Unstable prefix
+  - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the
       unstable prefix section
 - [ ] Changes have applicable

@@ -48,13 +48,13 @@ state event type: `m.room.finality`.
 
 - **State Key:** The `sender` (user ID) of the creator.
 - **Auth Rules:**
-    - The `state_key` of an `m.room.finality` event **MUST** match the `sender`
-      of the event.
-    - The `sender` **MUST** be a member of the room's creator set $C$ (either
-      the create event's `sender` or present in `content.additional_creators`).
-    - If these conditions are not met, the event is rejected.
+  - The `state_key` of an `m.room.finality` event **MUST** match the `sender` of
+    the event.
+  - The `sender` **MUST** be a member of the room's creator set $C$ (either the
+    create event's `sender` or present in `content.additional_creators`).
+  - If these conditions are not met, the event is rejected.
 
-#### Event Schema:
+#### Event Schema
 
 The `content` of an `m.room.finality` event contains the following keys:
 
@@ -65,13 +65,13 @@ The `content` of an `m.room.finality` event contains the following keys:
 
 ```json
 {
-    "type": "m.room.finality",
-    "state_key": "@alice:example.org",
-    "sender": "@alice:example.org",
-    "content": {
-        "checkpoint_event_id": "$xyz123abc789...",
-        "depth": 45210
-    }
+  "type": "m.room.finality",
+  "state_key": "@alice:example.org",
+  "sender": "@alice:example.org",
+  "content": {
+    "checkpoint_event_id": "$xyz123abc789...",
+    "depth": 45210
+  }
 }
 ```
 
@@ -110,15 +110,15 @@ and local processing):
    that has majority backing), allow the event to proceed under standard auth
    rules.
 4. If an active finality checkpoint $H_{latest}$ exists:
-    - The event $E$ **MUST** be a descendant of $H_{latest}$ (there is a path of
-      `prev_events` from $E$ back to $H_{latest}$), **OR**
-    - The event $E$ **MUST** be $H_{latest}$ itself or an ancestor of
-      $H_{latest}$ (to allow backward replication/backfill of historical events
-      that occurred prior to finalization).
-    - If the event $E$ is on a fork that branches off prior to or concurrently
-      with $H_{latest}$ (meaning there is no path of `prev_events` from $E$ to
-      $H_{latest}$, and $E$ is not an ancestor of $H_{latest}$), the event
-      **MUST** be rejected.
+   - The event $E$ **MUST** be a descendant of $H_{latest}$ (there is a path of
+     `prev_events` from $E$ back to $H_{latest}$), **OR**
+   - The event $E$ **MUST** be $H_{latest}$ itself or an ancestor of
+     $H_{latest}$ (to allow backward replication/backfill of historical events
+     that occurred prior to finalization).
+   - If the event $E$ is on a fork that branches off prior to or concurrently
+     with $H_{latest}$ (meaning there is no path of `prev_events` from $E$ to
+     $H_{latest}$, and $E$ is not an ancestor of $H_{latest}$), the event
+     **MUST** be rejected.
 
 ## Potential Issues
 
@@ -142,14 +142,14 @@ the DAG via `prev_events`. For highly active rooms with deep DAGs, this walk can
 be computationally expensive.
 
 - **Mitigation:**
-    1. The `depth` field in `m.room.finality` provides a strict upper bound. A
-       validator only needs to traverse backward until the depth of the ancestor
-       reaches or falls below the depth of $H_{latest}$. If the path has not
-       intersected $H_{latest}$ by that depth, the event is rejected.
-    2. Homeservers can cache the lineage of finalized checkpoints. Once
-       $H_{latest}$ is known and cached, checking whether $E$ is a descendant of
-       $H_{latest}$ can be optimized using pre-computed reachability indexes or
-       epoch markers.
+  1. The `depth` field in `m.room.finality` provides a strict upper bound. A
+     validator only needs to traverse backward until the depth of the ancestor
+     reaches or falls below the depth of $H_{latest}$. If the path has not
+     intersected $H_{latest}$ by that depth, the event is rejected.
+  2. Homeservers can cache the lineage of finalized checkpoints. Once
+     $H_{latest}$ is known and cached, checking whether $E$ is a descendant of
+     $H_{latest}$ can be optimized using pre-computed reachability indexes or
+     epoch markers.
 
 ### 3. Finality Forking/Split-brains during Partitions
 
@@ -158,15 +158,15 @@ of the partition, they might independently sign off on divergent branches.
 
 - **Mitigation:** A split-brain checkpoint cannot occur if $M > N/2$, because a
   simple majority is strictly non-overlapping. For example:
-    - In an $N=3$ room ($M=2$), Alice and Bob can finalize branch A on one side
-      of a partition, while Bob and Charlie cannot finalize a divergent branch B
-      on the other side unless Bob is part of both. However, Bob's homeserver
-      can only hold one active state event for his user ID. Once the partition
-      heals, state resolution v2.1 will resolve the state of the room,
-      converging on a single active state event for Bob. This will resolve which
-      checkpoint has the majority.
-    - In an $N=2$ room ($M=2$), no finality can be established during a
-      partition because neither side can muster 2/2 creators.
+  - In an $N=3$ room ($M=2$), Alice and Bob can finalize branch A on one side of
+    a partition, while Bob and Charlie cannot finalize a divergent branch B on
+    the other side unless Bob is part of both. However, Bob's homeserver can
+    only hold one active state event for his user ID. Once the partition heals,
+    state resolution v2.1 will resolve the state of the room, converging on a
+    single active state event for Bob. This will resolve which checkpoint has
+    the majority.
+  - In an $N=2$ room ($M=2$), no finality can be established during a partition
+    because neither side can muster 2/2 creators.
 
 ## Alternatives
 
