@@ -60,15 +60,17 @@ MSC0503 defines a coordinated algebraic ladder with separate layers:
 sigma_k(S) = (sum h(e), sum h(e)^3, ..., sum h(e)^(2k-1))
 ```
 
-The resident bucket syndromes, strata estimator, and extraction sketch are views
-of the syndrome construction. The wire bucket summary instead exposes
-coordinated per-bucket `h_128` XOR accumulators and counts. The 128-bit room
-accumulator is also a separate XOR accumulator over `h_128`, coordinated with
-the syndrome layer as an integrity anchor. These are not literally one map
-evaluated at different widths. This is why the resident structure is 23 KiB
-rather than four separate indices, and why a peer can escalate from "are we
-different?" through "how different?" to "which elements differ?" without
-recomputing the population from storage.
+The resident strata estimator and any on-demand extraction sketch — at depth 0
+or at any `(depth, prefix)` reached by dynamic tree extraction — are views of
+the same syndrome construction. The 128-bit room accumulator is a separate XOR
+accumulator over `h_128`, coordinated with the syndrome layer as an integrity
+anchor rather than literally the same map evaluated at a different width. This
+is why the resident structure is ~2 KiB (the accumulator plus the strata
+estimator) rather than a persistent index per tree node, and why a peer can
+escalate from "are we different?" through "how different?" to "which elements
+differ?" without recomputing the population from storage — extraction sketches
+are computed from the store on demand, only for the specific nodes a real
+difference touches.
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: `s_{2i} = s_i^2`. This halves the wire cost for free.
@@ -179,14 +181,14 @@ A salted, extremity-gated `bloom_v1` was drafted as a heavy-tail fallback —
 precondition, and a mandatory termination rule capping retries and escalating to
 exact recovery when the strata-estimated delta stalled. It was discarded, not
 shipped: the termination rule and the precondition existed only to bound a
-residual risk `algebraic_v1_deep` (§3.4) doesn't have in the first place —
+residual risk dynamic tree extraction (§3.4) doesn't have in the first place —
 rejected or superseded fork tips have no descendant to trigger causal-closure
 recovery, so `bloom_v1` could still silently and permanently drop such an event
 even with every safeguard in place. An exact mechanism that reuses the same
 decoder is strictly better than a probabilistic one bolted on next to it, once
 one exists.
 
-### 3.4 IBLT, RIBLT, and deep bucket subdivision
+### 3.4 IBLT, RIBLT, and dynamic tree extraction
 
 Invertible Bloom Lookup Tables (IBLT) can recover missing IDs directly from the
 digest exchange. Both fixed-capacity IBLT and its rateless variant (RIBLT) are
@@ -207,19 +209,28 @@ counts, overflow bounds, authenticated chunks, finite memory prefixes, and a
 termination rule — on top of a second decoder implementation (peeling-cascade,
 distinct from PinSketch's Galois-field decode).
 
-MSC0501 instead handles heavy-tailed differences with `algebraic_v1_deep`
-(MSC0500's "Deep bucket subdivision"), which generalizes the bucket mechanism
-this profile already has: `algebraic_v1` assigns `h_64(e)` to one of 256 buckets
-by its leading 8 bits, so a deeper partition by more leading bits is the same
-primitive, not a new one. When a bucket's local difference still exceeds its
-provisioned capacity, only that bucket is subdivided into two children and
-retried — recursion terminates by construction, since each split strictly
-shrinks the population being decoded, and every step either decodes exactly or
-fails loudly, with no probabilistic gap and no termination rule needed for
-safety (only a depth cap, for worst-case round-trip bounding). This keeps the
-total spec surface to one decoder, stays exact throughout, and dominates RIBLT's
-advantage (avoiding a capacity guess) without RIBLT's cost (a second decoder and
-its adversarial-hardening wire format).
+MSC0501 instead handles heavy-tailed differences with dynamic tree extraction
+(MSC0500's "Dynamic tree extraction"). `h_64(e)` determines an element's path
+down a binary tree: depth 0 is a single node covering the whole population — the
+same population an unbucketed sketch covers today — and each further bit of
+`h_64(e)` halves it. When a node's local difference exceeds its provisioned
+capacity, only that node is split into two children and retried — recursion
+terminates by construction, since each split strictly shrinks the population
+being decoded, and every step either decodes exactly or fails loudly, with no
+probabilistic gap and no termination rule needed for safety.
+
+This is a strict simplification over an earlier design that kept a persistent,
+fixed 256-way partition (one XOR accumulator, count, and syndrome sketch per
+bucket, maintained for every population at all times) and only allowed recursion
+past that fixed layer. Dynamic extraction computes a node's sketch from the
+store only when a peer actually requests it, so the ~21 KiB of per-population
+resident state that fixed partition cost is gone entirely — resident state drops
+from ~23 KiB to ~2 KiB, all of it the strata estimator. The prior design paid
+that cost on every population whether or not it ever diverged; this one pays
+cost only on the nodes a real difference touches. This keeps the total spec
+surface to one decoder, stays exact throughout, and dominates RIBLT's advantage
+(avoiding a capacity guess) without RIBLT's cost (a second decoder and its
+adversarial-hardening wire format).
 
 ### 3.5 Server-initiated push
 
@@ -338,11 +349,13 @@ the next round. Unboundedness is an outage.
 
 ### 4.4 Capacity caps
 
-Unbucketed sketches cap at capacity 64; bucketed aggregate capacity caps
-at 4096. These are sized for the small one-sided differences expected to
-dominate. A deployment routinely hitting them is telling you something — either
-its peers are diverging far more than expected, or it should be using bucket
-localization earlier, or it wants a rateless profile.
+A `sketch` exchange's aggregate capacity across all `requests` entries caps at
+4096, whether that is a single depth-0 request or the leaves of a tree split
+several levels deep. This is sized for the small one-sided differences expected
+to dominate. A deployment routinely hitting it is telling you something — either
+its peers are diverging far more than expected, or it should be sizing its
+initial request from the strata estimate more aggressively, or it wants a
+rateless profile.
 
 ## 5. Accumulator forgery, stated precisely
 

@@ -10,27 +10,28 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
-The profile is provisioned for aggregate, bucketed differences of up to
+The profile is provisioned for aggregate, tree-localized differences of up to
 approximately 4,000 elements between sets containing up to 1 million elements.
-With the resident bucket structure in the reference implementation, the
+With the resident strata estimator in the reference implementation, the
 common-case exchange is designed to complete within approximately 50 ms and
 exchange less than 25 KiB in total, excluding event bodies. Larger differences
-require bucket-capacity escalation or a frame-extension and bulk-retrieval
+require dynamic-tree escalation or a frame-extension and bulk-retrieval
 protocol; they are not guaranteed to remain within these latency or wire-size
 bounds, and above these limits additional MSCs with better asymptotic complexity
 may be preferred. The extraction decoder has approximately $O(k^2 \log k)$
-field-operation complexity, where `k` is the configured capacity. With `b`
-buckets and per-bucket capacities $k_i$, bucketed decoding has total cost
-$\sum_{i=1}^{b} O\!\left(k_i^2 \log k_i\right)$. For a balanced difference of
-size $\Delta$, each bucket has approximately $\Delta / b$ elements, giving total
-cost $O\!\left(\frac{\Delta^2}{b}\log\frac{\Delta}{b}\right)$, up to bucket
+field-operation complexity, where `k` is a node's configured capacity. With `n`
+tree nodes requested and per-node capacities $k_i$, total decoding cost is
+$\sum_{i=1}^{n} O\!\left(k_i^2 \log k_i\right)$. For a balanced difference of
+size $\Delta$ localized across `n` leaf nodes, each leaf has approximately
+$\Delta / n$ elements, giving total cost
+$O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$, up to distribution
 imbalance and capacity overhead.
 
-`algebraic_v1` is a coordinated algebraic ladder. The resident bucket syndromes,
-strata estimator, and extraction sketch are views of one syndrome map. Separate
-128-bit XOR accumulators at room and bucket scope provide agreement checks,
-localization, and decode verification. Increasing extraction capacity extends an
-exchange additively; it does not restart it.
+`algebraic_v1` is a coordinated algebraic ladder. The strata estimator and
+extraction sketch, at any `(depth, prefix)`, are views of one syndrome map. A
+128-bit XOR accumulator at room scope provides the agreement check and decode
+verification. Increasing extraction capacity extends an exchange additively; it
+does not restart it.
 
 ## Scope
 
@@ -40,7 +41,7 @@ This profile defines:
 - the finite field and its `libminisketch` compatibility contract;
 - the level-0 accumulator;
 - the syndrome sketch, its serialization, and its capacity bounds;
-- the bucket summary and strata estimator;
+- dynamic tree extraction and the strata estimator;
 - the decode-and-verify contract;
 - capacity provisioning budgets;
 - the resident structure implementations are expected to maintain.
@@ -172,29 +173,34 @@ subtracted by XOR. The result is the syndrome of the symmetric difference. This
 is the property that makes the profile group-valued and the reason a failed
 exchange can be extended rather than restarted.
 
-**Capacity bounds.** An unbucketed sketch MUST NOT exceed capacity 64 on the
-wire. In bucketed mode, the sum of per-bucket capacities MUST NOT exceed 4096. A
-future profile MAY raise these caps; `algebraic_v1` MUST NOT.
+**Capacity bounds.** A `sketch` exchange consists of one or more extraction
+requests, each a `(depth, prefix, capacity)` triple (see "Dynamic tree
+extraction," below). The sum of `capacity` across all requests in a single
+exchange MUST NOT exceed 4096. A future profile MAY raise this cap;
+`algebraic_v1` MUST NOT.
 
-## Bucket summary
+## Dynamic tree extraction
 
-Buckets localize two-sided differences that a single sketch cannot decode.
+A single sketch at `depth = 0` covers the whole population and is exact only
+while the true difference is within its capacity. When it is not, the population
+is localized by recursive binary subdivision instead of a fixed partition.
 
-`bucket_count` is 256 in this profile. A value $h_{64}(e)$ is assigned to the
-bucket named by its leading 8 bits. Each bucket carries:
+`h_64(e)` determines an element's path down a binary tree: at depth `d`, an
+element belongs to node `prefix` iff the leading `d` bits of `h_64(e)` equal
+`prefix`. Depth 0 has a single node (`prefix = 0`) covering every element — the
+same population a single flat sketch covers. If a node's sketch fails to decode
+at its requested capacity, the peer that detects the failure requests two child
+sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
+that still overflows is split again. This is recursive: since each split
+strictly partitions its parent's population, the recursion terminates — worst
+case at `depth = 64`, where `h_64` no longer distinguishes elements.
 
-- a 128-bit bucket accumulator over $h_{128}(e)$ for members of that bucket;
-- a 24-bit member count.
-
-Bucket summaries are diagnostic inputs for capacity provisioning, not a transfer
-mechanism. A consumer requests one only after the count residual is zero or a
-direct decode has failed — both of which indicate a two-sided difference. They
-are not sent on the common one-sided lag path.
-
-After receiving a bucket summary, a peer MAY issue a further sketch request
-restricted to the differing buckets, with per-bucket capacities derived from the
-per-bucket count residuals. Bucketed sketches are the concatenation of one
-sketch per requested bucket, in ascending `bucket_id` order.
+Every node, at any depth, is decoded and verified exactly as in "Decode and
+verification," below: it either decodes within its capacity and passes the
+128-bit residual check, or it fails loudly and is split. There is no separate
+"bucket" primitive and no persistent per-node resident state — see "Resident
+structure." A `(depth, prefix)` pair is computed only when a peer actually
+requests it.
 
 ## Strata estimator
 
@@ -209,8 +215,9 @@ trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
 Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate $|S_A △ S_B|$ before choosing between direct extraction,
-bucket localization, or abandoning the comparison.
+stratum to estimate $|S_A △ S_B|$ before choosing between a single depth-0
+extraction, provisioning an initial dynamic-tree request, or abandoning the
+comparison.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
@@ -279,79 +286,44 @@ The three terms cover, respectively: measurement slack when divergence is not
 purely one-sided, a small floor for tiny differences, and events arriving
 concurrently during the round trip.
 
-If decode fails at `k`, retry at larger `k` up to the cap, or request a bucket
-summary to localize a two-sided difference. Because sketches subtract, a retry
-at higher capacity is a continuation of the same comparison, not a restart.
-Additive extension is valid only when the syndrome coordinates are strictly
-prefix-compatible: the frame anchor, hash mapping, field size, and coordinate
-order MUST remain unchanged. If no compatible frame exists, peers MUST perform
-frame discovery or backfill before retrying.
+If decode fails at `k`, retry at larger `k` up to the cap, or split into
+dynamic-tree children to localize a two-sided difference. Because sketches
+subtract, a retry at higher capacity is a continuation of the same comparison,
+not a restart. Additive extension is valid only when the syndrome coordinates
+are strictly prefix-compatible: the frame anchor, hash mapping, field size, and
+coordinate order MUST remain unchanged. If no compatible frame exists, peers
+MUST perform frame discovery or backfill before retrying.
 
 The escalation sequence is:
 
 1. Validate the frame and abort, or use topology backfill, if the frame anchor
    does not match.
-2. Execute the compact `algebraic_v1` exchange.
+2. Execute the compact `algebraic_v1` exchange at depth 0.
 3. Resolve small over-capacity differences by additive syndrome extension.
-4. Isolate failures independently through bucket-level extraction.
-5. For a difference that still exceeds the 4096 aggregate capacity at 256
-   buckets, escalate to `algebraic_v1_deep` (below): a separately negotiated
-   `digest_type` that recursively subdivides only the buckets that overflow.
-   That profile is not defined by `algebraic_v1`.
-
-## Deep bucket subdivision (`algebraic_v1_deep`)
-
-`algebraic_v1_deep` is a distinct `digest_type`, advertised separately, for
-differences that exceed `algebraic_v1`'s fixed 4096 aggregate capacity. It
-reuses `algebraic_v1`'s field, hash derivation, accumulator, and syndrome
-construction unchanged. The only difference is that bucket addressing is
-recursive instead of fixed at a single 256-way partition.
-
-**Bucket paths.** `algebraic_v1` assigns `h_64(e)` to one of 256 buckets by its
-leading 8 bits. `algebraic_v1_deep` generalizes this to a `bucket_path`: a
-`(depth, prefix)` pair, where `prefix` is the unsigned integer value of the
-leading `depth` bits of `h_64(e)`. A depth-8 path is exactly an `algebraic_v1`
-`bucket_id`; the two schemes are bit-compatible views of the same hash space, so
-an `algebraic_v1` bucket summary can be reused directly as the depth-8 starting
-point for `algebraic_v1_deep` refinement.
-
-**Refinement.** When a bucket's count residual exceeds the capacity a peer is
-willing to provision for it, the peer requests a bucket summary for that
-bucket's two depth-`(d+1)` children (`prefix‖0` and `prefix‖1`) instead of
-raising that bucket's own capacity. This is recursive: a child that still
-overflows is split again. Each split strictly partitions its parent's
-population, so the recursion terminates — population at depth `d` is bounded by
-population at depth `d-1`, and depth is bounded by `h_64`'s 64 bits.
-
-**Capacity cap and depth cap.** Each sketch request, at any depth, is bounded by
-the same per-request capacity limit as `algebraic_v1`'s bucketed mode.
-`algebraic_v1_deep` additionally bounds recursion at a negotiated maximum depth
-(default 20, max 32) to bound worst-case round trips against a pathological or
-adversarial hash distribution. A peer that would need to exceed the depth cap
-MUST report `depth_exceeded` and fall back to backfill rather than continue
-subdividing.
-
-**Provisioning.** The strata estimator still gives an initial size estimate `Δ̂`
-for choosing a starting capacity per depth-8 bucket, so refinement is the
-exception rather than the common path. `Δ̂` informs only the initial choice;
-correctness never depends on it, because an under-provisioned bucket produces a
-loud decode failure — exactly `algebraic_v1`'s existing `capacity_exceeded`
-signal, one level deeper — rather than a silent one.
+4. Isolate failures independently through dynamic tree extraction: split the
+   overflowing node and retry each child.
+5. For a difference so large or so heavy-tailed that it exhausts the 4096
+   aggregate capacity across the tree, or would require recursing to impractical
+   depth, treat it as a frame problem rather than a reconciliation problem — see
+   "Scope," below.
 
 **Why this and not a probabilistic filter.** Every node in the recursion uses
-the same PinSketch decoder `algebraic_v1` already requires; no second decoder is
-introduced. Every failure is loud, per "Decode and verification," at every
-depth. There is no equivalent of a false positive: a bucket either decodes
-exactly at its offered capacity, or it is split and tried again. This is why
-`algebraic_v1_deep` is preferred over both RIBLT and Bloom filters as the
-heavy-tail fallback; see Alternatives.
+the same PinSketch decoder as the depth-0 case; no second decoder is introduced.
+Every failure is loud, per "Decode and verification," at every depth. There is
+no equivalent of a false positive: a node either decodes exactly at its offered
+capacity, or it is split and tried again. This is why dynamic tree extraction is
+preferred over both RIBLT and Bloom filters as the heavy-tail mechanism; see
+Alternatives. It also carries no persistent resident cost proportional to tree
+size — see "Resident structure," below — because nodes are computed only when
+requested, unlike a fixed partition maintained for every population regardless
+of whether it ever diverges.
 
-**Scope.** `algebraic_v1_deep` is for a large but bounded difference within an
-otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case. A
+**Scope.** Dynamic tree extraction is for a large but bounded difference within
+an otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case. A
 difference approaching the size of the population itself (e.g. a server
 restoring from near-zero state) is not a reconciliation problem. Peers SHOULD
-recognize this from the count residual or an early, broadly-overflowing bucket
-summary and fall back to backfill or a frame-extension protocol rather than
+recognize this from the count residual or an early, broadly-overflowing root
+sketch and fall back to backfill or a frame-extension protocol rather than
 recursing through most of the hash space.
 
 ## Resident structure
@@ -361,25 +333,28 @@ per-population structure:
 
 <!-- markdownlint-disable MD013 -->
 
-| Layer                               | Width             | Size   | Purpose                                      |
-| ----------------------------------- | ----------------- | ------ | -------------------------------------------- |
-| Integrity accumulator               | 128 bits          | 16 B   | ETag, level-0 agreement, decode verification |
-| Bucket accumulators                 | 128 bits × 256    | 4 KiB  | two-sided localization, fault detection      |
-| Bucket counts                       | 24 bits × 256     | 768 B  | count residuals and provisioning             |
-| Bucket syndromes `s1` through `s15` | 64 bits × 8 × 256 | 16 KiB | fast-path extraction                         |
-| Strata estimator                    | 64 bits × 8 × 32  | 2 KiB  | pre-decode difference estimation             |
+| Layer                 | Width            | Size  | Purpose                                      |
+| --------------------- | ---------------- | ----- | -------------------------------------------- |
+| Integrity accumulator | 128 bits         | 16 B  | ETag, level-0 agreement, decode verification |
+| Strata estimator      | 64 bits × 8 × 32 | 2 KiB | pre-decode difference estimation             |
 
 <!-- markdownlint-enable MD013 -->
 
-Total resident state is approximately 23 KiB per active population.
+Total resident state is approximately 2 KiB per active population. Dynamic tree
+extraction (above) maintains no persistent per-node structure: sketches at any
+`(depth, prefix)` are computed on demand, from the store, only when a peer
+actually requests that node. This is a deliberate tradeoff against a prior
+design that additionally maintained a fixed 256-way partition at all times (a
+further ~21 KiB per population): that structure paid its cost on every
+population whether or not it ever diverged, where dynamic extraction pays cost
+only on the specific nodes a real difference touches.
 
 **Update procedure.** On inserting or removing element `e`:
 
 1. Compute $x = h_{64}(e)$.
-2. Choose the bucket from the leading 8 bits of `x`.
-3. Choose the estimator stratum from `x.trailing_zeros()`.
-4. Compute $x^2$ once.
-5. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
+2. Choose the estimator stratum from `x.trailing_zeros()`.
+3. Compute $x^2$ once.
+4. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
 
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
@@ -404,15 +379,15 @@ canonical feature flag for this profile is:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0500.digest.algebraic_v1": true,
-    "tk.nutra.msc0500.digest.algebraic_v1_deep": true
+    "tk.nutra.msc0500.digest.algebraic_v1": true
   }
 }
 ```
 
-`algebraic_v1_deep` support is advertised independently. A server MAY support
-`algebraic_v1` without `algebraic_v1_deep`; it then reports `capacity_exceeded`
-without an escalation path for differences beyond the fixed caps.
+Dynamic tree extraction is part of `algebraic_v1` itself, not a separate
+`digest_type`: a server that supports `algebraic_v1` supports depth-0 sketches
+and their recursive refinement under the same flag, since both use the same
+field, hash derivation, and decoder.
 
 A future profile that changes the field, the hash derivation, the coordinate
 ordering, or the capacity caps MUST use a new `digest_type` name. Profiles are
@@ -421,12 +396,11 @@ no defined meaning and must fail at negotiation rather than at decode.
 
 ## Potential issues
 
-**Fixed capacity caps.** The 64 and 4096 caps are conservative and chosen for
+**Fixed capacity caps.** The 4096 aggregate cap is conservative and chosen for
 the small one-sided differences expected to dominate normal federation repair.
 Populations with routinely large or heavy-tailed differences will hit the cap
-and fall back to bucket localization more often than necessary.
-`algebraic_v1_deep` (above) is the answer for those populations, and unlike a
-rateless encoding it requires no second decoder.
+and fall back to dynamic tree extraction more often than necessary. Unlike a
+rateless encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
 population sizes in scope this is rare, and the 128-bit verification step
@@ -435,11 +409,11 @@ unrelated to capacity. Implementations MUST NOT interpret repeated verification
 failure at adequate capacity as evidence of peer misbehavior without further
 diagnosis.
 
-**Resident state on many small populations.** 23 KiB per population is cheap for
-active rooms and expensive in aggregate for a server participating in very many
-mostly-idle ones. Implementations SHOULD evict resident structures under an LRU
-or TTL policy and rebuild on demand; the accumulator alone (16 bytes) is enough
-for the common no-difference path.
+**Resident state on many small populations.** 2 KiB per population is cheap even
+in aggregate for a server participating in very many mostly-idle rooms.
+Implementations SHOULD still evict resident structures under an LRU or TTL
+policy and rebuild on demand; the accumulator alone (16 bytes) is enough for the
+common no-difference path.
 
 ## Alternatives
 
@@ -449,8 +423,8 @@ for the baseline because BCH/PinSketch-style syndromes are significantly more
 compact. An IBLT requires three fields per cell (`count`, `id_sum`, `hash_sum`)
 and typically requires 1.35x to 1.5x more cells than the expected difference
 size to decode successfully. `algebraic_v1` requires exactly one field element
-per unit of capacity, making it cheaper to maintain in the resident bucket
-array.
+per unit of capacity, making it both cheaper per exchange and cheaper to
+provision when dynamic tree extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
 capacity up front while staying group-valued, but securing them against an
@@ -458,18 +432,18 @@ adversarial peer requires their own wire format: signed fixed-width count
 semantics, overflow bounds, checksum and domain separation, chunk
 authentication, explicit negotiated materialization limits such as finite
 prefixes, and a termination rule — on top of a second decoder implementation
-distinct from PinSketch. `algebraic_v1_deep` (above) handles heavy-tailed
+distinct from PinSketch. Dynamic tree extraction (above) handles heavy-tailed
 differences instead, reusing PinSketch's existing decoder and `D(e)` digest with
 no capacity guess and no second decoder, while remaining exact.
 
 **Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
 monoid: it supports membership tests but not subtraction. A salted,
 extremity-gated `bloom_v1` fallback was drafted and discarded in favor of
-`algebraic_v1_deep`: both handle the same heavy-tail case, but
-`algebraic_v1_deep` stays exact (loud decode failure at every step, no false
-positives) and needs no new decoder, where a Bloom-based fallback would still
-need a termination rule to bound its residual risk of a silently, permanently
-missed event. See the MSC0501 architecture note for the full argument.
+dynamic tree extraction: both handle the same heavy-tail case, but tree
+extraction stays exact (loud decode failure at every step, no false positives)
+and needs no new decoder, where a Bloom-based fallback would still need a
+termination rule to bound its residual risk of a silently, permanently missed
+event. See the MSC0501 architecture note for the full argument.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
 higher per-update cost. Appropriate where accumulator evidence must be

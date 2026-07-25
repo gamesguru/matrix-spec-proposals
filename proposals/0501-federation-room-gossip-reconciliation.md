@@ -88,15 +88,10 @@ endpoint revisions can be added without changing the stable version document.
 {
   "unstable_features": {
     "tk.nutra.msc0501.reconciliation": true,
-    "algebraic_v1": true,
-    "algebraic_v1_deep": true
+    "algebraic_v1": true
   }
 }
 ```
-
-`algebraic_v1_deep` support is advertised independently, per MSC0500. A server
-that supports only `algebraic_v1` reports `capacity_exceeded` with no escalation
-path for differences beyond the fixed caps.
 
 A server that receives HTTP 404 or 501 from a reconciliation endpoint MUST cache
 that peer as unsupported for at least 24 hours and MUST NOT retry during that
@@ -365,11 +360,8 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "digest_type": "algebraic_v1",
   "local_known_event_count": 81000,
   "frame_event_ids": ["$join_anchor"],
-  "sketch_capacity": 64,
-  "local_sketch": "<base64url_syndrome_sketch>",
-  "buckets": null,
-  "bucket_count": 256,
-  "include_bucket_summary": false,
+  "requests": [{ "depth": 0, "prefix": 0, "capacity": 64 }],
+  "local_sketches": ["<base64url_syndrome_sketch>"],
   "limit": 1000
 }
 ```
@@ -378,29 +370,24 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                       | Type     | Required                         | Description                                                                                                                                                                                                                                                                                                         |
-| --------------------------- | -------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `mode`                      | string   | Yes                              | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                |
-| `scope`                     | string   | No                               | `event_set` (default), or `resolved_state`. The latter compares resolved state event IDs at `state_at` and is never a state-map adoption mechanism.                                                                                                                                                                 |
-| `state_at`                  | string   | If scope=resolved_state          | Common event ID at which both servers resolve state. It MUST be in the negotiated frame.                                                                                                                                                                                                                            |
-| `local_extremity_event_ids` | [string] | If mode=extremity                | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                                                                                            |
-| `have_event_ids`            | [string] | If mode=extremity                | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                 |
-| `frame_negotiation`         | bool     | No                               | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                        |
-| `frame_event_ids`           | [string] | If frame negotiation             | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                |
-| `frame_id`                  | string   | If mode=sketch                   | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                 |
-| `local_digest`              | string   | If mode=sketch                   | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                               |
-| `digest_type`               | string   | If mode=sketch                   | The digest profile used. One of `algebraic_v1` or `algebraic_v1_deep`. Servers MUST support `algebraic_v1`; `algebraic_v1_deep` MAY be negotiated as the capacity-exceeded heavy-tail fallback, see below.                                                                                                          |
-| `local_known_event_count`   | integer  | If mode=sketch                   | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                 |
-| `sketch_capacity`           | integer  | If mode=sketch                   | Requested extraction capacity `k`. Unbucketed sketches MUST NOT exceed 64 on the wire.                                                                                                                                                                                                                              |
-| `local_sketch`              | string   | If mode=sketch                   | Base64url-encoded syndrome sketch of the requester's known-event set for the requested frame, capacity, and optional bucket selection.                                                                                                                                                                              |
-| `buckets`                   | [object] | No                               | Bucket subset for localized sketch mode. Each entry has `bucket_id` in `0..255` (equivalently, depth-8 `bucket_path`) and positive `capacity`. Entries MUST have strictly increasing `bucket_id` values; duplicates and non-increasing IDs MUST be rejected before subtraction.                                     |
-| `deep_buckets`              | [object] | If digest_type=algebraic_v1_deep | Bucket refinement requests beyond depth 8. Each entry has `depth` (integer, `9..max_bucket_depth`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity`. Entries MUST have strictly increasing `(depth, prefix)` order; duplicates MUST be rejected before subtraction. |
-| `max_bucket_depth`          | integer  | No                               | `algebraic_v1_deep` only. Positive integer, MUST be ≥ 8. Maximum `bucket_path` depth the peer is allowed to request or recurse to. Default 20, max 32.                                                                                                                                                              |
-| `bucket_count`              | integer  | No                               | Bucket count `b` for optional localization summaries. If present, MUST be 256 in this MSC.                                                                                                                                                                                                                          |
-| `include_bucket_summary`    | bool     | No                               | Whether the requester wants bucket accumulators and counts for two-sided localization. Default false.                                                                                                                                                                                                               |
-| `max_depth_delta`           | integer  | No                               | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                 |
-| `max_events`                | integer  | No                               | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                    |
-| `limit`                     | integer  | No                               | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                   |
+| Field                       | Type     | Required                | Description                                                                                                                                                                                                                                                                                                                                                           |
+| --------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mode`                      | string   | Yes                     | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                                                                  |
+| `scope`                     | string   | No                      | `event_set` (default), or `resolved_state`. The latter compares resolved state event IDs at `state_at` and is never a state-map adoption mechanism.                                                                                                                                                                                                                   |
+| `state_at`                  | string   | If scope=resolved_state | Common event ID at which both servers resolve state. It MUST be in the negotiated frame.                                                                                                                                                                                                                                                                              |
+| `local_extremity_event_ids` | [string] | If mode=extremity       | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                                                                                                                                              |
+| `have_event_ids`            | [string] | If mode=extremity       | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                                                                   |
+| `frame_negotiation`         | bool     | No                      | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                                                                          |
+| `frame_event_ids`           | [string] | If frame negotiation    | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                                                                  |
+| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                                                                   |
+| `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                 |
+| `digest_type`               | string   | If mode=sketch          | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                         |
+| `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                   |
+| `requests`                  | [object] | If mode=sketch          | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..64`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity`. Entries MUST have strictly increasing `(depth, prefix)` order; duplicates MUST be rejected before subtraction. The sum of `capacity` across all entries MUST NOT exceed 4096. |
+| `local_sketches`            | [string] | If mode=sketch          | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order.                                                                                                                                                                                                                                               |
+| `max_depth_delta`           | integer  | No                      | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                   |
+| `max_events`                | integer  | No                      | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                                                                      |
+| `limit`                     | integer  | No                      | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                                                                     |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -416,7 +403,6 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "frame_id": "<base64url_32_byte_frame_id>",
   "frame_status": "not_requested",
   "sketch_status": "decoded",
-  "bucket_summary": null,
   "truncated": false
 }
 ```
@@ -438,8 +424,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 | `scope`                               | string   | Yes                     | The comparison scope used by the response: `event_set` or `resolved_state`.                                                                                                                                                                                     |
 | `state_at`                            | string   | If scope=resolved_state | The common DAG point used for local state resolution.                                                                                                                                                                                                           |
 | `inline_pdus`                         | [PDU]    | No                      | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
-| `sketch_status`                       | string   | No                      | `decoded`, `capacity_exceeded`, `depth_exceeded`, or `not_applicable`. Present for `sketch` mode. `depth_exceeded` is `algebraic_v1_deep` only, returned when a bucket would need to recurse past `max_bucket_depth` to decode.                                 |
-| `bucket_summary`                      | object   | No                      | Optional bucket accumulator/count summary for two-sided localization. Present only when requested and supported. For `algebraic_v1_deep`, entries carry `(depth, prefix)` in place of a flat `bucket_id` once depth exceeds 8.                                  |
+| `sketch_status`                       | string   | No                      | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode. `capacity_exceeded` on a given `(depth, prefix)` node is the trigger for requesting its two children; see "Dynamic tree extraction," below.                                     |
 | `truncated`                           | bool     | Yes                     | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling truncation.                                                                                                               |
 
 <!-- markdownlint-enable MD013 -->
@@ -464,9 +449,9 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   server does not recognize, the requester MAY use `extremity` mode to discover
   the repair frontier, but MUST treat `truncated: true` as non-repair progress
   until the walk reaches known ancestry.
-- Otherwise, or after frontier repair, use `sketch` mode, provisioning
-  `sketch_capacity` per the MSC0500 budget from the count residual
-  `c = abs(local_known_event_count - remote_known_event_count)`.
+- Otherwise, or after frontier repair, use `sketch` mode, provisioning the
+  initial depth-0 request's `capacity` per the MSC0500 budget from the count
+  residual `c = abs(local_known_event_count - remote_known_event_count)`.
 
 #### `extremity` mode
 
@@ -550,31 +535,24 @@ merge-base within the first few hundred events of its backward walk.
 
 #### `sketch` mode
 
-This subsection describes `digest_type: "algebraic_v1"` processing, which also
-covers `algebraic_v1_deep` requests at depth 8 (i.e. using `buckets` rather than
-`deep_buckets`); see `algebraic_v1_deep` heavy-tail fallback below for requests
-using `deep_buckets`.
-
 The responding server:
 
-1. Validates that `digest_type` is `algebraic_v1` or `algebraic_v1_deep`,
-   `local_digest` is exactly 16 decoded bytes, `sketch_capacity` is positive and
-   within the cap, and the request frame matches the responder's digest frame.
-   If `buckets` is absent or null, `sketch_capacity` MUST NOT exceed 64 on the
-   wire. If `buckets` is present, the sketch is computed only over those
-   buckets, in ascending `bucket_id` order, and the sum of bucket capacities
-   MUST NOT exceed 4096.
+1. Validates that `digest_type` is `algebraic_v1`, `local_digest` is exactly 16
+   decoded bytes, `requests` is a well-formed array of
+   `(depth, prefix, capacity)` entries in strictly increasing `(depth, prefix)`
+   order with no duplicates, the sum of `capacity` across `requests` does not
+   exceed 4096, and the request frame matches the responder's digest frame.
 2. Computes `residual_digest = remote_digest XOR local_digest`.
 3. Computes `c = abs(remote_known_event_count - local_known_event_count)`. If
    `residual_digest` is zero and `c` is zero, returns an empty decoded response.
-4. Validates that `local_sketch` has length exactly `8 * sketch_capacity` bytes
-   for an unbucketed sketch, or the sum of `8 * bucket_capacity` over the
-   requested buckets in localized bucket mode.
-5. Produces a matching syndrome sketch over its own known-event set for the
-   requested frame, at `sketch_capacity` in unbucketed mode, or as the
-   concatenation of one per-bucket sketch in ascending `bucket_id` order.
-6. Subtracts the requester's sketch from its own and decodes the symmetric
-   difference as 64-bit short identifiers, per MSC0500.
+4. Validates that `local_sketches` has the same length as `requests`, and that
+   each sketch is exactly `8 * capacity` bytes for its corresponding entry.
+5. For each entry in `requests`, produces a syndrome sketch over the subset of
+   its own known-event set whose `h_64(e)` has `prefix` as its leading `depth`
+   bits, at that entry's `capacity`.
+6. Subtracts each of the requester's sketches from its corresponding
+   responder-side sketch and decodes the symmetric difference as 64-bit short
+   identifiers, per MSC0500.
 7. Partitions the decoded short identifiers into `responder_side` and
    `requester_side`. For `responder_side`, the responder resolves each short ID
    to a full event ID it holds and computes the 128-bit accumulator over those
@@ -586,57 +564,28 @@ The responding server:
    The requester resolves the short IDs it holds, verifies their 128-bit
    accumulator against `expected_requester_side_accumulator`, and MAY use those
    events as reverse repair candidates for the responder.
-9. If capacity is exceeded, sets `sketch_status: "capacity_exceeded"` and
-   `truncated: true`.
+9. If any entry's sketch exceeds its capacity, sets
+   `sketch_status: "capacity_exceeded"` and `truncated: true`.
 
-If `include_bucket_summary` is true, the responder also returns a bucket summary
-with `bucket_count = 256`, as defined in MSC0500. Bucket summaries are used only
-after the count residual is zero or a direct decode fails, both of which
-indicate a two-sided difference; they are not sent on the common one-sided lag
-path. After receiving one, a requester MAY issue another `sketch` request with
-`buckets` limited to the differing buckets and per-bucket capacities derived
-from the bucket count residuals.
+**Dynamic tree extraction.** A `capacity_exceeded` result for a given
+`(depth, prefix)` node is the trigger for localization, not a terminal failure.
+The requester issues a further `sketch` request with two new `requests` entries
+at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1` — the overflowing
+node's two children — instead of raising that node's own capacity. A child that
+itself overflows is split the same way, one depth deeper. Because each split
+strictly partitions its parent's population, recursion terminates: worst case at
+`depth = 64`, where `h_64` no longer distinguishes elements. No precondition
+beyond the usual frame agreement is required for this — every result is
+independently verified against the 128-bit accumulator per MSC0500, not inferred
+from graph structure, so there is nothing analogous to a probabilistic
+fallback's extremity-convergence requirement.
 
-#### `algebraic_v1_deep` heavy-tail fallback
-
-`algebraic_v1_deep` is used only after `algebraic_v1` reports
-`sketch_status: "capacity_exceeded"` at 256 buckets and 4096 aggregate capacity.
-It stays exact: rather than trading correctness for scale, it recursively
-subdivides only the buckets that overflow, reusing the same PinSketch decoder
-and syndrome construction as `algebraic_v1` at every depth. See MSC0500's "Deep
-bucket subdivision" for the full derivation; this subsection defines the wire
-flow.
-
-**Starting point.** A depth-8 `algebraic_v1_deep` bucket summary is identical to
-`algebraic_v1`'s (`bucket_count: 256`, `buckets` addressed by `bucket_id`). No
-precondition beyond the usual frame agreement is required — unlike a
-probabilistic fallback, `algebraic_v1_deep` does not depend on extremity
-convergence, because every result it returns is independently verified against
-the 128-bit accumulator per MSC0500, not inferred from graph structure.
-
-**Refinement request.** When a specific `bucket_id`'s count residual exceeds the
-capacity the requester is willing to provision for it, the requester issues a
-further `sketch` request with `digest_type: "algebraic_v1_deep"` and a
-`deep_buckets` entry naming that bucket's two depth-9 children (`prefix` values
-`2 * bucket_id` and `2 * bucket_id + 1`). The responder computes and returns
-bucket summaries or sketches for exactly those children. A child that itself
-overflows is refined the same way, one depth deeper, up to `max_bucket_depth`.
-
-**Depth cap.** If decoding a bucket would require recursing past
-`max_bucket_depth`, the responder sets `sketch_status: "depth_exceeded"` and
-`truncated: true` for that branch. A requester that hits `depth_exceeded` MUST
-NOT keep requesting deeper refinement for that branch; it MUST fall back to
-backfill or frame extension for the affected `prefix` range. Because each
-refinement level roughly halves a bucket's population, `depth_exceeded` in
-practice indicates the difference is not a bounded reconciliation problem — see
-"Scope" in MSC0500.
-
-**Provisioning.** The requester SHOULD use the strata-estimated `Δ` from
-`room_digest` to size the initial depth-8 bucket capacities, so that refinement
-is the exception rather than the default path. This is an efficiency choice, not
-a correctness one: an under-provisioned bucket produces
-`sketch_status: "capacity_exceeded"` for that bucket specifically, which is
-exactly the trigger for the next refinement step, not a lost result.
+The requester SHOULD use the strata-estimated `Δ` from `room_digest` to size the
+initial depth-0 request's capacity, so that splitting is the exception rather
+than the default path. This is an efficiency choice, not a correctness one: an
+under-provisioned node produces `sketch_status: "capacity_exceeded"` for that
+node specifically, which is exactly the trigger for the next split, not a lost
+result.
 
 #### Causal closure and truncation
 
@@ -789,8 +738,9 @@ fetchable event; this prevents permanent digest mismatches and fetch loops.
          │  { mode: "sketch",                      │
          │    local_digest: "...",                 │
          │    local_known_event_count: 81000,      │
-         │    sketch_capacity: 64,                 │
-         │    local_sketch: "..." }                │
+         │    requests: [{depth: 0, prefix: 0,     │
+         │                capacity: 64}],          │
+         │    local_sketches: ["..."] }            │
          │────────────────────────────────────────>│
          │                                         │
          │  200 OK { missing_event_ids: [...] }    │
@@ -898,16 +848,16 @@ force an unconditional digest comparison at least once every 16 consecutive
 
 ### Performance resilience
 
-- **Digest computation cost.** The accumulator and resident bucket summaries are
+- **Digest computation cost.** The accumulator and resident strata estimator are
   maintained incrementally when events are persisted or purged, per MSC0500.
+  Dynamic-tree node sketches are computed on demand, not maintained resident.
   Implementations that do not maintain the resident structure may need to scan
   room history to answer `sketch` requests and SHOULD apply stricter rate
   limits.
-- **Diff amplification.** A malicious requester can overstate `sketch_capacity`,
-  request bucket summaries repeatedly, or ask for large `limit` values. Servers
-  MUST cap unbucketed `sketch_capacity` at 64, MUST reject bucketed requests
-  whose aggregate capacity exceeds 4096, and MUST cap `limit`, response bytes,
-  and per-peer CPU time.
+- **Diff amplification.** A malicious requester can overstate `requests`
+  capacities, force repeated tree splits, or ask for large `limit` values.
+  Servers MUST reject a `sketch` request whose aggregate `requests` capacity
+  exceeds 4096, and MUST cap `limit`, response bytes, and per-peer CPU time.
 - **Bulk fetch abuse.** `room_events` returns full PDUs, which can be large. The
   500-event cap and standard federation rate limiting mitigate this.
 
@@ -952,15 +902,15 @@ architecture note. Summary of the conclusions:
 - **Bloom filters** are rejected outright: they are not group-valued, so peers
   cannot subtract them, false positives are silent, and a larger filter restarts
   rather than extends an exchange. A salted, extremity-gated `bloom_v1` fallback
-  was drafted and discarded in favor of `algebraic_v1_deep`, which handles the
-  same heavy-tail case without giving up exactness.
+  was drafted and discarded in favor of dynamic tree extraction, which handles
+  the same heavy-tail case without giving up exactness.
 - **RIBLT** is in the same group-valued family as PinSketch and would preserve
   exact recovery, but requires its own wire format (signed counts, overflow
   bounds, chunk authentication, a termination rule) and a second decoder to be
-  safe against an adversarial peer. `algebraic_v1_deep` (see `algebraic_v1_deep`
-  heavy-tail fallback above) reuses the existing bucket mechanism and decoder
-  instead, recursively subdividing only overflowing buckets, and stays exact
-  with no second decoder and no capacity guess.
+  safe against an adversarial peer. Dynamic tree extraction (see "Dynamic tree
+  extraction" above) reuses the depth-0 sketch mechanism and decoder instead,
+  recursively subdividing only overflowing nodes, and stays exact with no second
+  decoder and no capacity guess.
 - **Push reconciliation** creates O(servers²) traffic and forfeits the natural
   self-rate-limiting of pull.
 
@@ -999,18 +949,19 @@ failing any check MUST be discarded without affecting local state.
 
 ### Amplification via oversized sketches
 
-Servers MUST reject unbucketed `sketch_capacity` above 64, bucketed requests
-whose aggregate capacity exceeds 4096, oversized decoded responses, oversized
-bucket summaries, and requests exceeding per-peer or per-room CPU budgets.
-Servers SHOULD reject requests whose `local_known_event_count` is grossly
-inconsistent with the supplied accumulator history or negotiated frame.
+Servers MUST reject a `sketch` request whose aggregate `requests` capacity
+exceeds 4096, oversized decoded responses, and requests exceeding per-peer or
+per-room CPU budgets. Servers SHOULD reject requests whose
+`local_known_event_count` is grossly inconsistent with the supplied accumulator
+history or negotiated frame.
 
-For `algebraic_v1_deep`, servers MUST additionally reject `deep_buckets` entries
-at depth below 9 or above `max_bucket_depth`, MUST reject `max_bucket_depth`
-above 32, and MUST cap the total number of `deep_buckets` entries per request
-and the cumulative per-peer refinement round count, so a peer cannot force
-unbounded recursive fan-out by repeatedly requesting refinement of buckets that
-do not actually overflow.
+Servers MUST also cap the number of `requests` entries per round and the
+cumulative per-peer count of tree-split rounds for a given reconciliation
+attempt, so a peer cannot force unbounded recursive fan-out by repeatedly
+requesting refinement of nodes that do not actually overflow. Because each split
+at most doubles the number of outstanding nodes and the tree's maximum depth is
+bounded by `h_64`'s 64 bits, a reasonable per-attempt round cap (for
+example, 20) is sufficient without a separate negotiated parameter.
 
 ### Depth manipulation
 
