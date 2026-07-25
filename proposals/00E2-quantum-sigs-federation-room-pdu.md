@@ -82,7 +82,7 @@ In room versions that require PQC signatures (see
 {
   "signatures": {
     "example.com": {
-      "fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
+      "fndsa512:5FQ2xg4sWqj3Kp9N": "<base64-fndsa512-signature>"
     }
   }
 }
@@ -449,7 +449,7 @@ While this MSC is in development, the following unstable identifiers are used:
 | Stable Identifier            | Unstable Identifier                                |
 | ---------------------------- | -------------------------------------------------- |
 | PQC room version             | `tk.nutra.msc45yy.pqc.v1`                          |
-| `fn-dsa-512` (key algorithm) | `tk.nutra.msc45xx.fn-dsa-512` (defined by MSC00E4) |
+| `fndsa512` (key algorithm)   | `tk.nutra.msc45xx.fn-dsa-512` (defined by MSC00E4) |
 | `canonical_sha256` (hashes)  | `tk.nutra.msc45yy.canonical_sha256`                |
 
 <!-- markdownlint-enable MD013 -->
