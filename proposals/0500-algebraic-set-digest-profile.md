@@ -341,13 +341,22 @@ size — see "Resident structure," below — because nodes are computed only whe
 requested, unlike a fixed partition maintained for every population regardless
 of whether it ever diverges.
 
-**Scope.** Dynamic tree extraction is for a large but bounded difference within
-an otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case. A
-difference approaching the size of the population itself (e.g. a server
-restoring from near-zero state) is not a reconciliation problem. Peers SHOULD
-recognize this from the count residual or an early, broadly-overflowing root
-sketch and fall back to backfill or a frame-extension protocol rather than
-recursing through most of the hash space.
+**Scope.** Dynamic tree extraction is for a moderate, bounded difference within
+an otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case —
+not for arbitrarily large ones. Each round is throughput-bounded to at most
+`aggregate_cap / per_node_cap` new node-decodes (64 at this profile's caps), so
+fully localizing a difference of size `Δ` costs on the order of
+`Δ / aggregate_cap` rounds regardless of depth strategy — not `log(Δ)`, because
+that bound only holds while the search frontier is narrower than a single round
+can afford. A consuming MSC's own round cap (see its security considerations)
+turns this into a concrete element ceiling: at a 20-round cap and this profile's
+4096 aggregate capacity, `20 * 4096 ≈ 82,000` elements. A difference at or
+beyond that scale — let alone one approaching the size of the population itself,
+e.g. a server restoring from near-zero state — is not a reconciliation problem
+for this mechanism. Peers SHOULD recognize this from the strata estimate, the
+count residual, or an early, broadly-overflowing root sketch, and fall back to
+backfill or a frame-extension protocol before spending rounds on a search that
+cannot complete within budget.
 
 ## Resident structure
 

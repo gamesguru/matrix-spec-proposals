@@ -584,26 +584,49 @@ independently verified against the 128-bit accumulator per MSC0500, not inferred
 from graph structure, so there is nothing analogous to a probabilistic
 fallback's extremity-convergence requirement.
 
-The requester SHOULD use the strata-estimated `Δ` from `room_digest` to size the
+The requester SHOULD use the strata-estimated `Δ̂` from `room_digest` to size the
 initial depth-0 request's _capacity_ (bounded by the per-entry cap of 64, above)
 — not its depth. This spec always starts a `sketch` exchange at depth 0 and
-splits one level at a time on `capacity_exceeded`; `Δ` informs how much of that
-64-capacity budget to request, not whether to skip ahead to a deeper starting
-depth. This is an efficiency choice, not a correctness one: an under-provisioned
-node produces `sketch_status: "capacity_exceeded"` for that node specifically,
-which is exactly the trigger for the next split, not a lost result.
+splits one level at a time on `capacity_exceeded`. This is an efficiency choice,
+not a correctness one: an under-provisioned node produces
+`sketch_status: "capacity_exceeded"` for that node specifically, which is
+exactly the trigger for the next split, not a lost result.
 
-**This has a latency cost that is worth stating in concrete terms.** Because
-splitting is one level per round trip, resolving a difference of size `Δ` costs
-approximately `log2(Δ / 64)` sequential round trips: ~13 at `Δ = 500,000`, ~17
-at `Δ = 10,000,000`. Each round is gated on the previous response, so at typical
-federation RTT (50–200 ms) this is on the order of seconds, not milliseconds,
-for the largest differences dynamic tree extraction is meant to handle. A future
-profile MAY define Δ-driven initial-depth selection — issuing the
-depth-`⌈log2(Δ̂/64)⌉` sibling requests immediately, well-formed under the
-antichain rule already required above — to collapse this to one or two round
-trips; this MSC keeps the simpler always-start-at-0 rule and accepts the
-round-trip cost as the price of that simplicity.
+**This has a latency cost that is worth stating in concrete terms — and a
+per-branch depth count understates it.** Each round is capacity-bounded: the
+aggregate cap (4096) limits any single round to at most `4096 / 64 = 64` new
+node-decodes. A node only stops needing further splitting once its local count
+is ≤64, so fully localizing a difference of size `Δ` requires roughly `Δ / 64`
+successful node-decodes in total — and at most 64 of those fit in one round.
+That gives a round-count floor of `Δ / 4096`, independent of how many depth
+levels are involved: **~123 rounds at `Δ = 500,000`, ~2,442 at
+`Δ = 10,000,000`.** A depth count alone (`log2(Δ/64)` ≈ 13 and ≈17 respectively)
+understates this badly: it only holds while the frontier is narrower than the
+aggregate cap allows, which stops being true once the frontier passes 64 nodes —
+around depth 6. Each round is gated on the previous response, so at typical
+federation RTT (50–200 ms) this is many seconds to tens of seconds for the
+differences dynamic tree extraction is meant to handle.
+
+Choosing a smarter starting depth from `Δ̂` cannot fix this: the best a different
+starting point can do is skip the ramp-up below the 64-node aggregate ceiling —
+at most ~6 rounds, against a floor already in the hundreds. The floor is a
+throughput bound (total decodes ÷ per-round decode cap), not a latency bound
+(how many depth levels are walked), and no starting-depth choice changes total
+decode throughput. This spec therefore does not define Δ̂-driven initial depth:
+the ~6-round saving it could offer is not worth the added spec surface against a
+floor it cannot move.
+
+**The floor implies a hard precondition, not just a documented cost.**
+`Δ̂ × per_node_cap` rounds are needed regardless of strategy, so a requester
+whose round budget cannot cover `Δ̂` MUST NOT begin a `sketch` exchange for that
+difference at all. Concretely: a requester MUST compare `Δ̂` (or the exact count
+residual `c`, if available) against `round_cap * 4096` — using this MSC's round
+cap of 20 (see "Amplification via oversized sketches," below), that ceiling is
+**~82,000 elements** — and MUST route to `extremity` mode, backfill, or frame
+extension instead of `sketch` mode when `Δ̂` exceeds it. This is the load-bearing
+check: it stops a peer from starting a round sequence it cannot finish, rather
+than letting it discover that dozens of rounds in. See "Scope" in MSC0500 for
+the corresponding profile-level guidance.
 
 #### Causal closure and truncation
 
@@ -980,11 +1003,13 @@ frame.
 
 Servers MUST also cap the number of `requests` entries per round and the
 cumulative per-peer count of tree-split rounds for a given reconciliation
-attempt, so a peer cannot force unbounded recursive fan-out by repeatedly
-requesting refinement of nodes that do not actually overflow. Because each split
-at most doubles the number of outstanding nodes and the tree's maximum depth is
-bounded by `h_64`'s 64 bits, a reasonable per-attempt round cap (for
-example, 20) is sufficient without a separate negotiated parameter.
+attempt at 20, so a peer cannot force unbounded recursive fan-out by repeatedly
+requesting refinement of nodes that do not actually overflow. This cap is not
+arbitrary: it is the same `round_cap * 4096 ≈ 82,000`-element ceiling that
+"sketch mode," above, derives from decode throughput, restated here as the
+enforcement side of that MUST NOT precondition. A well-behaved requester never
+reaches this cap, because it already refused to start past the same ceiling;
+this bound exists for peers that skip that check or misestimate `Δ̂`.
 
 ### Depth manipulation
 
