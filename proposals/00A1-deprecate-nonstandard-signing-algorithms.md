@@ -85,7 +85,7 @@ The following signing algorithms are recognized for Matrix federation:
 | Algorithm    | Status      | Specification                                                             |
 | ------------ | ----------- | ------------------------------------------------------------------------- |
 | `ed25519`    | **Active**  | Matrix spec                                                               |
-| `fn-dsa-512` | **Pending** | [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1) |
+| `fndsa512`  | **Pending** | [MSC 00E4](00E4-quantum-sigs-minting-server-keys.md)                                            |
 
 <!-- markdownlint-enable MD013 -->
 

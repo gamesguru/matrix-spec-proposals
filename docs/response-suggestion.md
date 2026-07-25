@@ -1,5 +1,6 @@
-Your instinct is right — a SHOULD is too weak for this. Here's why:
+# Rationale: Duplicate JSON key detection for key responses
 
+A SHOULD is likely too weak for duplicate JSON key detection in key response payloads, for the following reasons:
 **The MSC already says MUST at [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147):**
 
 > *"A single key response payload MUST NOT contain multiple different public key bodies for the same key ID (e.g., across `verify_keys` and `old_verify_keys`, **or duplicated within the same dictionary**) ... the entire response MUST be rejected as malformed."*
