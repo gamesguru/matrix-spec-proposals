@@ -36,14 +36,15 @@ differ in any signed field that contributes to event identity, including
 
 `sender_localpart` and `sender_domain` MUST be committed as two independent
 header leaves rather than one combined `sender` leaf, using the same
-first-`:`-boundary split defined above for the hint-mode `sender_domain` field:
-the local part is everything between the leading `@` and the first `:`, and the
-domain is everything after it. A room version adopting this format MUST reject
-events whose `sender` does not parse under that grammar before deriving
-`event_root`, since an unparsable `sender` would otherwise have no defined
-split. Splitting the leaf this way is required, not merely convenient: with a
-single `sender` leaf, any proof that discloses authorship information
-necessarily discloses the full MXID, including the localpart. With
+first-`:`-boundary split defined in
+[Part I](4511-part-a-topological-metadata-query-api.md) for the hint-mode
+`sender_domain` field: the local part is everything between the leading `@` and
+the first `:`, and the domain is everything after it. A room version adopting
+this format MUST reject events whose `sender` does not parse under that grammar
+before deriving `event_root`, since an unparsable `sender` would otherwise have
+no defined split. Splitting the leaf this way is required, not merely
+convenient: with a single `sender` leaf, any proof that discloses authorship
+information necessarily discloses the full MXID, including the localpart. With
 `sender_domain` committed separately, a prover can disclose and prove only the
 sending server's identity, and a verifier can check signature entitlement,
 without either party handling the sender's localpart at all. The sender's full
