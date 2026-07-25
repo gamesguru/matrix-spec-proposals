@@ -13,7 +13,7 @@ endef
 .PHONY: format
 format:
 	$(require_f)
-	prettier --prose-wrap always --print-width 80 --write $(f)
+	prettier --prose-wrap always --print-width 80 --write "$(f)"
 
 .PHONY: lint
 lint:

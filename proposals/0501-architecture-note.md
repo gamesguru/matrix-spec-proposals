@@ -1,6 +1,6 @@
 # MSC0501 architecture note: why federation reconciliation is shaped this way
 
-This note accompanies MSC0501 (federation missed-PDU reconciliation) and MSC0503
+This note accompanies MSC0501 (federation missed-PDU reconciliation) and MSC0500
 (the `algebraic_v1` digest profile). It carries the material that explains the
 design rather than specifying it: the algebraic argument for a group-valued
 digest, the causal-closure constraint, the rejected alternatives, the security

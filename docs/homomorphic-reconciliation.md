@@ -41,9 +41,9 @@ which the three possibilities are _additive_ (sketches), _destructive_ (naive
 retry), and _silent_ (Bloom). Bloom filters are the only candidate in the last
 category, and silence is the only failure mode that is not self-correcting.
 
-We conclude with a concrete protocol, a resident approximately 23 KiB per-room
-structure with full-frame summaries, and a self-stabilization theorem
-identifying exactly which three design choices are load-bearing.
+We conclude with a concrete protocol variant, a bucketed resident structure
+(approximately 23 KiB per room in the design analyzed here), and a
+self-stabilization theorem identifying exactly which three design choices are load-bearing.
 
 ---
 

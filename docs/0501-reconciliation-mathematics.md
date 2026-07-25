@@ -1,6 +1,6 @@
 # Mathematical Foundations of Federation Reconciliation
 
-This note records the mathematical claims supporting MSC0501 and MSC0503. It is
+This note records the mathematical claims supporting MSC0501 and MSC0500. It is
 explanatory, not normative. The MSCs define the wire behavior and security
 requirements; this note gives the proofs and assumptions behind them.
 
