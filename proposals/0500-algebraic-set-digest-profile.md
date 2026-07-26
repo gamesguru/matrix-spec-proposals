@@ -405,10 +405,11 @@ extraction), which is `O(n)` in identifiers and not part of the fixed state.
 **Update procedure.** On inserting or removing element `e`:
 
 1. Compute $y = h_{128}(e)$ and $x = h_{64}(e)$.
-2. XOR $y$ into the integrity accumulator and adjust the count by `+1` or `-1`.
+2. XOR $y$ into the integrity accumulator. On insert, increment the count by 1;
+   on remove, decrement by 1.
 3. Choose the estimator stratum from `x.trailing_zeros()`.
-4. Compute $x^2$ once.
-5. Update $\left(x, x^3, ..., x^{15}\right)$ by repeated multiplying by $x^2$.
+4. Compute $x^2$ once and reuse it for the remaining odd powers.
+5. Update $\left(x, x^3, ..., x^{15}\right)$ by repeatedly multiplying by $x^2$.
 
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
