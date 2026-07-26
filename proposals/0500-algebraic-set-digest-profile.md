@@ -539,6 +539,7 @@ remaining unpadded URL-safe base64 payload.
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
+h128:   0x0000_0000_0000_002a_0000_0000_0000_0000
 h64:    0x0000_0000_0000_002a
 ```
 
