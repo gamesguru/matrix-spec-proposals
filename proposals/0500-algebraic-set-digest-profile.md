@@ -157,11 +157,14 @@ is localized by recursive binary subdivision instead of a fixed partition.
 element belongs to node `prefix` iff the leading `d` bits of `h_64(e)` equal
 `prefix`. Depth 0 has a single node (`prefix = 0`) covering every element — the
 same population a single flat sketch covers. Implementations MUST cap `depth`
-at 32, so `prefix` is at most 32 bits wide. If a node's sketch fails to decode
-at its requested capacity, the peer that detects the failure requests two child
-sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
-that still overflows is split again. This is recursive: since each split
-strictly partitions its parent's population, the recursion terminates.
+at 32, so `prefix` is at most 32 bits wide. If a node still overflows at
+`depth = 32`, the peer that detects the failure MUST report failure for that
+prefix and fall back to backfill or frame extension rather than splitting
+further. Otherwise, if a node's sketch fails to decode at its requested
+capacity, the peer that detects the failure requests two child sketches at
+`depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child that still
+overflows is split again. This is recursive: since each split strictly
+partitions its parent's population, the recursion terminates.
 
 Every node, at any depth, is decoded and verified exactly as in "Decode and
 verification," below: it either decodes within its capacity and passes the
@@ -200,7 +203,7 @@ fixed depth.
 
 ## Strata estimator
 
-Implementations MAY maintain a 32-entry strata estimator for pre-decode
+Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
 difference sizing. Consumers that expose the estimator in their wire contract
 define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
@@ -346,8 +349,7 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization, not a correctness requirement;
-implementations may omit it and provision from the count residual alone.
+The strata estimator is an optimization, not a correctness requirement.
 
 ## Advertisement
 
@@ -441,15 +443,10 @@ Known consumers and possible consumers:
 
 ## References
 
-- Dodis, Ostrovsky, Reyzin & Smith, *Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data* (2008), Section 6.3 (PinSketch)
+- Dodis, Ostrovsky, Reyzin & Smith, *Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data* (2008), §6 (PinSketch)
 - Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
 - Eppstein, Goodrich, Uyeda & Varghese, *What's the Difference?: Efficient Set Reconciliation without Prior Context* (2011)
 - Yang, Gilad & Alizadeh, *Practical Rateless Set Reconciliation* (SIGCOMM 2024)
-- `gomatrixcrypto/cmd/merkle-vectors` and
-  `gomatrixcrypto/merkle/testdata/msc4511-merkle-vectors-v1.json` — reference
-  Merkle vector generator and output for the SHA-256 event-ID binding and the
-  SHA3-256 MSC4511 overlay profile
-- `rezzy/src/reconcile/algebraic.rs`, `rezzy/src/reconcile/gf64.rs`,
-  `rezzy/src/reconcile/pinsketch.rs`, `rezzy/tests/test_reconcile_algebraic.rs`,
-  and `rezzy/benches/reconcile.rs` — reference MSC0500 implementation,
-  interoperability tests, and benchmark harness
+- [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b) at
+  commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
+  implementation, interoperability tests, and benchmark harness
