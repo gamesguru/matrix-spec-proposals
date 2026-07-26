@@ -10,15 +10,17 @@ define require_f
 	@if [ -z "$(f)" ]; then echo "error: set f=FILE" >&2; exit 2; fi
 endef
 
+FILES := $(filter-out %.pdf,$(wildcard $(f)))
+
 .PHONY: format
 format:
 	$(require_f)
-	prettier --prose-wrap always --print-width 80 --write -- $(f)
+	prettier --prose-wrap always --print-width 80 --write -- $(FILES)
 
 .PHONY: lint
 lint:
 	$(require_f)
-	markdownlint -- $(f)
+	markdownlint -- $(FILES)
 
 .PHONY: pdf
 pdf:
