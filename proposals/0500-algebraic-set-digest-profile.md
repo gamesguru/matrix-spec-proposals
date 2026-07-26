@@ -144,7 +144,7 @@ PinSketch specializes for reconciliation.
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
-64-bit **little-endian** integer. The big-endian hash parsing in "Identifier
+64-bit **little-endian** integer. The big-endian hash parsing in "Element
 derivation" and the little-endian coordinate serialization here are both
 normative and are deliberately different; the first follows Matrix hash
 conventions and the second follows `libminisketch`. This endian split is
@@ -213,9 +213,9 @@ resident per-node syndrome structure a fixed partition would require (see
 fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
-architecture validated by Erlay (Naumenko et al., 2019): keep the field math
-fixed, size the exchange before decoding, and split only when the current
-capacity is not enough.
+architecture used by Erlay (Naumenko et al., 2019): keep the field math fixed,
+size the exchange before decoding, and split only when the current capacity is
+not enough.
 
 ## Strata estimator
 
@@ -299,13 +299,16 @@ lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ equals the exact
 difference size.
 
 $$
-k = \left\lceil 1.5c \right\rceil + 4 +
-\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{RTT}} \right\rceil
+k = \min\left(64,\ \left\lceil 1.5c \right\rceil + 4 +
+\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{RTT}} \right\rceil\right)
 $$
 
 The three terms cover, respectively: measurement slack when divergence is not
 purely one-sided, a small floor for tiny differences, and events arriving
 concurrently during the round trip.
+
+If the unclamped value exceeds 64, the profile treats that as a signal to use
+tree extraction rather than a single depth-0 request.
 
 If decode fails at `k`, retry at larger `k` up to the cap, or split into
 dynamic-tree children to localize a two-sided difference. Because sketches
