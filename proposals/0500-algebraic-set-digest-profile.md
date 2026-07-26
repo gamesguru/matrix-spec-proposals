@@ -443,28 +443,26 @@ Known consumers and possible consumers:
 
 ## References
 
-- [PinSketch] Dodis, Y., Ostrovsky, R., Reyzin, L., & Smith, A. (2008).
-  _Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other
-  Noisy Data_. SIAM Journal on Computing, 38(1), 97-139.
-- [AlgebraicReconciliation] Minsky, Y., Trachtenberg, A., & Zippel, R.
-  (2003). _Set Reconciliation with Nearly Optimal Communication Complexity_.
-  IEEE Transactions on Information Theory, 49(9), 2213-2218.
-- [BCHCodes] MacWilliams, F. J., & Sloane, N. J. A. (1977). _The Theory of
-  Error-Correcting Codes_. North-Holland Mathematical Library.
-- [Erlay] Naumenko, G., Maxwell, G., Wuille, P., Sasha, A., & Boneh, D.
-  (2019). _Erlay: Efficient Transaction Relay for Bitcoin_. Proceedings of the
-  2019 ACM SIGSAC Conference on Computer and Communications Security (CCS).
-- [StrataEstimator] Eppstein, D., Goodrich, M. T., Uyeda, F., & Varghese, G.
-  (2011). _What's the Difference?: Efficient Set Reconciliation without Prior
-  Context_. ACM SIGCOMM Computer Communication Review, 41(4), 218-229.
-- Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
-- Yang, Gilad & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM 2024)
+- Dodis, Y., Ostrovsky, R., Reyzin, L., & Smith, A. (2008). Fuzzy extractors:
+  How to generate strong keys from biometrics and other noisy data. _SIAM
+  Journal on Computing, 38_(1), 97-139. <https://doi.org/10.1137/060651380>
+- Minsky, Y., Trachtenberg, A., & Zippel, R. (2003). Set reconciliation with
+  nearly optimal communication complexity. _IEEE Transactions on Information
+  Theory, 49_(9), 2213-2218. <https://doi.org/10.1109/TIT.2003.815784>
+- MacWilliams, F. J., & Sloane, N. J. A. (1977). _The theory of error-correcting
+  codes_. North-Holland Mathematical Library.
+  <https://neilsloane.com/doc/ms77.html>
+- Naumenko, G., Maxwell, G., Wuille, P., Sasha, A., & Boneh, D. (2019). Erlay:
+  Efficient transaction relay for Bitcoin. In _Proceedings of the 2019 ACM
+  SIGSAC Conference on Computer and Communications Security (CCS)_ (pp.
+  817-831). <https://doi.org/10.1145/3319535.3354237>
+- Eppstein, D., Goodrich, M. T., Uyeda, F., & Varghese, G. (2011). What's the
+  difference?: Efficient set reconciliation without prior context. _ACM SIGCOMM
+  Computer Communication Review, 41_(4), 218-229.
+  <https://doi.org/10.1145/2018436.2018462>
+- Pieter Wuille. libminisketch byte-compatibility reference for 64-bit field.
+- Yang, Gilad, & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM
+  2024).
 - [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
   at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
   implementation, interoperability tests, and benchmark harness
-
-[PinSketch]: https://doi.org/10.1137/060651380
-[AlgebraicReconciliation]: https://doi.org/10.1109/TIT.2003.815784
-[BCHCodes]: https://neilsloane.com/doc/ms77.html
-[Erlay]: https://doi.org/10.1145/3319535.3354237
-[StrataEstimator]: https://doi.org/10.1145/2018436.2018462
