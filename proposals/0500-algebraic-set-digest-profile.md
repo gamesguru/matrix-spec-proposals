@@ -70,6 +70,8 @@ ID using the room-version-specific event-ID alphabet:
 Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
 `SHA-256` digest of the event-ID string, or exclude the event from the compared
 population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
+For room version 3 and later, strip the leading `$` byte before decoding the
+remaining bytes; the decoded 32-byte value is `D(e)`.
 
 ## Field
 
@@ -81,8 +83,9 @@ $$
 \mathbb{F}_{2}[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle,
 $$
 
-$h_{64}$ values are mapped to field elements by treating bit `i` of the integer
-as the coefficient of $x^i$.
+Bit `0` of an `h_{64}` value denotes the least-significant bit and bit `63`
+denotes the most-significant bit. Field coefficient $x^i$ is the value of bit
+`i`.
 
 `algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
 field size 64 for the same inserted $h_{64}$ values. This compatibility is the
@@ -165,17 +168,18 @@ while the true difference is within its capacity. When it is not, the population
 is localized by recursive binary subdivision instead of a fixed partition.
 
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
-element belongs to node `prefix` iff the leading `d` bits of `h_64(e)` equal
-`prefix`. Depth 0 has a single node (`prefix = 0`) covering every element — the
-same population a single flat sketch covers. Implementations MUST cap `depth` at
-32, so `prefix` is at most 32 bits wide. If a node still overflows at its
-requested capacity, the peer that detects the failure requests two child
-sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
-that still overflows is split again. A node that still overflows at `depth = 32`
-MUST NOT be split further; the peer that detects the failure MUST report failure
-for that prefix and fall back to backfill or frame extension. The recursion
-terminates: each split reduces node population weakly, depth is bounded at 32,
-and a node still overflowing at the cap is reported rather than split further.
+element belongs to node `prefix` iff the most-significant `d` bits of `h_64(e)`
+(bits `63` down to `64 - d`) equal `prefix`. Depth 0 has a single node
+(`prefix = 0`) covering every element — the same population a single flat sketch
+covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32 bits
+wide. If a node still overflows at its requested capacity, the peer that detects
+the failure requests two child sketches at `depth + 1`, for prefixes
+`2 * prefix` and `2 * prefix + 1`. A child that still overflows is split again.
+A node that still overflows at `depth = 32` MUST NOT be split further; the peer
+that detects the failure MUST report failure for that prefix and fall back to
+backfill or frame extension. The recursion terminates: each split reduces node
+population weakly, depth is bounded at 32, and a node still overflowing at the
+cap is reported rather than split further.
 
 Every node, at any depth, is decoded and verified exactly as in "Decode and
 verification," below: it either decodes within its capacity and passes the
@@ -184,12 +188,22 @@ verification," below: it either decodes within its capacity and passes the
 structure." A `(depth, prefix)` pair is computed only when a peer actually
 requests it.
 
-**Requests MUST form an antichain.** No entry in a single exchange's `requests`
-may be a tree-ancestor of another entry (i.e. one entry's `(depth, prefix)`
-range MUST NOT contain another's). Overlapping entries would double-count
-elements in the aggregate capacity check and make their sketches non-independent
-for subtraction. A consumer MUST reject a request violating this before
-subtraction.
+### Antichain invariant and validation
+
+Requests in a single exchange MUST form an antichain. Formally, a request
+`R_i = (d_i, p_i)` is an ancestor of `R_j = (d_j, p_j)` iff `d_i <= d_j` and the
+`d_i` most-significant bits of `p_j` equal `p_i`. If any pair of requests in an
+exchange forms an ancestor-descendant relation, the receiver MUST reject the
+request before performing sketch subtraction or field operations.
+
+Overlapping entries would double-count elements in the aggregate capacity check
+and make their sketches non-independent for subtraction.
+
+Implementation note: a canonical reference validator sorts requests by `depth`
+ascending and checks each candidate against the previously validated shallower
+requests. The sort gives `O(N log N)` time and the prefix checks are bounded by
+the 32-bit depth cap. Implementations that need a different internal shape MAY
+use a binary trie instead.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
@@ -204,13 +218,13 @@ requires the subset of the population whose `h_64(e)` shares that `depth`-bit
 prefix. A responder MUST NOT satisfy this by scanning its full known-event set
 per request: since `h_64(e)` is a fixed 64-bit key per element, any
 `(depth, prefix)` subset is a contiguous range under `h_64`-sorted order.
-Implementations MUST maintain (or build and cache) an index of known event IDs
-ordered by `h_64`, so that a node's element subset is a range slice — O(log n)
-to locate plus the slice size — not a full-population scan. This index holds
-only IDs and `h_64` keys, not precomputed syndromes; it is far cheaper than the
-resident per-node syndrome structure a fixed partition would require (see
-"Resident structure"), and unlike that structure it serves every depth, not one
-fixed depth.
+Implementations MUST maintain (or build and cache) an index of element
+identifiers ordered by `h_64`, so that a node's element subset is a range slice
+— O(log n) to locate plus the slice size — not a full-population scan. This
+index holds only identifiers and `h_64` keys, not precomputed syndromes; it is
+far cheaper than the resident per-node syndrome structure a fixed partition
+would require (see "Resident structure"), and unlike that structure it serves
+every depth, not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
 architecture used by Erlay (Naumenko et al., 2019): keep the field math fixed,
@@ -237,6 +251,11 @@ Two peers XOR corresponding strata and inspect the highest nonempty residual
 stratum to estimate $|S_A \Delta S_B|$ before choosing between a single depth-0
 extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
+
+If the highest nonempty residual stratum is `i < 31` and it decodes to `k_i`
+elements, the standard estimate is `2^(i+1) * k_i`. If stratum 31 decodes to
+`k_31` elements, the standard estimate is `2^31 * k_31`. If the highest nonempty
+residual stratum overflows, the standard fallback estimate is `8 * 2^31`.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
@@ -296,7 +315,9 @@ to `algebraic_v1`.
 
 Provision extraction capacity from the count residual. In the common one-sided
 lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ equals the exact
-difference size.
+difference size. Here $r_{\mathrm{obs}}$ is the observed rate of newly arriving
+elements relevant to the comparison, and $\widehat{\mathrm{RTT}}$ is the
+estimated round-trip time in seconds.
 
 $$
 k = \min\left(64,\ \left\lceil 1.5c \right\rceil + 4 +
@@ -331,12 +352,14 @@ The escalation sequence is:
    depth, treat it as a frame problem rather than a reconciliation problem — see
    the scale boundary section below.
 
-**Scale boundary.** Dynamic tree extraction is for bounded interior gaps within
-an agreed frame, not arbitrary divergence. It is round-limited rather than
-log-limited: once the search frontier outruns a round's capacity, the cost is
-about `Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
-aggregate capacity yields about 82,000 elements. Larger differences should fall
-back to backfill or frame extension.
+### Scale boundary
+
+Dynamic tree extraction is for bounded interior gaps within an agreed frame,
+not arbitrary divergence. It is round-limited rather than log-limited: once
+the search frontier outruns a round's capacity, the cost is about
+`Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
+aggregate capacity yields about 82,000 elements. Larger differences should
+fall back to backfill or frame extension.
 
 ## Resident structure
 
