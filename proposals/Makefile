@@ -25,4 +25,11 @@ lint:
 .PHONY: pdf
 pdf:
 	$(require_f)
-	pandoc $(f) -o $(f).pdf
+	pandoc $(f) -o $(f).pdf \
+		--pdf-engine=xelatex \
+		-V geometry:margin=0.75in \
+		-V pagestyle=empty || \
+	pandoc $(f) -o $(f).pdf \
+		--pdf-engine=lualatex \
+		-V geometry:margin=0.75in \
+		-V pagestyle=empty
