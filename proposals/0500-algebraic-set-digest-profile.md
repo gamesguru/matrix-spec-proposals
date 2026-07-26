@@ -231,8 +231,8 @@ A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
 
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
 requires the subset of the population whose `h_64(e)` shares that `depth`-bit
-prefix. A responder MUST NOT satisfy this by scanning its full known-event set
-per request: since `h_64(e)` is a fixed 64-bit key per element, any
+prefix. A responder MUST NOT satisfy this by scanning its full population per
+request: since `h_64(e)` is a fixed 64-bit key per element, any
 `(depth, prefix)` subset is a contiguous range under `h_64`-sorted order.
 Implementations MUST maintain (or build and cache) an index of element
 identifiers ordered by `h_64`, so that a node's element subset is a range slice
