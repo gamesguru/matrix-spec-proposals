@@ -302,9 +302,13 @@ accumulator before it is trusted. Concretely, for a peer that resolves decoded
 short IDs to full identifiers:
 
 $$
-\mathrm{expected\_other\_side} =
-\mathrm{residual\_digest} \oplus
-\mathrm{accumulator}(\mathrm{own\_side\_full\_ids})
+\begin{aligned}
+\mathit{expected\_other\_side}
+&=
+\mathit{residual\_digest}
+\oplus
+\operatorname{accumulator}(\mathit{own\_side\_full\_ids})
+\end{aligned}
 $$
 
 The peer resolves the short IDs it holds, computes their 128-bit accumulator,
