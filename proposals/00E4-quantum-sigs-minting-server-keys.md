@@ -159,11 +159,11 @@ the profile, preimages, object shape, and validation procedure above control.
 
 ### FN-DSA implementation background
 
-This MSC defines `fn-dsa-512` as the post-quantum server signing algorithm for
+This MSC defines `fndsa512` as the post-quantum server signing algorithm for
 Matrix federation. It targets FN-DSA-512 (`n=512`, `q=12289`) as specified by
 the NIST FIPS 206 draft revision identified by the key object's
 `fips_206_revision` metadata. Until FIPS 206 is finalized, deployments MUST use
-the unstable identifier `tk.nutra.msc45xx.fn-dsa-512` in protocol fields.
+the unstable identifier `tk.nutra.msc45xx.fndsa512` in protocol fields.
 
 FN-DSA-512 has 897-byte public keys and 666-byte raw signatures. Standard Matrix
 base64 encoding expands a 666-byte signature to 888 base64 characters without

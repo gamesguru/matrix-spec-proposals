@@ -5,7 +5,7 @@ reverse engineer private keys using Shor's algorithm, breaking elliptic-curve
 and RSA schemes — allowing an attacker to forge new events in a server's name.
 
 This MSC introduces a **new room version** in which PDUs are signed with the
-post-quantum signature scheme `fn-dsa-512`, and upgrades federation transport
+post-quantum signature scheme `fndsa512`, and upgrades federation transport
 verification from advisory to mandatory for traffic scoped to such rooms.
 
 It builds directly on
@@ -20,7 +20,7 @@ MSC. E2EE device and cross-signing key migration is addressed separately in
 
 ## Proposal
 
-This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by the companion
+This MSC uses **FN-DSA-512** (`fndsa512`) as defined by the companion
 post-quantum server-key MSCs. Public key encodings, signature encodings, and the
 signing operation (Canonical JSON of the event with `signatures` and `unsigned`
 removed; pure mode; empty context) are inherited from that server-key profile
@@ -28,10 +28,10 @@ and are not redefined here. Server signing keys are minted, published,
 discovered, pinned, and rotated per MSC00E4 and MSC4499.
 
 > **Note:** For readability, this proposal uses the intended stable identifiers
-> `fn-dsa-512` (key algorithm, defined by MSC00E4) and a stable room version
+> `fndsa512` (key algorithm, defined by MSC00E4) and a stable room version
 > throughout the main text and examples. Until the relevant MSCs are accepted
 > and merged into the Matrix specification, implementations MUST use the
-> unstable identifiers `tk.nutra.msc45xx.fn-dsa-512` (algorithm — the canonical
+> unstable identifiers `tk.nutra.msc45xx.fndsa512` (algorithm — the canonical
 > prefix defined by the server-key MSC where the algorithm is specified) and
 > `tk.nutra.msc45yy.pqc.v1` (room version). See
 > [Unstable Prefix](#unstable-prefix) for the full mapping.
@@ -44,22 +44,22 @@ versions are unchanged.
 #### Legacy Room Versions
 
 In older room versions, servers continue to sign and verify PDUs using Ed25519
-only. Servers MUST NOT append `fn-dsa-512` signatures to PDUs in legacy rooms,
-as this introduces unnecessary bloat and risks consensus divergence.
+only. Servers MUST NOT append `fndsa512` signatures to PDUs in legacy rooms, as
+this introduces unnecessary bloat and risks consensus divergence.
 
 #### PQC-Required Room Versions
 
 In room versions that require PQC signatures (see
 [Room Version Requirements](#room-version-requirements)):
 
-- Origin servers MUST sign all outgoing PDUs with `fn-dsa-512`.
+- Origin servers MUST sign all outgoing PDUs with `fndsa512`.
 - Origin servers MUST NOT include `ed25519` signatures on PDUs in PQC room
   versions.
-- Receiving servers MUST require a valid `fn-dsa-512` signature from the server
+- Receiving servers MUST require a valid `fndsa512` signature from the server
   whose signature is required by the existing event signature verification rules
   for that room version. If no valid FN-DSA signature is present, the event MUST
   be rejected.
-- Receiving servers MUST reject the event if the required `fn-dsa-512` signature
+- Receiving servers MUST reject the event if the required `fndsa512` signature
   references a malformed key ID, or if the referenced key was advertised under a
   `short_key_id` that does not match the first 20 base64url characters of the
   key's full `key_id`, as defined by MSC00E4.
@@ -446,11 +446,11 @@ While this MSC is in development, the following unstable identifiers are used:
 
 <!-- markdownlint-disable MD013 -->
 
-| Stable Identifier            | Unstable Identifier                                |
-| ---------------------------- | -------------------------------------------------- |
-| PQC room version             | `tk.nutra.msc45yy.pqc.v1`                          |
-| `fndsa512` (key algorithm)   | `tk.nutra.msc45xx.fn-dsa-512` (defined by MSC00E4) |
-| `canonical_sha256` (hashes)  | `tk.nutra.msc45yy.canonical_sha256`                |
+| Stable Identifier           | Unstable Identifier                              |
+| --------------------------- | ------------------------------------------------ |
+| PQC room version            | `tk.nutra.msc45yy.pqc.v1`                        |
+| `fndsa512` (key algorithm)  | `tk.nutra.msc45xx.fndsa512` (defined by MSC00E4) |
+| `canonical_sha256` (hashes) | `tk.nutra.msc45yy.canonical_sha256`              |
 
 <!-- markdownlint-enable MD013 -->
 
