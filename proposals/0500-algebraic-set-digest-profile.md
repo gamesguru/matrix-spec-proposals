@@ -209,10 +209,12 @@ $$
 A request `R_i` is an ancestor of `R_j` if and only if `d_i <= d_j` and the
 `d_i` most-significant bits of `p_j` equal `p_i`.
 
-A valid request sequence `[R_0, R_1, \dots, R_{N-1}]` MUST satisfy:
+A valid request sequence $[R_0, R_1, \dots, R_{N-1}]$ MUST satisfy:
 
 $$
-\text{end}(R_i) \le \text{start}(R_{i+1}) \quad \text{for all } 0 \le i < N - 1
+\text{end}(R_i) \le \text{start}(R_{i+1})
+\quad
+\text{for all } 0 \le i < N - 1
 $$
 
 If any pair of requests forms an ancestor-descendant relation, or if the
@@ -260,7 +262,7 @@ responses.
 
 This is the Difference Digest / strata-estimator idea from Eppstein, Goodrich,
 Uyeda, and Varghese (2011): use a compact pre-decode summary to estimate
-`|S_A \Delta S_B|` before committing to a decoder.
+$|S_A \Delta S_B|$ before committing to a decoder.
 
 Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
 extraction sketch, but only for elements whose $h_{64}(e)$ has exactly `i`
@@ -273,9 +275,9 @@ extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
 
 If the highest nonempty residual stratum is `i < 31` and it decodes to `k_i`
-elements, the standard estimate is `2^(i+1) * k_i`. If stratum 31 decodes to
-`k_31` elements, the standard estimate is `2^31 * k_31`. If the highest nonempty
-residual stratum overflows, the standard fallback estimate is `8 * 2^31`.
+elements, the standard estimate is $2^(i+1) * k_i$. If stratum 31 decodes to
+`k_31` elements, the standard estimate is $2^31 * k_31$. If the highest nonempty
+residual stratum overflows, the standard fallback estimate is $8 * 2^31$.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
@@ -514,9 +516,9 @@ directly.
 
 <!-- markdownlint-disable MD013 -->
 
-| Input                                      | Expected `h128`                             | Expected `h64`          |
-| ------------------------------------------ | ------------------------------------------- | ----------------------- |
-| `$` + `STANDARD_NO_PAD.encode([0xfb; 32])` | `0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb` | `0xfbfb_fbfb_fbfb_fbfb` |
+| Input                                         | Expected `h128`                             | Expected `h64`          |
+| --------------------------------------------- | ------------------------------------------- | ----------------------- |
+| `$` \|\| `STANDARD_NO_PAD.encode([0xfb; 32])` | `0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb` | `0xfbfb_fbfb_fbfb_fbfb` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -527,8 +529,8 @@ remaining unpadded URL-safe base64 payload.
 
 | Input                                                                | Expected `h64`          |
 | -------------------------------------------------------------------- | ----------------------- |
-| `$` + `URL_SAFE_NO_PAD.encode([0x00; 8] ++ [0x2a; 8] ++ [0x00; 16])` | `0x0000_0000_0000_002a` |
-| `$` + `URL_SAFE_NO_PAD.encode([0x00; 32])`                           | `0x0000_0000_0000_0001` |
+| `$` \|\| `URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])` | `0x0000_0000_0000_002a` |
+| `$` \|\| `URL_SAFE_NO_PAD.encode([0x00; 32])`                        | `0x0000_0000_0000_0001` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -541,7 +543,7 @@ little-endian syndrome bytes before base64url encoding:
 | ------------------------------------------------- |
 | `ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93` |
 
-Decoding those bytes MUST round-trip to the same sketch.
+Decoding those bytes round-trips to the same sketch.
 
 ## Unstable prefix
 
