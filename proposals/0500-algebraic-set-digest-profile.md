@@ -10,29 +10,16 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
-The profile is provisioned for aggregate, tree-localized differences of up to
-approximately 4,000 elements between sets containing up to 1 million elements.
-That figure is a per-exchange target; the multi-round ceiling from the
-aggregate-cap budget is stated in "Scope" below. With the resident strata
-estimator in the reference implementation, the common-case exchange is designed
-to complete within approximately 50 ms and exchange less than 25 KiB in total,
-excluding event bodies. Larger differences require dynamic-tree escalation or a
-frame-extension and bulk-retrieval protocol; they are not guaranteed to remain
-within these latency or wire-size bounds, and above these limits additional MSCs
-with better asymptotic complexity may be preferred. The extraction decoder has
-approximately $O(k^2 \log k)$ field-operation complexity, where `k` is a node's
-configured capacity. With `n` tree nodes requested and per-node capacities
-$k_i$, total decoding cost is $\sum_{i=1}^{n} O\!\left(k_i^2 \log k_i\right)$.
-For a balanced difference of size $\Delta$ localized across `n` leaf nodes, each
-leaf has approximately $\Delta / n$ elements, giving total cost
-$O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$, up to distribution
-imbalance and capacity overhead.
+The profile targets differences up to ~4,000 elements in populations up to
+~10^6, completing in ~50 ms and under 25 KiB per exchange, excluding bodies.
+Decode a capacity-`k` node costs $O(k^2 \log k)$; a difference of size `Δ`
+spread over `n` nodes therefore costs
+$O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
+a frame problem, not a reconciliation problem (§Scale boundary).
 
-`algebraic_v1` is a coordinated algebraic ladder. The strata estimator and
-extraction sketch, at any `(depth, prefix)`, are views of one syndrome map. A
-128-bit XOR accumulator at room scope provides the agreement check and decode
-verification. Increasing extraction capacity extends an exchange additively; it
-does not restart it.
+`algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
+accumulator into one ladder. Increasing extraction capacity extends an exchange;
+it does not restart it.
 
 ## Scope
 
@@ -373,20 +360,11 @@ per-population structure:
 
 <!-- markdownlint-enable MD013 -->
 
-Fixed resident state is approximately 2 KiB per active population, independent
-of population size. Dynamic tree extraction (above) maintains no persistent
-per-node syndrome structure: sketches at any `(depth, prefix)` are computed on
-demand. That "on demand" computation is not a full-population scan —
-materializing a node requires the `h_64`-sorted index described in "Dynamic tree
-extraction," which is `O(n)` in population size, not part of the fixed 2 KiB.
-This is not new overhead specific to this profile: it is a sort key over
-identifiers implementations already store, and many implementations already
-maintain an equivalent index (e.g. a database index on the derived identifier)
-for other purposes. The comparison to the prior design is therefore: a fixed ~21
-KiB _per-population, precomputed-syndrome_ structure maintained continuously
-regardless of divergence, versus a `O(n)` _identifier_ index most
-implementations need anyway, plus computing a syndrome only for the specific
-nodes a real difference touches.
+Fixed resident state is ~2 KiB per population, independent of population size.
+Node sketches are computed on demand from the `h_64`-sorted index (§Dynamic tree
+extraction), which is `O(n)` in identifiers and not part of the fixed 2 KiB.
+That index is a sort key over data implementations already store, and commonly
+already index.
 
 **Update procedure.** On inserting or removing element `e`:
 
@@ -400,11 +378,10 @@ In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
 
 **Measured cost.** The reference implementation measures about 618 ns per
-resident update with the portable multiply and about 52 ns with PCLMULQDQ on the
-benchmarked `x86-64` machine. The underlying $\mathbb{F}_{2^{64}}$ multiply
+resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
+the benchmarked `x86-64` machine. The underlying $\mathbb{F}_{2^{64}}$ multiply
 measured about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`, with
-bit-identical results. Either path is small relative to the database write that
-accompanies the update.
+bit-identical results.
 
 The strata estimator is an optimization, not a correctness requirement. An
 implementation that computes sketches by scanning its store is conforming, but
@@ -468,22 +445,13 @@ provision when dynamic tree extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
 capacity up front while staying group-valued, but securing them against an
-adversarial peer requires their own wire format: signed fixed-width count
-semantics, overflow bounds, checksum and domain separation, chunk
-authentication, explicit negotiated materialization limits such as finite
-prefixes, and a termination rule — on top of a second decoder implementation
-distinct from PinSketch. Dynamic tree extraction (above) handles heavy-tailed
-differences instead, reusing PinSketch's existing decoder and `D(e)` digest with
-no capacity guess and no second decoder, while remaining exact.
+adversarial peer requires their own wire format and a second decoder. Dynamic
+tree extraction handles heavy-tailed differences instead, reusing PinSketch's
+existing decoder and `D(e)` digest with no capacity guess and no second decoder,
+while remaining exact.
 
 **Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
-monoid: it supports membership tests but not subtraction. A salted,
-extremity-gated `bloom_v1` fallback was drafted and discarded in favor of
-dynamic tree extraction: both handle the same heavy-tail case, but tree
-extraction stays exact (loud decode failure at every step, no false positives)
-and needs no new decoder, where a Bloom-based fallback would still need a
-termination rule to bound its residual risk of a silently, permanently missed
-event. See the MSC0501 architecture note for the full argument.
+monoid: it supports membership tests but not subtraction.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
 higher per-update cost. Appropriate where accumulator evidence must be
