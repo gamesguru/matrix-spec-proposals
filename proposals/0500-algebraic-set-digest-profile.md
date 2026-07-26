@@ -11,13 +11,13 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
-The profile targets differences up to ~4,000 elements in populations up to
-$10^6$, completing in ~50 ms and under 25 KiB per exchange, excluding bodies.
-Decoding a capacity-`k` node costs $O(k^2 \log k)$; a difference of size `Δ`
-spread over `n` nodes therefore costs
+The profile targets differences up to ~4,000 elements per exchange in
+populations up to $10^6$, completing in ~50 ms and under 25 KiB per exchange,
+excluding bodies. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
+difference of size `Δ` spread over `n` nodes therefore costs
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
 a frame problem, not a reconciliation problem (§Scale boundary); the capped
-round sequence extends that target to about 82,000 elements.
+round sequence extends the exchange ceiling to about 82,000 elements.
 
 `algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder. Increasing extraction capacity extends an exchange;
@@ -117,7 +117,7 @@ the common lagging-peer case. When both digest and count match over the same
 population, the two sets agree except with negligible probability from an
 accidental 128-bit collision.
 
-The accumulator is an integrity anchor, not an authenticator. See "Decode
+The accumulator is an integrity anchor, not an authenticator. See "Decode and
 verification" and the consuming MSC's security considerations.
 
 ## Syndrome sketch
@@ -156,12 +156,12 @@ is localized by recursive binary subdivision instead of a fixed partition.
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
 element belongs to node `prefix` iff the leading `d` bits of `h_64(e)` equal
 `prefix`. Depth 0 has a single node (`prefix = 0`) covering every element — the
-same population a single flat sketch covers. If a node's sketch fails to decode
+same population a single flat sketch covers. Implementations MUST cap `depth`
+at 32, so `prefix` is at most 32 bits wide. If a node's sketch fails to decode
 at its requested capacity, the peer that detects the failure requests two child
 sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
 that still overflows is split again. This is recursive: since each split
-strictly partitions its parent's population, the recursion terminates — worst
-case at `depth = 64`, where `h_64` no longer distinguishes elements.
+strictly partitions its parent's population, the recursion terminates.
 
 Every node, at any depth, is decoded and verified exactly as in "Decode and
 verification," below: it either decodes within its capacity and passes the
@@ -211,7 +211,7 @@ trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
 Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate $|S_A △ S_B|$ before choosing between a single depth-0
+stratum to estimate $|S_A \Delta S_B|$ before choosing between a single depth-0
 extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
 
@@ -346,10 +346,8 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization, not a correctness requirement. An
-implementation that computes sketches by scanning its store is conforming, but
-SHOULD apply stricter request budgets, since its cost per request scales with
-population size rather than difference size.
+The strata estimator is an optimization, not a correctness requirement;
+implementations may omit it and provision from the count residual alone.
 
 ## Advertisement
 
@@ -443,11 +441,10 @@ Known consumers and possible consumers:
 
 ## References
 
-- Dodis, Katz, Reyzin & Smith, PinSketch / set reconciliation via BCH syndromes
+- Dodis, Ostrovsky, Reyzin & Smith, *Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data* (2008), Section 6.3 (PinSketch)
 - Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
-- Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
-  Reconciliation without Prior Context" (strata estimator, IBLT)
-- Yang, Gilad & Alizadeh, rateless IBLT constructions
+- Eppstein, Goodrich, Uyeda & Varghese, *What's the Difference?: Efficient Set Reconciliation without Prior Context* (2011)
+- Yang, Gilad & Alizadeh, *Practical Rateless Set Reconciliation* (SIGCOMM 2024)
 - `gomatrixcrypto/cmd/merkle-vectors` and
   `gomatrixcrypto/merkle/testdata/msc4511-merkle-vectors-v1.json` — reference
   Merkle vector generator and output for the SHA-256 event-ID binding and the
