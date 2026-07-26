@@ -1,4 +1,4 @@
-# MSC0500: Stratified $\mathbb{F}_{2^{64}}$ PinSketch for fast set reconciliation
+# MSC0500: Stratified Galois Field `2^64` PinSketch for fast set reconciliation
 
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. Some consumers need it over a
@@ -164,8 +164,6 @@ exchange can be extended rather than restarted.
 
 ## Dynamic tree extraction
 
-<!-- Proofread marker. -->
-
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
 is localized by recursive binary subdivision instead of a fixed partition.
@@ -193,6 +191,8 @@ resident state — see [Resident structure](#resident-structure). A
 `(depth, prefix)` pair is computed only when a peer actually requests it.
 
 ### Antichain invariant and wire ordering
+
+<!-- Proofread marker. -->
 
 Requests in a single exchange MUST form an antichain and MUST be transmitted in
 canonical key-space range order. For a request `R = (d, p)` with depth `d`
@@ -487,6 +487,61 @@ higher per-update cost. Appropriate where accumulator evidence must be
 transferable to a third party; unnecessary where, as here, transferred objects
 are independently verifiable by signature and hash. Left to a future
 `digest_type`.
+
+## Test vectors
+
+The following vectors are non-normative. They are distilled from the `rezzy`
+reference implementation and its `libminisketch` cross-checks.
+
+### Field multiplication
+
+The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` MUST
+satisfy:
+
+| Left                    | Right                   | Product                 |
+| ----------------------- | ----------------------- | ----------------------- |
+| `0x0000_0000_0000_0000` | `0xffff_ffff_ffff_ffff` | `0x0000_0000_0000_0000` |
+| `0x0000_0000_0000_0001` | `0xffff_ffff_ffff_ffff` | `0xffff_ffff_ffff_ffff` |
+| `0x0000_0000_0000_001b` | `0x0000_0000_0000_001b` | `0x0000_0000_0000_0145` |
+| `0xffff_ffff_ffff_ffff` | `0xffff_ffff_ffff_ffff` | `0x5555_5555_5555_5513` |
+| `0x8000_0000_0000_0000` | `0x8000_0000_0000_0000` | `0xc000_0000_0000_005a` |
+
+### Matrix event-ID derivation
+
+For a room version 3 event ID of the form
+`$<unpadded standard base64 of 32 bytes>`, decoding the event ID MUST recover
+`D(e)` directly.
+
+<!-- markdownlint-disable MD013 -->
+
+| Input                                      | Expected `h128`                             | Expected `h64`          |
+| ------------------------------------------ | ------------------------------------------- | ----------------------- |
+| `$` + `STANDARD_NO_PAD.encode([0xfb; 32])` | `0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb` | `0xfbfb_fbfb_fbfb_fbfb` |
+
+<!-- markdownlint-enable MD013 -->
+
+For room version 4 and later, the leading `$` MUST be stripped before decoding
+the remaining unpadded URL-safe base64 payload.
+
+<!-- markdownlint-disable MD013 -->
+
+| Input                                                                | Expected `h64`          |
+| -------------------------------------------------------------------- | ----------------------- |
+| `$` + `URL_SAFE_NO_PAD.encode([0x00; 8] ++ [0x2a; 8] ++ [0x00; 16])` | `0x0000_0000_0000_002a` |
+| `$` + `URL_SAFE_NO_PAD.encode([0x00; 32])`                           | `0x0000_0000_0000_0001` |
+
+<!-- markdownlint-enable MD013 -->
+
+### PinSketch wire format
+
+For capacity 2, toggling `1 << 63` and `u64::MAX` MUST encode to the following
+little-endian syndrome bytes before base64url encoding:
+
+| Coordinate bytes                                  |
+| ------------------------------------------------- |
+| `ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93` |
+
+Decoding those bytes MUST round-trip to the same sketch.
 
 ## Unstable prefix
 
