@@ -3,7 +3,7 @@
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. Some consumers need it over a
 room's known event or resolved state set; others may use it to synchronize key
-IDs between notaries, or for different identifier populations.
+IDs between notaries, or for ephemeral or other identifier populations.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
@@ -14,8 +14,9 @@ populations up to $10^6$, completing in ~50 ms and under 25 KiB per exchange,
 excluding object payloads. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
 difference of size `Δ` spread over `n` nodes therefore costs
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
-a frame problem, not a reconciliation problem (§Scale boundary); the capped
-round sequence extends the exchange ceiling to about 82,000 elements.
+a frame problem, not a reconciliation problem (see
+[Scale boundary](#scale-boundary)); the capped round sequence extends the
+exchange ceiling to about 82,000 elements.
 
 `algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder. More capacity extends an exchange; it does not
