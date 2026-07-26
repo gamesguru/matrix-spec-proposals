@@ -275,9 +275,9 @@ extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
 
 If the highest nonempty residual stratum is `i < 31` and it decodes to `k_i`
-elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes
-to `k_31` elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
-highest nonempty residual stratum overflows, the standard fallback estimate is
+elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
+`k_31` elements, the standard estimate is $2^{31} \cdot k_{31}$. If the highest
+nonempty residual stratum overflows, the standard fallback estimate is
 $8 \cdot 2^{31}$.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
@@ -501,13 +501,13 @@ The following vectors are non-normative reference cases distilled from the
 The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
 illustrated by:
 
-| Left                    | Right                   | Product                 |
-| ----------------------- | ----------------------- | ----------------------- |
-| `0x0000_0000_0000_0000` | `0xffff_ffff_ffff_ffff` | `0x0000_0000_0000_0000` |
-| `0x0000_0000_0000_0001` | `0xffff_ffff_ffff_ffff` | `0xffff_ffff_ffff_ffff` |
-| `0x0000_0000_0000_001b` | `0x0000_0000_0000_001b` | `0x0000_0000_0000_0145` |
-| `0xffff_ffff_ffff_ffff` | `0xffff_ffff_ffff_ffff` | `0x5555_5555_5555_5513` |
-| `0x8000_0000_0000_0000` | `0x8000_0000_0000_0000` | `0xc000_0000_0000_005a` |
+```text
+mul(0x0000_0000_0000_0000, 0xffff_ffff_ffff_ffff) = 0x0000_0000_0000_0000
+mul(0x0000_0000_0000_0001, 0xffff_ffff_ffff_ffff) = 0xffff_ffff_ffff_ffff
+mul(0x0000_0000_0000_001b, 0x0000_0000_0000_001b) = 0x0000_0000_0000_0145
+mul(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff) = 0x5555_5555_5555_5513
+mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000) = 0xc000_0000_0000_005a
+```
 
 ### Matrix event-ID derivation
 
@@ -515,34 +515,34 @@ For a room version 3 event ID of the form
 `$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers `D(e)`
 directly.
 
-<!-- markdownlint-disable MD013 -->
-
-| Input                                         | Expected `h128`                             | Expected `h64`          |
-| --------------------------------------------- | ------------------------------------------- | ----------------------- |
-| `$` \|\| `STANDARD_NO_PAD.encode([0xfb; 32])` | `0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb` | `0xfbfb_fbfb_fbfb_fbfb` |
-
-<!-- markdownlint-enable MD013 -->
+```text
+V3 event ID:
+  input:  `$` || `STANDARD_NO_PAD.encode([0xfb; 32])`
+  h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
+  h64:    0xfbfb_fbfb_fbfb_fbfb
+```
 
 For room version 4 and later, the leading `$` is stripped before decoding the
 remaining unpadded URL-safe base64 payload.
 
-<!-- markdownlint-disable MD013 -->
+```text
+V4+ event ID:
+  input:  `$` || `URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])`
+  h64:    0x0000_0000_0000_002a
 
-| Input                                                                | Expected `h64`          |
-| -------------------------------------------------------------------- | ----------------------- |
-| `$` \|\| `URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])` | `0x0000_0000_0000_002a` |
-| `$` \|\| `URL_SAFE_NO_PAD.encode([0x00; 32])`                        | `0x0000_0000_0000_0001` |
-
-<!-- markdownlint-enable MD013 -->
+Fallback event ID:
+  input:  `$` || `URL_SAFE_NO_PAD.encode([0x00; 32])`
+  h64:    0x0000_0000_0000_0001
+```
 
 ### PinSketch wire format
 
 For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the following
 little-endian syndrome bytes before base64url encoding:
 
-| Coordinate bytes                                  |
-| ------------------------------------------------- |
-| `ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93` |
+```text
+ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93
+```
 
 Decoding those bytes round-trips to the same sketch.
 
