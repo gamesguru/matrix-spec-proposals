@@ -1,5 +1,7 @@
 # MSC0500: An algebraic, group-valued digest for fast set reconciliation
 
+<!-- Edit marker. -->
+
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known event or
@@ -72,8 +74,6 @@ population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
 
 ## Field
 
-<!-- Edit marker. -->
-
 The 64-bit Galois field is:
 
 $$
@@ -81,14 +81,6 @@ $$
 \cong
 \mathbb{F}_{2}[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle,
 $$
-
-<!--
-$$
-\mathbb{F}_{2^{64}}
-\cong
-\mathbb{F}_{2}[x]\big/\bigl(x^{64}+x^{4}+x^{3}+x+1\bigr)
-$$
--->
 
 $h_{64}$ values are mapped to field elements by treating bit `i` of the integer
 as the coefficient of $x^i$.
