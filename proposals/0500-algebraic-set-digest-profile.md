@@ -257,7 +257,7 @@ not enough.
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
 difference sizing. Consumers that expose the estimator in their wire contract
-define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
+define whether it is optional; MSCXXXX requires all 32 entries in `room_digest`
 responses.
 
 This is the strata-estimator construction from _What's the Difference?:
@@ -620,8 +620,8 @@ None. This MSC defines a self-contained primitive.
 
 Known consumers and possible consumers:
 
-- MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
-- MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
+- MSCXXXX (federation missed-PDU reconciliation) — over a room's known-event set
+- MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries, but its current draft has separate version and
   content-hash semantics and is not wire-compatible with this event-ID profile.
 
