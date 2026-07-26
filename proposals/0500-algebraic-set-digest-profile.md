@@ -506,19 +506,19 @@ predictably at scale.
   Even powers are omitted because the Frobenius endomorphism makes them
   redundant in characteristic 2. Recovering the symmetric difference from these
   coordinates is the finite-field analogue of power-sum/root recovery in
-  classical algebra.
+  classical algebra, in the same spirit as Putnam 1968 A6.
 
 - **The 128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
   provides fault detection but is explicitly not cryptographically binding. Over
   $\mathbb{F}_2$, any set of 129 128-bit values is linearly dependent, so a
-  nonempty subset can always have XOR sum zero. The accumulator is therefore an
-  integrity anchor, not an authenticator.
+  nonempty subset can always have XOR sum zero.
 
 - **Dynamic tree extraction and antichain invariants:** When divergence exceeds
   a node's capacity, localization proceeds by recursive binary subdivision.
   Termination follows from two constraints: requests MUST form an antichain, and
   recursion depth is capped at 32. Each split weakly reduces the population, so
-  the search state space remains finite.
+  the search state space remains finite, matching the termination pattern in
+  Putnam 2008 A3.
 
 - **Decode cost bounds:** Decoding a single capacity-$k$ node costs
   $O(k^2 \log k)$. With per-node capacity capped at $k \le 64$ and failures
@@ -627,28 +627,29 @@ Known consumers and possible consumers:
 
 ## References
 
-- Dodis, Y., Ostrovsky, R., Reyzin, L., & Smith, A. (2008). Fuzzy extractors:
-  How to generate strong keys from biometrics and other noisy data. _SIAM
-  Journal on Computing, 38_(1), 97-139. <https://doi.org/10.1137/060651380>
-- Minsky, Y., Trachtenberg, A., & Zippel, R. (2003). Set reconciliation with
-  nearly optimal communication complexity. _IEEE Transactions on Information
-  Theory, 49_(9), 2213-2218. <https://doi.org/10.1109/TIT.2003.815784>
-- MacWilliams, F. J., & Sloane, N. J. A. (1977). _The theory of error-correcting
-  codes_. North-Holland Mathematical Library.
-  <https://neilsloane.com/doc/ms77.html>
-- Naumenko, G., Maxwell, G., Wuille, P., Sasha, A., & Boneh, D. (2019). Erlay:
-  Efficient transaction relay for Bitcoin. In _Proceedings of the 2019 ACM
-  SIGSAC Conference on Computer and Communications Security (CCS)_ (pp.
-  817-831). <https://doi.org/10.1145/3319535.3354237>
-- Eppstein, D., Goodrich, M. T., Uyeda, F., & Varghese, G. (2011). What's the
-  difference?: Efficient set reconciliation without prior context. _ACM SIGCOMM
-  Computer Communication Review, 41_(4), 218-229.
-  <https://doi.org/10.1145/2018436.2018462>
-- Wuille, P. (n.d.). libminisketch byte-compatibility reference for 64-bit
-  field. GitHub. <https://github.com/bitcoin-core/minisketch>
-- Yang, L., Gilad, Y., & Alizadeh, M. (2024). Practical Rateless Set
-  Reconciliation. In _Proceedings of the 2024 ACM SIGCOMM Conference_ (pp.
-  595-612). <https://doi.org/10.1145/3651890.3672219>
+- _Fuzzy extractors: How to generate strong keys from biometrics and other noisy
+  data_ (Dodis et al., 2008). _SIAM Journal on Computing, 38_(1), 97-139.
+  <https://doi.org/10.1137/060651380>
+- _Set reconciliation with nearly optimal communication complexity_ (Minsky et
+  al., 2003). _IEEE Transactions on Information Theory, 49_(9), 2213-2218.
+  <https://doi.org/10.1109/TIT.2003.815784>
+- _The theory of error-correcting codes_ (MacWilliams & Sloane, 1977).
+  North-Holland Mathematical Library. <https://neilsloane.com/doc/ms77.html>
+- _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019). In
+  _Proceedings of the 2019 ACM SIGSAC Conference on Computer and Communications
+  Security (CCS)_ (pp. 817-831). <https://doi.org/10.1145/3319535.3354237>
+- _What's the difference?: Efficient set reconciliation without prior context_
+  (Eppstein et al., 2011). _ACM SIGCOMM Computer Communication Review, 41_(4),
+  218-229. <https://doi.org/10.1145/2018436.2018462>
+- _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
+  GitHub. <https://github.com/bitcoin-core/minisketch>
+- _Practical Rateless Set Reconciliation_ (Yang et al., 2024). In _Proceedings
+  of the 2024 ACM SIGCOMM Conference_ (pp. 595-612).
+  <https://doi.org/10.1145/3651890.3672219>
 - [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
   at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
   implementation, interoperability tests, and benchmark harness
+- Putnam et al. 1968 A6, solution archive:
+  <https://prase.cz/kalva/putnam/psoln/psol686.html>
+- Putnam et al. 2008 A3, archive PDF:
+  <https://kskedlaya.org/putnam-archive/2008.pdf>
