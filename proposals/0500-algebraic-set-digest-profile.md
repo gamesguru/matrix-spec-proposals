@@ -91,6 +91,10 @@ normative interoperability test for the profile: an implementation that produces
 a different byte string for the same input set is non-conforming, regardless of
 whether its own decoder round-trips.
 
+This requirement covers the odd-power coordinate order, little-endian coordinate
+encoding, and the 64-bit field arithmetic together. If any one of those differs,
+the sketch is not `algebraic_v1`.
+
 This 64-bit field choice is the same algebraic reconciliation setting used by
 PinSketch (Dodis et al., 2008) and the earlier finite-field set reconciliation
 line introduced by Minsky, Trachtenberg, and Zippel (2003).
