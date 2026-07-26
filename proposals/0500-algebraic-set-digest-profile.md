@@ -407,7 +407,7 @@ extraction), which is `O(n)` in identifiers and not part of the fixed state.
 2. XOR $y$ into the integrity accumulator and adjust the count by `+1` or `-1`.
 3. Choose the estimator stratum from `x.trailing_zeros()`.
 4. Compute $x^2$ once.
-5. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
+5. Update $\left(x, x^3, ..., x^{15}\right)$ by repeated multiplying by $x^2$.
 
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
