@@ -131,7 +131,7 @@ Homeserver implementations MUST:
 - **Accept but quarantine legacy keys.** If a key response (from either the
   remote server's `/_matrix/key/v2/server` endpoint or a `/_matrix/key/v2/query`
   notary) contains **only** unrecognized algorithm keys (and no valid `ed25519`
-  or `fn-dsa-512` entry), servers MUST NOT reject the HTTP response outright.
+  or `fndsa512` entry), servers MUST NOT reject the HTTP response outright.
   Because key fetching often occurs in background tasks without room-version
   context (e.g., proactive cache refresh before `valid_until_ts` expiry),
   rejecting the response at the HTTP layer would break historical verification.
@@ -142,7 +142,7 @@ Homeserver implementations MUST:
 
 When evaluating a PDU belonging to a **pre-N room version** with **only**
 unrecognized algorithm signatures and **no** recognized algorithm entry (e.g.,
-no `ed25519` or `fn-dsa-512` signature), the server MUST fall back to existing
+no `ed25519` or `fndsa512` signature), the server MUST fall back to existing
 legacy signature verification behavior. Standard servers that lack the
 cryptographic libraries to verify the unrecognized algorithm will naturally fail
 verification; for standard servers without support for that algorithm, this
@@ -176,11 +176,11 @@ split-brain consensus divergence.
 In Room Version N:
 
 - Events whose `signatures` dictionary contains **only** unrecognized algorithm
-  entries and no valid `ed25519` or `fn-dsa-512` signature from the expected
+  entries and no valid `ed25519` or `fndsa512` signature from the expected
   origin server are **hard-invalid candidate PDUs** and MUST NOT proceed to
   room-version auth evaluation.
 - The set of recognized algorithms for Room Version N is explicitly: `ed25519`
-  and `fn-dsa-512` (if MSC 00E1 is accepted by the time Room Version N is
+  and `fndsa512` (if MSC 00E1 is accepted by the time Room Version N is
   specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a
   recognized algorithm fails.
@@ -299,7 +299,7 @@ separate Room Version MSC.
   [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1)
   (Post-Quantum Digital Signatures for Federation), although it is
   complementary. If MSC 00E1 is accepted before Room Version N is finalized,
-  `fn-dsa-512` is included in the recognized algorithm set.
+  `fndsa512` is included in the recognized algorithm set.
 
 ## Backwards Compatibility
 

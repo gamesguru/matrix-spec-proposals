@@ -197,7 +197,7 @@ leaving legacy traffic untouched:
   rejection, provided the Ed25519 `Authorization` header is valid.
 - **Legacy servers:** Servers that do not support the post-quantum server-key
   profile ignore the `X-Matrix-PQC` header entirely — and cannot participate in
-  PQC-required rooms, since they can neither produce nor verify `fn-dsa-512` PDU
+  PQC-required rooms, since they can neither produce nor verify `fndsa512` PDU
   signatures.
 
 #### Enforcement Order of Operations
@@ -228,21 +228,21 @@ sequenceDiagram
 
     Note over S1: Publishes both keys via /_matrix/key/v2/server (MSC00E4)
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (legacy room): {ed25519 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fndsa512 (transport auth)<br/>Event (legacy room): {ed25519 only}
     activate S2
     Note over S2: Verifies X-Matrix-PQC transport header (advisory).<br/>Verifies ed25519 PDU signature (legacy rule).
     S2-->>S1: 200 OK
     deactivate S2
 
-    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (legacy room): {ed25519 only}
+    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fndsa512<br/>Event (legacy room): {ed25519 only}
     activate S3
     Note over S3: Ignores X-Matrix-PQC header.<br/>Verifies ed25519 PDU signature.
     S3-->>S1: 200 OK
     deactivate S3
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (PQC room): {fn-dsa-512 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fndsa512<br/>Event (PQC room): {fndsa512 only}
     activate S2
-    Note over S2: Requires and verifies X-Matrix-PQC (mandatory, this MSC).<br/>Verifies fn-dsa-512 PDU signature (PQC rule).
+    Note over S2: Requires and verifies X-Matrix-PQC (mandatory, this MSC).<br/>Verifies fndsa512 PDU signature (PQC rule).
     S2-->>S1: 200 OK
     deactivate S2
 ```
@@ -258,7 +258,7 @@ Phase 1 pre-distributes and pins keys across the federation before anything
 depends on them.
 
 **Phase 2 — PQC Room Version (this MSC)** A new room version is formalized which
-makes `fn-dsa-512` the sole, authoritative PDU signature scheme, and makes PQC
+makes `fndsa512` the sole, authoritative PDU signature scheme, and makes PQC
 transport authentication mandatory for traffic scoped to such rooms. Users and
 administrators may upgrade existing rooms to this version to gain post-quantum
 PDU signatures. Legacy rooms remain untouched.
@@ -268,15 +268,15 @@ PDU signatures. Legacy rooms remain untouched.
 This MSC requires a **new room version**. All PQC changes are scoped to this
 version — existing room versions are unaffected.
 
-- **PDU signing:** Origin servers MUST sign PDUs with `fn-dsa-512`. Origin
-  servers MUST NOT include `ed25519` signatures. Receiving servers MUST ignore
+- **PDU signing:** Origin servers MUST sign PDUs with `fndsa512`. Origin servers
+  MUST NOT include `ed25519` signatures. Receiving servers MUST ignore
   unrecognized or legacy signature entries — their presence MUST NOT cause
   rejection (see [PQC-Required Room Versions](#pqc-required-room-versions) for
   rationale).
 - **Signature verification in auth rules:** Step 5 of the
   [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu)
   ("Passes signature checks...") is modified to require strict verification of
-  the `fn-dsa-512` signature from the server whose signature is required by the
+  the `fndsa512` signature from the server whose signature is required by the
   existing event signature verification rules for that room version. If no valid
   FN-DSA signature from the expected server is present, the event MUST be
   rejected. Additional signatures from unrecognized or legacy algorithms are
@@ -467,7 +467,7 @@ unstable period, PDU `signatures` entries use the unstable algorithm identifier:
   },
   "signatures": {
     "example.com": {
-      "tk.nutra.msc45xx.fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
+      "tk.nutra.msc45xx.fndsa512:5FQ2xg4sWqj3Kp9N": "<base64-fndsa512-signature>"
     }
   }
 }

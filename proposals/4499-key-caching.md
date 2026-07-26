@@ -43,7 +43,7 @@ strict 1:1 key ID uniqueness paradigm and accompanying caching guidance.
 Servers MUST cache federated server signing keys procured from
 `/_matrix/key/v2/server` responses and `/_matrix/key/v2/query` notary responses.
 The following requirements apply to all signing algorithm types (`ed25519`, and
-any potential future signing algorithms, like `fn-dsa-512`).
+any potential future signing algorithms, like `fndsa512`).
 
 <!-- Read marker. -->
 
@@ -254,7 +254,7 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
-   `ed25519:1` to `ed25519:2`, or from `fn-dsa-512:pqc0` to `fn-dsa-512:pqc1`.
+   `ed25519:1` to `ed25519:2`, or from `fndsa512:pqc0` to `fndsa512:pqc1`.
 2. **Retire the old key.** The old key MUST appear in the `old_verify_keys`
    section of the `/_matrix/key/v2/server` response with an appropriate
    `expired_ts` timestamp.
@@ -734,8 +734,8 @@ requirements that can be readily adopted. No API endpoints substantially change.
 ## Dependencies
 
 - None. This MSC is independent of other proposals. It applies to `ed25519` keys
-  today. It will apply equally to `fn-dsa-512` keys if accepted into the spec
-  and if this document is not superseded by a refined or more encompassing MSC.
+  today. It will apply equally to `fndsa512` keys if accepted into the spec and
+  if this document is not superseded by a refined or more encompassing MSC.
 
 ## Open questions
 
