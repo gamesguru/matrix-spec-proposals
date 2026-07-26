@@ -91,6 +91,10 @@ normative interoperability test for the profile: an implementation that produces
 a different byte string for the same input set is non-conforming, regardless of
 whether its own decoder round-trips.
 
+This 64-bit field choice is the same algebraic reconciliation setting used by
+PinSketch (Dodis et al., 2008) and the earlier finite-field set reconciliation
+line introduced by Minsky, Trachtenberg, and Zippel (2003).
+
 The 128-bit accumulator layer is a plain XOR group over 16-byte strings and is
 not a field operation.
 
@@ -130,6 +134,10 @@ $$
 
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: $s_{2i} = s_i^2$.
+
+That odd-power syndrome form is standard BCH syndrome decoding machinery
+(MacWilliams & Sloane, 1977) and is exactly the coding-theory substrate that
+PinSketch specializes for reconciliation.
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
@@ -201,12 +209,21 @@ resident per-node syndrome structure a fixed partition would require (see
 "Resident structure"), and unlike that structure it serves every depth, not one
 fixed depth.
 
+The depth-limited refine-and-resolve shape mirrors the practical reconciliation
+architecture validated by Erlay (Naumenko et al., 2019): keep the field math
+fixed, size the exchange before decoding, and only split the work when the
+current capacity is not enough.
+
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
 difference sizing. Consumers that expose the estimator in their wire contract
 define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
+
+This is the Difference Digest / strata-estimator idea from Eppstein, Goodrich,
+Uyeda, and Varghese (2011): use a compact pre-decode summary to estimate
+`|S_A \Delta S_B|` before committing to a decoder.
 
 Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
 extraction sketch, but only for elements whose $h_{64}(e)$ has exactly `i`
@@ -344,6 +361,10 @@ extraction), which is `O(n)` in identifiers and not part of the fixed state.
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
 
+This update path is the operational side of the same BCH/PinSketch machinery and
+is the reason the profile can stay fully additive while still supporting
+pre-decode sizing.
+
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
@@ -461,8 +482,9 @@ Known consumers and possible consumers:
   Computer Communication Review, 41_(4), 218-229.
   <https://doi.org/10.1145/2018436.2018462>
 - Pieter Wuille. libminisketch byte-compatibility reference for 64-bit field.
+  <https://github.com/bitcoin-core/minisketch>
 - Yang, Gilad, & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM
-  2024).
+  2024). <https://doi.org/10.1145/3651890.3672219>
 - [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
   at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
   implementation, interoperability tests, and benchmark harness
