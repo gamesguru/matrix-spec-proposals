@@ -69,9 +69,9 @@ The commitment is then computed as follows:
   nodes;
 - compute the sidecar commitment root as
   `SHA3-256("msc4511:overlay-root:v1" || event_id || leaf_count || merkle_root)`,
-  where `event_id` is the returned event ID, `leaf_count` is the number of fixed
-  leaves encoded as an unsigned 32-bit integer in network byte order, and
-  `merkle_root` is the root hash of the fixed-field tree.
+  where `event_id` is the UTF-8 encoding of the returned event ID string,
+  `leaf_count` is the number of fixed leaves encoded as an unsigned 32-bit integer
+  in network byte order, and `merkle_root` is the root hash of the fixed-field tree.
 
 All concatenations above are byte concatenations: domain-separation strings and
 `field_name` are UTF-8 bytes; `\x00` is a single `0x00` byte; `canonical_value`
