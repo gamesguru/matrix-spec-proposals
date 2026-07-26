@@ -1,11 +1,10 @@
-# MSC0500: An algebraic, group-valued digest for fast set reconciliation
+# MSC0500: Stratified $\mathbb{F}_{2^{64}}$ PinSketch for fast set reconciliation
 
-Several federation mechanisms need to answer the same question: do two servers
-hold the same set of identifiers, and if not, which ones differ? MSC0501
-(federation missed-PDU reconciliation) needs it over a room's known event or
-resolved state set. MSC0502 may adapt the same machinery for ephemeral state,
-but its current draft is not wire-compatible with this event-ID profile. Future
-diagnostic and audit endpoints may need the same primitive elsewhere.
+Several federation mechanisms need to answer one question: do two servers hold
+the same set of identifiers, and if not, which ones differ? MSC0501 (federation
+missed-PDU reconciliation) needs it over a room's known event or resolved state
+set. MSC0502 may adapt the same machinery for ephemeral state, but its current
+draft is not wire-compatible with this event-ID profile.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
@@ -20,8 +19,8 @@ a frame problem, not a reconciliation problem (§Scale boundary); the capped
 round sequence extends the exchange ceiling to about 82,000 elements.
 
 `algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
-accumulator into one ladder. Increasing extraction capacity extends an exchange;
-it does not restart it.
+accumulator into one ladder. More capacity extends an exchange; it does not
+restart it.
 
 ## Scope
 
@@ -215,8 +214,8 @@ fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
 architecture validated by Erlay (Naumenko et al., 2019): keep the field math
-fixed, size the exchange before decoding, and only split the work when the
-current capacity is not enough.
+fixed, size the exchange before decoding, and split only when the current
+capacity is not enough.
 
 ## Strata estimator
 
@@ -485,10 +484,11 @@ Known consumers and possible consumers:
   difference?: Efficient set reconciliation without prior context. _ACM SIGCOMM
   Computer Communication Review, 41_(4), 218-229.
   <https://doi.org/10.1145/2018436.2018462>
-- Pieter Wuille. libminisketch byte-compatibility reference for 64-bit field.
-  <https://github.com/bitcoin-core/minisketch>
-- Yang, Gilad, & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM
-  2024). <https://doi.org/10.1145/3651890.3672219>
+- Wuille, P. (n.d.). libminisketch byte-compatibility reference for 64-bit
+  field. GitHub. <https://github.com/bitcoin-core/minisketch>
+- Yang, L., Gilad, Y., & Alizadeh, M. (2024). Practical Rateless Set
+  Reconciliation. In _Proceedings of the 2024 ACM SIGCOMM Conference_ (pp.
+  595-612). <https://doi.org/10.1145/3651890.3672219>
 - [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
   at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
   implementation, interoperability tests, and benchmark harness
