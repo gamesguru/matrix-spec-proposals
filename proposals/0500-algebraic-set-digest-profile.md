@@ -171,9 +171,9 @@ same population a single flat sketch covers. Implementations MUST cap `depth` at
 32, so `prefix` is at most 32 bits wide. If a node still overflows at its
 requested capacity, the peer that detects the failure requests two child
 sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
-that still overflows is split again. If a node still overflows at `depth = 32`,
-the peer that detects the failure MUST report failure for that prefix and fall
-back to backfill or frame extension rather than splitting further. The recursion
+that still overflows is split again. A node that still overflows at `depth = 32`
+MUST NOT be split further; the peer that detects the failure MUST report failure
+for that prefix and fall back to backfill or frame extension. The recursion
 terminates: each split reduces node population weakly, depth is bounded at 32,
 and a node still overflowing at the cap is reported rather than split further.
 
