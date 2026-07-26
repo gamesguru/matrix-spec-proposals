@@ -443,11 +443,21 @@ Known consumers and possible consumers:
 
 ## References
 
-- Dodis, Ostrovsky, Reyzin & Smith, _Fuzzy Extractors: How to Generate Strong
-  Keys from Biometrics and Other Noisy Data_ (2008), §6 (PinSketch)
+- [PinSketch] Dodis, Y., Ostrovsky, R., Reyzin, L., & Smith, A. (2008). _Fuzzy
+  Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data_.
+  SIAM Journal on Computing, 38(1), 97-139.
+- [AlgebraicReconciliation] Minsky, Y., Trachtenberg, A., & Zippel, R. (2003).
+  _Set Reconciliation with Nearly Optimal Communication Complexity_. IEEE
+  Transactions on Information Theory, 49(9), 2213-2218.
+- [BCHCodes] MacWilliams, F. J., & Sloane, N. J. A. (1977). _The Theory of
+  Error-Correcting Codes_. North-Holland Mathematical Library.
+- [Erlay] Naumenko, G., Maxwell, G., Wuille, P., Sasha, A., & Boneh, D. (2019).
+  _Erlay: Efficient Transaction Relay for Bitcoin_. Proceedings of the 2019 ACM
+  SIGSAC Conference on Computer and Communications Security (CCS).
+- [StrataEstimator] Eppstein, D., Goodrich, M. T., Uyeda, F., & Varghese, G.
+  (2011). _What's the Difference?: Efficient Set Reconciliation without Prior
+  Context_. ACM SIGCOMM Computer Communication Review, 41(4), 218-229.
 - Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
-- Eppstein, Goodrich, Uyeda & Varghese, _What's the Difference?: Efficient Set
-  Reconciliation without Prior Context_ (2011)
 - Yang, Gilad & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM 2024)
 - [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
   at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
