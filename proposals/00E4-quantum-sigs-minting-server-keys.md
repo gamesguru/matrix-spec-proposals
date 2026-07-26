@@ -956,10 +956,13 @@ Field semantics:
   conflicting key bodies. Despite the naming, the pair is unordered for dedup
   purposes (see below); `first` denotes whichever observation this notary
   learned of earlier, per its own `first_observed_ts`.
-- `key_id` in each observation is the canonical `fndsa512:<short_key_id>`
+- `key_id` in each observation is the canonical `<algorithm>:<short_key_id>`
   identifier for that key body, derived as specified in
   [profile-bound key minting](#canonical-key-object). Both observations share
-  the same key_id and short_key_id.
+  the same key_id and short_key_id. Verifiers MUST recompute or validate that
+  `key_id` in both `first` and `conflicting` entries equals
+  `<algorithm>:<short_key_id>` and MUST reject any record where `key_id` does
+  not match.
 - `full_key_id` in each observation is the unpadded base64url 32-byte SHA3-256
   Key ID digest computed over that observation's key body, providing a unique
   full-digest identifier for collision proof and unordered deduplication.
@@ -1043,7 +1046,10 @@ conflicting.observed_via
 [Notary observations](#notary-observations). Embedded full responses, when
 present, are not covered by this signature input; their integrity is instead
 verified independently via each embedded response's own self-signature, matched
-against `server_key_package_sha256`.
+against `server_key_package_sha256`. Similarly, `key_id` is a derived
+convenience field covered by the signed `algorithm` and `short_key_id` fields;
+verifiers MUST verify that `key_id` equals `<algorithm>:<short_key_id>` before
+using it.
 
 - Dedup identity: a record is identified by the tuple
   `(observed_server_name, algorithm, short_key_id, first.key_id, conflicting.key_id)`,
