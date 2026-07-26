@@ -490,13 +490,13 @@ are independently verifiable by signature and hash. Left to a future
 
 ## Test vectors
 
-The following vectors are non-normative. They are distilled from the `rezzy`
-reference implementation and its `libminisketch` cross-checks.
+The following vectors are non-normative reference cases distilled from the
+`rezzy` implementation and its `libminisketch` cross-checks.
 
 ### Field multiplication
 
-The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` MUST
-satisfy:
+The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
+illustrated by:
 
 | Left                    | Right                   | Product                 |
 | ----------------------- | ----------------------- | ----------------------- |
@@ -509,7 +509,7 @@ satisfy:
 ### Matrix event-ID derivation
 
 For a room version 3 event ID of the form
-`$<unpadded standard base64 of 32 bytes>`, decoding the event ID MUST recover
+`$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers
 `D(e)` directly.
 
 <!-- markdownlint-disable MD013 -->
@@ -520,8 +520,8 @@ For a room version 3 event ID of the form
 
 <!-- markdownlint-enable MD013 -->
 
-For room version 4 and later, the leading `$` MUST be stripped before decoding
-the remaining unpadded URL-safe base64 payload.
+For room version 4 and later, the leading `$` is stripped before decoding the
+remaining unpadded URL-safe base64 payload.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -534,7 +534,7 @@ the remaining unpadded URL-safe base64 payload.
 
 ### PinSketch wire format
 
-For capacity 2, toggling `1 << 63` and `u64::MAX` MUST encode to the following
+For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the following
 little-endian syndrome bytes before base64url encoding:
 
 | Coordinate bytes                                  |
