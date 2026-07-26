@@ -12,18 +12,19 @@ contract rather than building them from scratch each time.
 
 The profile is provisioned for aggregate, tree-localized differences of up to
 approximately 4,000 elements between sets containing up to 1 million elements.
-With the resident strata estimator in the reference implementation, the
-common-case exchange is designed to complete within approximately 50 ms and
-exchange less than 25 KiB in total, excluding event bodies. Larger differences
-require dynamic-tree escalation or a frame-extension and bulk-retrieval
-protocol; they are not guaranteed to remain within these latency or wire-size
-bounds, and above these limits additional MSCs with better asymptotic complexity
-may be preferred. The extraction decoder has approximately $O(k^2 \log k)$
-field-operation complexity, where `k` is a node's configured capacity. With `n`
-tree nodes requested and per-node capacities $k_i$, total decoding cost is
-$\sum_{i=1}^{n} O\!\left(k_i^2 \log k_i\right)$. For a balanced difference of
-size $\Delta$ localized across `n` leaf nodes, each leaf has approximately
-$\Delta / n$ elements, giving total cost
+That figure is a per-exchange target; the multi-round ceiling from the
+aggregate-cap budget is stated in "Scope" below. With the resident strata
+estimator in the reference implementation, the common-case exchange is designed
+to complete within approximately 50 ms and exchange less than 25 KiB in total,
+excluding event bodies. Larger differences require dynamic-tree escalation or a
+frame-extension and bulk-retrieval protocol; they are not guaranteed to remain
+within these latency or wire-size bounds, and above these limits additional MSCs
+with better asymptotic complexity may be preferred. The extraction decoder has
+approximately $O(k^2 \log k)$ field-operation complexity, where `k` is a node's
+configured capacity. With `n` tree nodes requested and per-node capacities
+$k_i$, total decoding cost is $\sum_{i=1}^{n} O\!\left(k_i^2 \log k_i\right)$.
+For a balanced difference of size $\Delta$ localized across `n` leaf nodes, each
+leaf has approximately $\Delta / n$ elements, giving total cost
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$, up to distribution
 imbalance and capacity overhead.
 
@@ -70,23 +71,24 @@ h_64(e)  = first  64 bits of D(e)
 the first 16 bytes. $h_{64}(e)$ is the first 8 bytes interpreted as an unsigned
 big-endian integer.
 
+Because `minisketch` set elements are nonzero, if the first 8-byte chunk of
+`D(e)` is zero the implementation MUST use the next nonzero 8-byte chunk of
+`D(e)`; if all four chunks are zero, it MUST use the integer value 1. This
+applies to every consumer, not just Matrix bindings.
+
 ### Matrix event-ID binding
 
 For Matrix event-ID sets, `D(e)` is derived as follows. For room versions 3 and
-later, event IDs are already derived from `SHA3-256` event hashes, so no
+later, event IDs are already derived from `SHA-256` event hashes, so no
 auxiliary hash is required. Implementations derive `D(e)` from the decoded event
 ID using the room-version-specific event-ID alphabet:
 
-- room versions 1 and 2: hash the UTF-8 event ID string with `SHA3-256`;
+- room versions 1 and 2: hash the UTF-8 event ID string with `SHA-256`;
 - room version 3: decode the event ID as unpadded standard Base64;
 - room versions 4 and later: decode event ID as unpadded URL-safe Base64.
 
-Because `minisketch` set elements are nonzero, if the first 8-byte chunk is zero
-the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if all four
-chunks are zero, it MUST use the integer value 1.
-
 Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
-`SHA3-256` digest of the event-ID string, or exclude the event from the compared
+`SHA-256` digest of the event-ID string, or exclude the event from the compared
 population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
 
 ## Field
@@ -173,15 +175,6 @@ subtracted by XOR. The result is the syndrome of the symmetric difference. This
 is the property that makes the profile group-valued and the reason a failed
 exchange can be extended rather than restarted.
 
-**Capacity bounds.** A `sketch` exchange consists of one or more extraction
-requests, each a `(depth, prefix, capacity)` triple (see "Dynamic tree
-extraction," below). A single entry's `capacity` MUST NOT exceed 64; the sum of
-`capacity` across all requests in a single exchange MUST NOT exceed 4096. These
-are separate bounds for separate reasons: the per-entry cap bounds decode cost
-($O(k^2 \log k)$ per node), while the aggregate cap bounds total wire size and
-responder work across a whole exchange. A future profile MAY raise either cap;
-`algebraic_v1` MUST NOT.
-
 ## Dynamic tree extraction
 
 A single sketch at `depth = 0` covers the whole population and is exact only
@@ -212,6 +205,14 @@ elements in the aggregate capacity check and make their sketches non-independent
 for subtraction. A consumer MUST reject a request violating this before
 subtraction.
 
+**Capacity bounds.** A `sketch` exchange consists of one or more extraction
+requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
+MUST NOT exceed 64; the sum of `capacity` across all requests in a single
+exchange MUST NOT exceed 4096. These are separate bounds for separate reasons:
+the per-entry cap bounds decode cost ($O(k^2 \log k)$ per node), while the
+aggregate cap bounds total wire size and responder work across a whole exchange.
+A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
+
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
 requires the subset of the population whose `h_64(e)` shares that `depth`-bit
 prefix. A responder MUST NOT satisfy this by scanning its full known-event set
@@ -221,8 +222,8 @@ Implementations MUST maintain (or build and cache) an index of known event IDs
 ordered by `h_64`, so that a node's element subset is a range slice — O(log n)
 to locate plus the slice size — not a full-population scan. This index holds
 only IDs and `h_64` keys, not precomputed syndromes; it is far cheaper than the
-resident per-bucket syndrome array a fixed partition would require (see
-"Resident structure"), and unlike that array it serves every depth, not one
+resident per-node syndrome structure a fixed partition would require (see
+"Resident structure"), and unlike that structure it serves every depth, not one
 fixed depth.
 
 ## Strata estimator
@@ -328,7 +329,7 @@ The escalation sequence is:
 5. For a difference so large or so heavy-tailed that it exhausts the 4096
    aggregate capacity across the tree, or would require recursing to impractical
    depth, treat it as a frame problem rather than a reconciliation problem — see
-   "Scope," below.
+   the scale boundary section below.
 
 **Why this and not a probabilistic filter.** Every node in the recursion uses
 the same PinSketch decoder as the depth-0 case; no second decoder is introduced.
@@ -341,22 +342,22 @@ size — see "Resident structure," below — because nodes are computed only whe
 requested, unlike a fixed partition maintained for every population regardless
 of whether it ever diverges.
 
-**Scope.** Dynamic tree extraction is for a moderate, bounded difference within
-an otherwise negotiated, shared frame — the "Swiss cheese" interior-gap case —
-not for arbitrarily large ones. Each round is throughput-bounded to at most
-`aggregate_cap / per_node_cap` new node-decodes (64 at this profile's caps), so
-fully localizing a difference of size `Δ` costs on the order of
-`Δ / aggregate_cap` rounds regardless of depth strategy — not `log(Δ)`, because
-that bound only holds while the search frontier is narrower than a single round
-can afford. A consuming MSC's own round cap (see its security considerations)
-turns this into a concrete element ceiling: at a 20-round cap and this profile's
-4096 aggregate capacity, `20 * 4096 ≈ 82,000` elements. A difference at or
-beyond that scale — let alone one approaching the size of the population itself,
-e.g. a server restoring from near-zero state — is not a reconciliation problem
-for this mechanism. Peers SHOULD recognize this from the strata estimate, the
-count residual, or an early, broadly-overflowing root sketch, and fall back to
-backfill or a frame-extension protocol before spending rounds on a search that
-cannot complete within budget.
+**Scale boundary.** Dynamic tree extraction is for a moderate, bounded
+difference within an otherwise negotiated, shared frame — the "Swiss cheese"
+interior-gap case — not for arbitrarily large ones. Each round is
+throughput-bounded to at most `aggregate_cap / per_node_cap` new node-decodes
+(64 at this profile's caps), so fully localizing a difference of size `Δ` costs
+on the order of `Δ / aggregate_cap` rounds regardless of depth strategy — not
+`log(Δ)`, because that bound only holds while the search frontier is narrower
+than a single round can afford. A consuming MSC's own round cap (see its
+security considerations) turns this into a concrete element ceiling: at a
+20-round cap and this profile's 4096 aggregate capacity, `20 * 4096 ≈ 82,000`
+elements. A difference at or beyond that scale — let alone one approaching the
+size of the population itself, e.g. a server restoring from near-zero state — is
+not a reconciliation problem for this mechanism. Peers SHOULD recognize this
+from the strata estimate, the count residual, or an early, broadly-overflowing
+root sketch, and fall back to backfill or a frame-extension protocol before
+spending rounds on a search that cannot complete within budget.
 
 ## Resident structure
 
@@ -389,10 +390,11 @@ nodes a real difference touches.
 
 **Update procedure.** On inserting or removing element `e`:
 
-1. Compute $x = h_{64}(e)$.
-2. Choose the estimator stratum from `x.trailing_zeros()`.
-3. Compute $x^2$ once.
-4. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
+1. Compute $y = h_{128}(e)$ and $x = h_{64}(e)$.
+2. XOR $y$ into the integrity accumulator and adjust the count by `+1` or `-1`.
+3. Choose the estimator stratum from `x.trailing_zeros()`.
+4. Compute $x^2$ once.
+5. Update $x, x^3, ..., x^15$ by repeated multiplication by $x^2$.
 
 In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
@@ -404,10 +406,10 @@ measured about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`, with
 bit-identical results. Either path is small relative to the database write that
 accompanies the update.
 
-The resident 64-bit syndrome layer is an optimization, not a correctness
-requirement. An implementation that computes sketches by scanning its store is
-conforming, but SHOULD apply stricter request budgets, since its cost per
-request scales with population size rather than difference size.
+The strata estimator is an optimization, not a correctness requirement. An
+implementation that computes sketches by scanning its store is conforming, but
+SHOULD apply stricter request budgets, since its cost per request scales with
+population size rather than difference size.
 
 ## Advertisement
 
@@ -417,8 +419,7 @@ canonical feature flag for this profile is:
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0500.digest.algebraic_v1": true,
-    "tk.nutra.msc0500.digest.algebraic_v1_deep": true
+    "tk.nutra.msc0500.digest.algebraic_v1": true
   }
 }
 ```
@@ -494,11 +495,10 @@ are independently verifiable by signature and hash. Left to a future
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier | Purpose     | Development identifier                      |
-| ------------------------- | ----------- | ------------------------------------------- |
-| `algebraic_v1`            | digest type | `algebraic_v1`                              |
-| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1`      |
-| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1_deep` |
+| Proposed final identifier | Purpose     | Development identifier                 |
+| ------------------------- | ----------- | -------------------------------------- |
+| `algebraic_v1`            | digest type | `algebraic_v1`                         |
+| feature flag              | capability  | `tk.nutra.msc0500.digest.algebraic_v1` |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -515,8 +515,8 @@ Known consumers and possible consumers:
 
 ## References
 
-- Gennaro Boneh et al., PinSketch / set reconciliation via BCH syndromes
+- Dodis, Katz, Reyzin & Smith, PinSketch / set reconciliation via BCH syndromes
 - Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
 - Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
   Reconciliation without Prior Context" (strata estimator, IBLT)
-- Bessani et al., rateless IBLT constructions
+- Yang, Gilad & Alizadeh, rateless IBLT constructions
