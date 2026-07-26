@@ -1,10 +1,9 @@
 # MSC0500: Stratified $\mathbb{F}_{2^{64}}$ PinSketch for fast set reconciliation
 
-Several federation mechanisms need to answer one question: do two servers hold
-the same set of identifiers, and if not, which ones differ? MSC0501 (federation
-missed-PDU reconciliation) needs it over a room's known event or resolved state
-set. MSC0502 may adapt the same machinery for ephemeral state, but its current
-draft is not wire-compatible with this event-ID profile.
+Several federation mechanisms need to know whether two servers hold the same set
+of identifiers, and if not, which ones differ. Some consumers need it over a
+room's known event or resolved state set; others may use it to synchronize key
+IDs between notaries, or for different identifier populations.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
@@ -12,7 +11,7 @@ contract rather than building them from scratch each time.
 
 The profile targets differences up to ~4,000 elements per exchange in
 populations up to $10^6$, completing in ~50 ms and under 25 KiB per exchange,
-excluding bodies. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
+excluding object payloads. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
 difference of size `Δ` spread over `n` nodes therefore costs
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
 a frame problem, not a reconciliation problem (§Scale boundary); the capped
