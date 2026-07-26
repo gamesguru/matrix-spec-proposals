@@ -1,23 +1,23 @@
 # MSC0500: An algebraic, group-valued digest for fast set reconciliation
 
-<!-- Edit marker. -->
-
 Several federation mechanisms need to answer the same question: do two servers
 hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known event or
-resolved state set. MSC0502 needs an analogous primitive for ephemeral state.
-Future diagnostic and audit endpoints may need it again in other contexts.
+resolved state set. MSC0502 may adapt the same machinery for ephemeral state,
+but its current draft is not wire-compatible with this event-ID profile. Future
+diagnostic and audit endpoints may need it again in other contexts.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
 The profile targets differences up to ~4,000 elements in populations up to
-~10^6, completing in ~50 ms and under 25 KiB per exchange, excluding bodies.
-Decode a capacity-`k` node costs $O(k^2 \log k)$; a difference of size `Δ`
+$10^6$, completing in ~50 ms and under 25 KiB per exchange, excluding bodies.
+Decoding a capacity-`k` node costs $O(k^2 \log k)$; a difference of size `Δ`
 spread over `n` nodes therefore costs
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
-a frame problem, not a reconciliation problem (§Scale boundary).
+a frame problem, not a reconciliation problem (§Scale boundary); the capped
+round sequence extends that target to about 82,000 elements.
 
 `algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder. Increasing extraction capacity extends an exchange;
@@ -105,7 +105,7 @@ $$
 $$
 
 where $\bigoplus$ denotes bitwise XOR over all selected 128-bit values. The
-digest is encoded as 16 raw bytes using unpadded base64url.
+digest is a 16-byte value, encoded on the wire as unpadded base64url.
 
 Insertion and removal are the same operation: XOR the same $h_{128}(e)$ value
 into the accumulator and increment or decrement the count. There is no rebuild
@@ -136,7 +136,8 @@ order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
 64-bit **little-endian** integer. The big-endian hash parsing in "Identifier
 derivation" and the little-endian coordinate serialization here are both
 normative and are deliberately different; the first follows Matrix hash
-conventions and the second follows `libminisketch`.
+conventions and the second follows `libminisketch`. This endian split is
+load-bearing for interoperability.
 
 A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
 unpadded base64url.
@@ -247,15 +248,17 @@ the result MUST be discarded.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 The asymmetry is intentional: each side verifies the half it can resolve, and
-the residual carries the other half.
+the residual carries the other half. See "Security considerations" below for
+adversarial limits.
 
-**Adversarial limits.** XOR accumulators are fault-detecting, not binding. Any
-set of 129 `128-bit` values is linearly dependent over $\mathbb{F}_2$, so a peer
-with freedom over which identifiers to include can construct a nonempty subset
-whose accumulator is zero. Nothing in this profile relies on the accumulator
-being binding. Consumers MUST verify transferred objects by their own rules —
-signatures, hashes, authorization — and MUST NOT treat accumulator agreement as
-evidence of authenticity.
+## Security considerations
+
+XOR accumulators are fault-detecting, not binding. Any set of 129 `128-bit`
+values is linearly dependent over $\mathbb{F}_2$, so a peer with freedom over
+which identifiers to include can construct a nonempty subset whose accumulator
+is zero. Nothing in this profile relies on the accumulator being binding.
+Consumers MUST verify transferred objects by their own rules and MUST NOT treat
+accumulator agreement as evidence of authenticity.
 
 Deployments needing adversarial robustness MAY define a future profile with
 negotiated per-link salting for transmitted extraction sketches. Such a profile
@@ -301,17 +304,6 @@ The escalation sequence is:
    aggregate capacity across the tree, or would require recursing to impractical
    depth, treat it as a frame problem rather than a reconciliation problem — see
    the scale boundary section below.
-
-**Why this and not a probabilistic filter.** Every node in the recursion uses
-the same PinSketch decoder as the depth-0 case; no second decoder is introduced.
-Every failure is loud, per "Decode and verification," at every depth. There is
-no equivalent of a false positive: a node either decodes exactly at its offered
-capacity, or it is split and tried again. This is why dynamic tree extraction is
-preferred over both RIBLT and Bloom filters as the heavy-tail mechanism; see
-Alternatives. It also carries no persistent resident cost proportional to tree
-size — see "Resident structure," below — because nodes are computed only when
-requested, unlike a fixed partition maintained for every population regardless
-of whether it ever diverges.
 
 **Scale boundary.** Dynamic tree extraction is for bounded interior gaps within
 an agreed frame, not arbitrary divergence. It is round-limited rather than
