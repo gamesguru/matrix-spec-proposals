@@ -5,7 +5,7 @@ hold the same set of identifiers, and if not, which ones differ? MSC0501
 (federation missed-PDU reconciliation) needs it over a room's known event or
 resolved state set. MSC0502 may adapt the same machinery for ephemeral state,
 but its current draft is not wire-compatible with this event-ID profile. Future
-diagnostic and audit endpoints may need it again in other contexts.
+diagnostic and audit endpoints may need the same primitive elsewhere.
 
 This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
@@ -32,7 +32,7 @@ decode-and-verify contract, capacity budgets, and the resident structure.
 
 This profile does **not** define endpoints, frames, authorization, negotiation,
 or scheduling; those belong to the consuming MSC. Consumers MUST still verify
-that both sides digest the same population before comparing digests.
+that both sides digest the same population before comparing them.
 
 ## Element derivation
 
