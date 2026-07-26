@@ -190,20 +190,20 @@ requests it.
 
 ### Antichain invariant and validation
 
-Requests in a single exchange MUST form an antichain. Formally, a request
-`R_i = (d_i, p_i)` is an ancestor of `R_j = (d_j, p_j)` iff `d_i <= d_j` and the
-`d_i` most-significant bits of `p_j` equal `p_i`. If any pair of requests in an
-exchange forms an ancestor-descendant relation, the receiver MUST reject the
-request before performing sketch subtraction or field operations.
+Requests in a single exchange MUST form an antichain. Formally, for requests
+`R_i = (d_i, p_i)` and `R_j = (d_j, p_j)`, `R_i` is an ancestor of `R_j` if and
+only if `d_i <= d_j` and the `d_i` most-significant bits of `p_j` are equal to
+`p_i`. If any pair of requests forms an ancestor-descendant relation, the
+receiver MUST reject the request before performing sketch subtraction or field
+operations.
 
 Overlapping entries would double-count elements in the aggregate capacity check
 and make their sketches non-independent for subtraction.
 
-Implementation note: a canonical reference validator sorts requests by `depth`
-ascending and checks each candidate against the previously validated shallower
-requests. The sort gives `O(N log N)` time and the prefix checks are bounded by
-the 32-bit depth cap. Implementations that need a different internal shape MAY
-use a binary trie instead.
+Implementation note (non-normative): a canonical reference validator sorts
+requests by `depth` ascending and checks each candidate against the previously
+validated shallower requests. That yields `O(N log N)` time. Implementations
+that need a different internal shape MAY instead use a binary prefix trie.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
@@ -354,12 +354,12 @@ The escalation sequence is:
 
 ### Scale boundary
 
-Dynamic tree extraction is for bounded interior gaps within an agreed frame,
-not arbitrary divergence. It is round-limited rather than log-limited: once
-the search frontier outruns a round's capacity, the cost is about
+Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
+arbitrary divergence. It is round-limited rather than log-limited: once the
+search frontier outruns a round's capacity, the cost is about
 `Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
-aggregate capacity yields about 82,000 elements. Larger differences should
-fall back to backfill or frame extension.
+aggregate capacity yields about 82,000 elements. Larger differences should fall
+back to backfill or frame extension.
 
 ## Resident structure
 
