@@ -180,7 +180,7 @@ In Room Version N:
   origin server are **hard-invalid candidate PDUs** and MUST NOT proceed to
   room-version auth evaluation.
 - The set of recognized algorithms for Room Version N is explicitly: `ed25519`
-  and `fndsa512` (if MSC 00E1 is accepted by the time Room Version N is
+  and `fndsa512` (if MSC 00E4 is accepted by the time Room Version N is
   specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a
   recognized algorithm fails.
