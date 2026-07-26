@@ -518,7 +518,7 @@ directly.
 #### V3 event ID
 
 ```text
-input:  `$` || `STANDARD_NO_PAD.encode([0xfb; 32])`
+input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
 h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
 h64:    0xfbfb_fbfb_fbfb_fbfb
 ```
@@ -529,14 +529,14 @@ remaining unpadded URL-safe base64 payload.
 #### V4+ event ID
 
 ```text
-input:  `$` || `URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])`
+input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
 h64:    0x0000_0000_0000_002a
 ```
 
 #### All-zero digest fallback
 
 ```text
-input:  `$` || `URL_SAFE_NO_PAD.encode([0x00; 32])`
+input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
 h64:    0x0000_0000_0000_0001
 ```
 
