@@ -296,9 +296,9 @@ separate Room Version MSC.
 ## Dependencies
 
 - None. This MSC is independent of
-  [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1)
+  [MSC 00E4](https://github.com/matrix-org/matrix-spec-proposals/pull/00E4)
   (Post-Quantum Digital Signatures for Federation), although it is
-  complementary. If MSC 00E1 is accepted before Room Version N is finalized,
+  complementary. If MSC 00E4 is accepted before Room Version N is finalized,
   `fndsa512` is included in the recognized algorithm set.
 
 ## Backwards Compatibility
