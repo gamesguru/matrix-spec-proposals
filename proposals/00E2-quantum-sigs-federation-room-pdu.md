@@ -61,7 +61,7 @@ In room versions that require PQC signatures (see
   be rejected.
 - Receiving servers MUST reject the event if the required `fndsa512` signature
   references a malformed key ID, or if the referenced key was advertised under a
-  `short_key_id` that does not match the first 20 base64url characters of the
+  `short_key_id` that does not match the first 22 base64url characters of the
   key's full `key_id`, as defined by MSC00E4.
 - Receiving servers MUST NOT trial-verify multiple FN-DSA key bodies for the
   same `(server_name, algorithm, short_key_id)` tuple. Collisions are handled by

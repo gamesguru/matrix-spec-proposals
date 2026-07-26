@@ -30,7 +30,7 @@ The normative shape is:
   "server_name": "nutra.tk",
   "valid_until_ts": 1815632341240,
   "verify_keys": {
-    "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": {
+    "fndsa512:<short_key_id>": {
       "key": "<unpadded-base64-fn-dsa-512-public-key>",
       "profile": "tk.nutra.msc45xx.serverkey.v1",
       "pow": {
@@ -41,7 +41,7 @@ The normative shape is:
   },
   "signatures": {
     "nutra.tk": {
-      "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<signature>"
+      "fndsa512:<short_key_id>": "<signature>"
     }
   }
 }
