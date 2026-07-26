@@ -12,7 +12,7 @@ contract rather than building them from scratch each time.
 The profile targets differences up to ~4,000 elements per exchange in
 populations up to $10^6$, completing in ~50 ms and under 25 KiB per exchange,
 excluding object payloads. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
-difference of size `Δ` spread over `n` nodes therefore costs
+difference of size $\Delta$ spread over `n` nodes therefore costs
 $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
 a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the capped round sequence extends the
@@ -379,9 +379,10 @@ The escalation sequence is:
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. It is round-limited rather than log-limited: once the
 search frontier outruns a round's capacity, the cost is about
-`Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
-aggregate capacity yields about 82,000 elements. Larger differences should fall
-back to frame extension or a larger-framed follow-up exchange.
+$\frac{\Delta}{\texttt{aggregate\_cap}}$ rounds, and a 20-round cap with this
+profile's 4096 aggregate capacity yields about 82,000 elements. Larger
+differences should fall back to frame extension or a larger-framed follow-up
+exchange.
 
 ## Resident structure
 
@@ -547,6 +548,7 @@ h64:    0x0000_0000_0000_002a
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
+h128:   0x0000_0000_0000_0000_0000_0000_0000_0000
 h64:    0x0000_0000_0000_0001
 ```
 
