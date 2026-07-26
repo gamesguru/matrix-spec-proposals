@@ -448,3 +448,11 @@ Known consumers and possible consumers:
 - Eppstein, Goodrich, Uyeda, Varghese, "What's the Difference? Efficient Set
   Reconciliation without Prior Context" (strata estimator, IBLT)
 - Yang, Gilad & Alizadeh, rateless IBLT constructions
+- `gomatrixcrypto/cmd/merkle-vectors` and
+  `gomatrixcrypto/merkle/testdata/msc4511-merkle-vectors-v1.json` — reference
+  Merkle vector generator and output for the SHA-256 event-ID binding and the
+  SHA3-256 MSC4511 overlay profile
+- `rezzy/src/reconcile/algebraic.rs`, `rezzy/src/reconcile/gf64.rs`,
+  `rezzy/src/reconcile/pinsketch.rs`, `rezzy/tests/test_reconcile_algebraic.rs`,
+  and `rezzy/benches/reconcile.rs` — reference MSC0500 implementation,
+  interoperability tests, and benchmark harness
