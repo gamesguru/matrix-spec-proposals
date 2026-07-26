@@ -87,8 +87,6 @@ Bit `0` of an $h_{64}$ value denotes the least-significant bit and bit `63`
 denotes the most-significant bit. Field coefficient $x^i$ is the value of bit
 `i`.
 
-<!-- Proofread marker. -->
-
 `algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
 field size 64 for the same inserted $h_{64}$ values. This compatibility is the
 normative interoperability test for the profile: an implementation that produces
@@ -166,6 +164,8 @@ exchange can be extended rather than restarted.
 
 ## Dynamic tree extraction
 
+<!-- Proofread marker. -->
+
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
 is localized by recursive binary subdivision instead of a fixed partition.
@@ -179,10 +179,11 @@ wide. If a node still overflows at its requested capacity, the peer that detects
 the failure requests two child sketches at `depth + 1`, for prefixes
 `2 * prefix` and `2 * prefix + 1`. A child that still overflows is split again.
 A node that still overflows at `depth = 32` MUST NOT be split further; the peer
-that detects the failure MUST report failure for that prefix and fall back to
-backfill or frame extension. The recursion terminates: each split reduces node
-population weakly, depth is bounded at 32, and a node still overflowing at the
-cap is reported rather than split further.
+that detects the failure MUST report failure for that prefix and let the
+consuming protocol retry with a larger frame or a different reconciliation
+mechanism. The recursion terminates: each split reduces node population weakly,
+depth is bounded at 32, and a node still overflowing at the cap is reported
+rather than split further.
 
 Every node, at any depth, is decoded and verified exactly as in
 [Decode and verification](#decode-and-verification), below: it either decodes
@@ -356,12 +357,11 @@ subtract, a retry at higher capacity is a continuation of the same comparison,
 not a restart. Additive extension is valid only when the syndrome coordinates
 are strictly prefix-compatible: the frame anchor, hash mapping, field size, and
 coordinate order MUST remain unchanged. If no compatible frame exists, peers
-MUST perform frame discovery or backfill before retrying.
+MUST abort the exchange and retry with a fresh frame.
 
 The escalation sequence is:
 
-1. Validate the frame and abort, or use topology backfill, if the frame anchor
-   does not match.
+1. Validate the frame and abort if the frame anchor does not match.
 2. Execute the compact `algebraic_v1` exchange at depth 0.
 3. Resolve small over-capacity differences by additive syndrome extension.
 4. Isolate failures independently through dynamic tree extraction: split the
@@ -378,7 +378,7 @@ arbitrary divergence. It is round-limited rather than log-limited: once the
 search frontier outruns a round's capacity, the cost is about
 `Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
 aggregate capacity yields about 82,000 elements. Larger differences should fall
-back to backfill or frame extension.
+back to frame extension or a larger-framed follow-up exchange.
 
 ## Resident structure
 
