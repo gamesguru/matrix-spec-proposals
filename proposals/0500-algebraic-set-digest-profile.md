@@ -511,11 +511,20 @@ mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000) = 0xc000_0000_0000_005a
 
 ### Matrix event-ID derivation
 
+#### Legacy event ID (V1 and V2)
+
+```text
+input:  $legacy:example.org
+D(e):   2633a2037c72be2c8bd68c983934e7be65aae011a71b8e1d15a23e628b9dedaf
+h128:   0x2633_a203_7c72_be2c_8bd6_8c98_3934_e7be
+h64:    0x2633_a203_7c72_be2c
+```
+
+#### V3 event ID
+
 For a room version 3 event ID of the form
 `$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers `D(e)`
 directly.
-
-#### V3 event ID
 
 ```text
 input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
@@ -529,9 +538,8 @@ remaining unpadded URL-safe base64 payload.
 #### V4+ event ID
 
 ```text
-input:  $ || URL_SAFE_NO_PAD.encode([0xfb; 32])
-h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
-h64:    0xfbfb_fbfb_fbfb_fbfb
+input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
+h64:    0x0000_0000_0000_002a
 ```
 
 #### All-zero digest fallback
