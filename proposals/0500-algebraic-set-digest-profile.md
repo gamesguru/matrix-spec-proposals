@@ -47,6 +47,8 @@ h_128(e) = first 128 bits of D(e)
 h_64(e)  = first  64 bits of D(e)
 ```
 
+<!-- Proofread marker. -->
+
 "First" means the leading bytes of `D(e)` in network byte order. $h_{128}(e)$ is
 the first 16 bytes. $h_{64}(e)$ is the first 8 bytes interpreted as an unsigned
 big-endian integer.
@@ -54,7 +56,7 @@ big-endian integer.
 Because `minisketch` set elements are nonzero, if the first 8-byte chunk of
 `D(e)` is zero the implementation MUST use the next nonzero 8-byte chunk of
 `D(e)`; if all four chunks are zero, it MUST use the integer value 1. This
-applies to every consumer, not just Matrix bindings.
+applies to the Matrix binding and to all other consumers of the profile.
 
 ### Matrix event-ID binding
 
@@ -83,7 +85,7 @@ $$
 \mathbb{F}_{2}[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle,
 $$
 
-Bit `0` of an `h_{64}` value denotes the least-significant bit and bit `63`
+Bit `0` of an $h_{64}$ value denotes the least-significant bit and bit `63`
 denotes the most-significant bit. Field coefficient $x^i$ is the value of bit
 `i`.
 
