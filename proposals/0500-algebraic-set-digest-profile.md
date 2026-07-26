@@ -156,15 +156,15 @@ is localized by recursive binary subdivision instead of a fixed partition.
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
 element belongs to node `prefix` iff the leading `d` bits of `h_64(e)` equal
 `prefix`. Depth 0 has a single node (`prefix = 0`) covering every element — the
-same population a single flat sketch covers. Implementations MUST cap `depth`
-at 32, so `prefix` is at most 32 bits wide. If a node still overflows at
-`depth = 32`, the peer that detects the failure MUST report failure for that
-prefix and fall back to backfill or frame extension rather than splitting
-further. Otherwise, if a node's sketch fails to decode at its requested
-capacity, the peer that detects the failure requests two child sketches at
-`depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child that still
-overflows is split again. This is recursive: since each split strictly
-partitions its parent's population, the recursion terminates.
+same population a single flat sketch covers. Implementations MUST cap `depth` at
+32, so `prefix` is at most 32 bits wide. If a node still overflows at its
+requested capacity, the peer that detects the failure requests two child
+sketches at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1`. A child
+that still overflows is split again. If a node still overflows at `depth = 32`,
+the peer that detects the failure MUST report failure for that prefix and fall
+back to backfill or frame extension rather than splitting further. The recursion
+terminates: each split reduces node population weakly, depth is bounded at 32,
+and a node still overflowing at the cap is reported rather than split further.
 
 Every node, at any depth, is decoded and verified exactly as in "Decode and
 verification," below: it either decodes within its capacity and passes the
@@ -443,10 +443,12 @@ Known consumers and possible consumers:
 
 ## References
 
-- Dodis, Ostrovsky, Reyzin & Smith, *Fuzzy Extractors: How to Generate Strong Keys from Biometrics and Other Noisy Data* (2008), §6 (PinSketch)
+- Dodis, Ostrovsky, Reyzin & Smith, _Fuzzy Extractors: How to Generate Strong
+  Keys from Biometrics and Other Noisy Data_ (2008), §6 (PinSketch)
 - Pieter Wuille, `libminisketch` — byte-compatibility reference for 64-bit field
-- Eppstein, Goodrich, Uyeda & Varghese, *What's the Difference?: Efficient Set Reconciliation without Prior Context* (2011)
-- Yang, Gilad & Alizadeh, *Practical Rateless Set Reconciliation* (SIGCOMM 2024)
-- [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b) at
-  commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
+- Eppstein, Goodrich, Uyeda & Varghese, _What's the Difference?: Efficient Set
+  Reconciliation without Prior Context_ (2011)
+- Yang, Gilad & Alizadeh, _Practical Rateless Set Reconciliation_ (SIGCOMM 2024)
+- [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
+  at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
   implementation, interoperability tests, and benchmark harness
