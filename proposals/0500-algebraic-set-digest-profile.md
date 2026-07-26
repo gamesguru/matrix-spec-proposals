@@ -23,22 +23,14 @@ it does not restart it.
 
 ## Scope
 
-This profile defines:
-
-- derivation of short identifiers from canonical 32-byte element digests;
-- the finite field and its `libminisketch` compatibility contract;
-- the level-0 accumulator;
-- the syndrome sketch, its serialization, and its capacity bounds;
-- dynamic tree extraction and the strata estimator;
-- the decode-and-verify contract;
-- capacity provisioning budgets;
-- the resident structure implementations are expected to maintain.
+This profile defines identifier derivation, the 64-bit field and `libminisketch`
+compatibility contract, the level-0 accumulator, the syndrome sketch and its
+capacity bounds, dynamic tree extraction and the strata estimator, the
+decode-and-verify contract, capacity budgets, and the resident structure.
 
 This profile does **not** define endpoints, frames, authorization, negotiation,
-or scheduling. Those belong to the consuming MSC. A consumer MUST validate that
-both sides of a comparison are digesting the same population before invoking
-this kernel; the kernel MUST NOT be given the responsibility of deciding whether
-two digests are comparable.
+or scheduling; those belong to the consuming MSC. Consumers MUST still verify
+that both sides digest the same population before comparing digests.
 
 ## Element derivation
 
@@ -329,22 +321,12 @@ size — see "Resident structure," below — because nodes are computed only whe
 requested, unlike a fixed partition maintained for every population regardless
 of whether it ever diverges.
 
-**Scale boundary.** Dynamic tree extraction is for a moderate, bounded
-difference within an otherwise negotiated, shared frame — the "Swiss cheese"
-interior-gap case — not for arbitrarily large ones. Each round is
-throughput-bounded to at most `aggregate_cap / per_node_cap` new node-decodes
-(64 at this profile's caps), so fully localizing a difference of size `Δ` costs
-on the order of `Δ / aggregate_cap` rounds regardless of depth strategy — not
-`log(Δ)`, because that bound only holds while the search frontier is narrower
-than a single round can afford. A consuming MSC's own round cap (see its
-security considerations) turns this into a concrete element ceiling: at a
-20-round cap and this profile's 4096 aggregate capacity, `20 * 4096 ≈ 82,000`
-elements. A difference at or beyond that scale — let alone one approaching the
-size of the population itself, e.g. a server restoring from near-zero state — is
-not a reconciliation problem for this mechanism. Peers SHOULD recognize this
-from the strata estimate, the count residual, or an early, broadly-overflowing
-root sketch, and fall back to backfill or a frame-extension protocol before
-spending rounds on a search that cannot complete within budget.
+**Scale boundary.** Dynamic tree extraction is for bounded interior gaps within
+an agreed frame, not arbitrary divergence. It is round-limited rather than
+log-limited: once the search frontier outruns a round's capacity, the cost is
+about `Δ / aggregate_cap` rounds, and a 20-round cap with this profile's 4096
+aggregate capacity yields about 82,000 elements. Larger differences should fall
+back to backfill or frame extension.
 
 ## Resident structure
 
@@ -362,9 +344,7 @@ per-population structure:
 
 Fixed resident state is ~2 KiB per population, independent of population size.
 Node sketches are computed on demand from the `h_64`-sorted index (§Dynamic tree
-extraction), which is `O(n)` in identifiers and not part of the fixed 2 KiB.
-That index is a sort key over data implementations already store, and commonly
-already index.
+extraction), which is `O(n)` in identifiers and not part of the fixed state.
 
 **Update procedure.** On inserting or removing element `e`:
 
@@ -379,9 +359,8 @@ separate deletion path is needed.
 
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
-the benchmarked `x86-64` machine. The underlying $\mathbb{F}_{2^{64}}$ multiply
-measured about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`, with
-bit-identical results.
+the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
+measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
 The strata estimator is an optimization, not a correctness requirement. An
 implementation that computes sketches by scanning its store is conforming, but
@@ -429,8 +408,7 @@ diagnosis.
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
 Implementations SHOULD still evict resident structures under an LRU or TTL
-policy and rebuild on demand; the accumulator alone (16 bytes) is enough for the
-common no-difference path.
+policy and rebuild on demand.
 
 ## Alternatives
 
@@ -444,11 +422,9 @@ per unit of capacity, making it both cheaper per exchange and cheaper to
 provision when dynamic tree extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
-capacity up front while staying group-valued, but securing them against an
-adversarial peer requires their own wire format and a second decoder. Dynamic
-tree extraction handles heavy-tailed differences instead, reusing PinSketch's
-existing decoder and `D(e)` digest with no capacity guess and no second decoder,
-while remaining exact.
+capacity up front, but they need their own wire format and a second decoder.
+Dynamic tree extraction reuses PinSketch's decoder and `D(e)` digest with no
+capacity guess.
 
 **Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
 monoid: it supports membership tests but not subtraction.
