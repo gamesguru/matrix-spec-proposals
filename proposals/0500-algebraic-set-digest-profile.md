@@ -188,22 +188,38 @@ verification," below: it either decodes within its capacity and passes the
 structure." A `(depth, prefix)` pair is computed only when a peer actually
 requests it.
 
-### Antichain invariant and validation
+### Antichain invariant and wire ordering
 
-Requests in a single exchange MUST form an antichain. Formally, for requests
-`R_i = (d_i, p_i)` and `R_j = (d_j, p_j)`, `R_i` is an ancestor of `R_j` if and
-only if `d_i <= d_j` and the `d_i` most-significant bits of `p_j` are equal to
-`p_i`. If any pair of requests forms an ancestor-descendant relation, the
-receiver MUST reject the request before performing sketch subtraction or field
-operations.
+Requests in a single exchange MUST form an antichain and MUST be transmitted in
+canonical key-space range order. For a request `R = (d, p)` with depth `d`
+(`0 <= d <= 32`) and prefix `p` (`0 <= p < 2^d`), define:
 
-Overlapping entries would double-count elements in the aggregate capacity check
-and make their sketches non-independent for subtraction.
+$$
+\text{start}(R) = p \cdot 2^{32-d}
+$$
 
-Implementation note (non-normative): a canonical reference validator sorts
-requests by `depth` ascending and checks each candidate against the previously
-validated shallower requests. That yields `O(N log N)` time. Implementations
-that need a different internal shape MAY instead use a binary prefix trie.
+$$
+\text{end}(R) = (p + 1) \cdot 2^{32-d}
+$$
+
+A request `R_i` is an ancestor of `R_j` if and only if `d_i <= d_j` and the
+`d_i` most-significant bits of `p_j` equal `p_i`.
+
+A valid request sequence `[R_0, R_1, \dots, R_{N-1}]` MUST satisfy:
+
+$$
+\text{end}(R_i) \le \text{start}(R_{i+1}) \quad \text{for all } 0 \le i < N - 1
+$$
+
+If any pair of requests forms an ancestor-descendant relation, or if the
+sequence violates the ordering condition above, the receiver MUST reject the
+request before performing sketch subtraction or field operations.
+
+Implementation note (non-normative): a receiver can validate a canonically
+ordered slice in place, without heap allocation, by checking each request
+against the previous request's `end` boundary. That yields `O(N)` time and
+`O(1)` memory. A binary prefix trie remains a valid alternative internal shape
+for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
