@@ -298,22 +298,17 @@ profile: a failed decode is reported as failure, not as an empty difference.
 Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
 **Verification.** A decoded difference MUST be checked against the 128-bit
-accumulator before it is trusted. Concretely, for a peer that resolves decoded
-short IDs to full identifiers:
+accumulator before it is trusted. Let `E` be the expected remote digest, `R` the
+residual digest, `L` the local full identifiers, and `A(\cdot)` the 128-bit
+accumulator:
 
 $$
-\begin{aligned}
-\mathit{expected\_other\_side}
-&=
-\mathit{residual\_digest}
-\oplus
-\operatorname{accumulator}(\mathit{own\_side\_full\_ids})
-\end{aligned}
+E = R \oplus A(L)
 $$
 
-The peer resolves the short IDs it holds, computes their 128-bit accumulator,
-and compares. A mismatch means the decode was wrong or the populations differed;
-the result MUST be discarded.
+The peer resolves the short IDs it holds, computes `A(L)`, and compares against
+`E`. A mismatch means the decode was wrong or the populations differed; the
+result MUST be discarded.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 The asymmetry is intentional: each side verifies the half it can resolve, and
@@ -382,8 +377,8 @@ The escalation sequence is:
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. It is round-limited rather than log-limited: once the
-search frontier outruns a round's capacity, the cost is about
-$\frac{\Delta}{\texttt{aggregate\_cap}}$ rounds, and a 20-round cap with this
+search frontier outruns a round's capacity, the cost is about $\Delta / c$
+rounds, where `c` is the aggregate capacity, and a 20-round cap with this
 profile's 4096 aggregate capacity yields about 82,000 elements. Larger
 differences should fall back to frame extension or a larger-framed follow-up
 exchange.
