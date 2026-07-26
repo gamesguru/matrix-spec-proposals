@@ -39,13 +39,12 @@ The `/keys/upload` endpoint is extended to accept FN-DSA device signing keys:
     "keys": {
       "curve25519:JLAFKJWSCS": "<base64-curve25519-key>",
       "ed25519:JLAFKJWSCS": "<base64-ed25519-key>",
-      "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
+      "fndsa512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
     },
     "signatures": {
       "@alice:example.com": {
         "ed25519:JLAFKJWSCS": "<base64-ed25519-self-signature>",
-        "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
-      }
+        "fndsa512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
     }
   }
 }

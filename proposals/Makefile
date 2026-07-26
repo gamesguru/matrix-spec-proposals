@@ -1,4 +1,4 @@
-SHELL=/bin/bash
+SHELL := /bin/sh
 
 .DEFAULT_GOAL=_help
 
@@ -7,7 +7,7 @@ _help:
 	@printf '%s\n' 'Targets: format lint pdf (set f=... )'
 
 define require_f
-	@if [[ -z "$(f)" ]]; then echo "error: set f=FILE" >&2; exit 2; fi
+	@if [ -z "$(f)" ]; then echo "error: set f=FILE" >&2; exit 2; fi
 endef
 
 .PHONY: format
