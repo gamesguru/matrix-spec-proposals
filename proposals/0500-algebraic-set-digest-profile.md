@@ -122,8 +122,8 @@ into the accumulator and increment or decrement the count. There is no rebuild
 path and no ordering requirement.
 
 The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ is an
-exact measurement of $|S_A\ \Delta\ S_B|$ when divergence is one-sided, which is
-the common lagging-peer case. When both digest and count match over the same
+exact measurement of $|S_A\ \triangle\ S_B|$ when divergence is one-sided, which
+is the common lagging-peer case. When both digest and count match over the same
 population, the two sets agree except with negligible probability from an
 accidental 128-bit collision.
 
@@ -262,7 +262,7 @@ responses.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011): use a compact
-pre-decode summary to estimate $|S_A \Delta S_B|$ before committing to a
+pre-decode summary to estimate $|S_A \triangle S_B|$ before committing to a
 decoder.
 
 Stratum $s_i$ contains the same odd syndrome coordinates $s_1$ through $s_{15}$
@@ -271,9 +271,9 @@ trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
 Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate $|S_A \Delta S_B|$ before choosing between a single depth-0
-extraction, provisioning an initial dynamic-tree request, or abandoning the
-comparison.
+stratum to estimate $|S_A \triangle S_B|$ before choosing between a single
+depth-0 extraction, provisioning an initial dynamic-tree request, or abandoning
+the comparison.
 
 If the highest nonempty residual stratum is `i < 31` and it decodes to $k_i$
 elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
@@ -300,7 +300,7 @@ Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
 **Verification.** A decoded difference MUST be checked against the 128-bit
 accumulator before it is trusted. Let `E` be the expected remote digest, `R` the
-residual digest, `L` the local full identifiers, and `A(\cdot)` the 128-bit
+residual digest, `L` the local full identifiers, and $A(\cdot)$ the 128-bit
 accumulator:
 
 $$
@@ -491,6 +491,45 @@ higher per-update cost. Appropriate where accumulator evidence must be
 transferable to a third party; unnecessary where, as here, transferred objects
 are independently verifiable by signature and hash. Left to a future
 `digest_type`.
+
+## Theoretical Analogies
+
+The reconciliation mechanisms in this profile map to standard algebraic and
+combinatorial ideas. Implementations only need to satisfy the wire format and
+decode contracts, but these analogies explain why the protocol behaves
+predictably at scale.
+
+- **Syndrome sketches and BCH-style power sums:** The extraction layer computes
+  an odd-power syndrome map over $\mathbb{F}_{2^{64}}$:
+  $\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \ldots, \sum h_{64}(e)^{2k-1}\right)$.
+  Even powers are omitted because the Frobenius endomorphism makes them
+  redundant in characteristic 2. Recovering the symmetric difference from these
+  coordinates is the finite-field analogue of power-sum/root recovery in
+  classical algebra.
+
+- **The 128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
+  provides fault detection but is explicitly not cryptographically binding. Over
+  $\mathbb{F}_2$, any set of 129 128-bit values is linearly dependent, so a
+  nonempty subset can always have XOR sum zero. The accumulator is therefore an
+  integrity anchor, not an authenticator.
+
+- **Dynamic tree extraction and antichain invariants:** When divergence exceeds
+  a node's capacity, localization proceeds by recursive binary subdivision.
+  Termination follows from two constraints: requests MUST form an antichain, and
+  recursion depth is capped at 32. Each split weakly reduces the population, so
+  the search state space remains finite.
+
+- **Decode cost bounds:** Decoding a single capacity-$k$ node costs
+  $O(k^2 \log k)$. With per-node capacity capped at $k \le 64$ and failures
+  isolated independently, a difference of size $\Delta$ spread over $n$ nodes
+  yields aggregate decode cost
+  $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$.
+
+- **Strata estimation and trailing-zero counting:** The pre-decode estimator
+  buckets elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
+  modeled as uniformly distributed, the highest nonempty residual stratum gives
+  a compact estimate of $\lvert S_A \triangle S_B \rvert$, in the same broad
+  family as probabilistic counting heuristics.
 
 ## Test vectors
 
