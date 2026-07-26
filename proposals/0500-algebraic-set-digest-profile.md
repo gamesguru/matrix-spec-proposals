@@ -509,8 +509,8 @@ illustrated by:
 ### Matrix event-ID derivation
 
 For a room version 3 event ID of the form
-`$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers
-`D(e)` directly.
+`$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers `D(e)`
+directly.
 
 <!-- markdownlint-disable MD013 -->
 
