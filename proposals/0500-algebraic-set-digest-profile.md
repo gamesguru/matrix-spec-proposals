@@ -47,8 +47,6 @@ h_128(e) = first 128 bits of D(e)
 h_64(e)  = first  64 bits of D(e)
 ```
 
-<!-- Proofread marker. -->
-
 "First" means the leading bytes of `D(e)` in network byte order. $h_{128}(e)$ is
 the first 16 bytes. $h_{64}(e)$ is the first 8 bytes interpreted as an unsigned
 big-endian integer.
@@ -89,6 +87,8 @@ Bit `0` of an $h_{64}$ value denotes the least-significant bit and bit `63`
 denotes the most-significant bit. Field coefficient $x^i$ is the value of bit
 `i`.
 
+<!-- Proofread marker. -->
+
 `algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
 field size 64 for the same inserted $h_{64}$ values. This compatibility is the
 normative interoperability test for the profile: an implementation that produces
@@ -103,7 +103,7 @@ This 64-bit field choice is the same algebraic reconciliation setting used by
 PinSketch (Dodis et al., 2008) and the earlier finite-field set reconciliation
 line introduced by Minsky, Trachtenberg, and Zippel (2003).
 
-The 128-bit accumulator layer is a plain XOR group over 16-byte strings and is
+The 128-bit accumulator layer is a plain XOR checksum over 16-byte values and is
 not a field operation.
 
 ## Level-0 accumulator
