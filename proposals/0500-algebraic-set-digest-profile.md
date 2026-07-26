@@ -169,8 +169,8 @@ while the true difference is within its capacity. When it is not, the population
 is localized by recursive binary subdivision instead of a fixed partition.
 
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
-element belongs to node `prefix` iff the most-significant `d` bits of `h_64(e)`
-(bits `63` down to `64 - d`) equal `prefix`. Depth 0 has a single node
+element belongs to node `prefix` if and only if the most-significant `d` bits of
+`h_64(e)` (bits `63` down to `64 - d`) equal `prefix`. Depth 0 has a single node
 (`prefix = 0`) covering every element — the same population a single flat sketch
 covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32 bits
 wide. If a node still overflows at its requested capacity, the peer that detects
