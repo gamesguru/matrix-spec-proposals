@@ -129,8 +129,9 @@ the common lagging-peer case. When both digest and count match over the same
 population, the two sets agree except with negligible probability from an
 accidental 128-bit collision.
 
-The accumulator is an integrity anchor, not an authenticator. See "Decode and
-verification" and the consuming MSC's security considerations.
+The accumulator is an integrity anchor, not an authenticator. See
+[Decode and verification](#decode-and-verification) and the consuming MSC's
+security considerations.
 
 ## Syndrome sketch
 
@@ -183,12 +184,12 @@ backfill or frame extension. The recursion terminates: each split reduces node
 population weakly, depth is bounded at 32, and a node still overflowing at the
 cap is reported rather than split further.
 
-Every node, at any depth, is decoded and verified exactly as in "Decode and
-verification," below: it either decodes within its capacity and passes the
-128-bit residual check, or it fails loudly and is split. There is no separate
-"bucket" primitive and no persistent per-node resident state — see "Resident
-structure." A `(depth, prefix)` pair is computed only when a peer actually
-requests it.
+Every node, at any depth, is decoded and verified exactly as in
+[Decode and verification](#decode-and-verification), below: it either decodes
+within its capacity and passes the 128-bit residual check, or it fails loudly
+and is split. There is no separate "bucket" primitive and no persistent per-node
+resident state — see [Resident structure](#resident-structure). A
+`(depth, prefix)` pair is computed only when a peer actually requests it.
 
 ### Antichain invariant and wire ordering
 
