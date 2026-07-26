@@ -265,8 +265,8 @@ Efficient Set Reconciliation without Prior Context_ (2011): use a compact
 pre-decode summary to estimate $|S_A \Delta S_B|$ before committing to a
 decoder.
 
-Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
-extraction sketch, but only for elements whose $h_{64}(e)$ has exactly `i`
+Stratum $s_i$ contains the same odd syndrome coordinates $s_1$ through $s_{15}$
+as an extraction sketch, but only for elements whose $h_{64}(e)$ has exactly $i$
 trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
@@ -275,10 +275,10 @@ stratum to estimate $|S_A \Delta S_B|$ before choosing between a single depth-0
 extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
 
-If the highest nonempty residual stratum is `i < 31` and it decodes to `k_i`
+If the highest nonempty residual stratum is `i < 31` and it decodes to $k_i$
 elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
-`k_31` elements, the standard estimate is $2^{31} \cdot k_{31}$. If the highest
-nonempty residual stratum overflows, the standard fallback estimate is
+$k_{31}$ elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
+highest nonempty residual stratum overflows, the standard fallback estimate is
 $8 \cdot 2^{31}$.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
