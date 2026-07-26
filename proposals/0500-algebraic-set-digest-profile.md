@@ -275,9 +275,10 @@ extraction, provisioning an initial dynamic-tree request, or abandoning the
 comparison.
 
 If the highest nonempty residual stratum is `i < 31` and it decodes to `k_i`
-elements, the standard estimate is $2^(i+1) * k_i$. If stratum 31 decodes to
-`k_31` elements, the standard estimate is $2^31 * k_31$. If the highest nonempty
-residual stratum overflows, the standard fallback estimate is $8 * 2^31$.
+elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes
+to `k_31` elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
+highest nonempty residual stratum overflows, the standard fallback estimate is
+$8 \cdot 2^{31}$.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
