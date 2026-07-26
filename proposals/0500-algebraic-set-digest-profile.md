@@ -260,9 +260,10 @@ difference sizing. Consumers that expose the estimator in their wire contract
 define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
 
-This is the Difference Digest / strata-estimator idea from Eppstein, Goodrich,
-Uyeda, and Varghese (2011): use a compact pre-decode summary to estimate
-$|S_A \Delta S_B|$ before committing to a decoder.
+This is the strata-estimator construction from _What's the Difference?:
+Efficient Set Reconciliation without Prior Context_ (2011): use a compact
+pre-decode summary to estimate $|S_A \Delta S_B|$ before committing to a
+decoder.
 
 Stratum `i` contains the same odd syndrome coordinates `s1` through `s15` as an
 extraction sketch, but only for elements whose $h_{64}(e)$ has exactly `i`
