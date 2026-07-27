@@ -29,8 +29,6 @@ compatibility contract, the level-0 accumulator, the syndrome sketch and its
 capacity bounds, dynamic tree extraction and the strata estimator, the
 decode-and-verify contract, capacity budgets, and the resident structure.
 
-<!-- Proofread marker. -->
-
 This profile does **not** define frames, negotiation, scheduling, endpoints, or
 authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
@@ -60,7 +58,8 @@ Because `minisketch` set elements are nonzero, if the first 16-byte chunk of
 `h_64(e)` normalization remains unchanged: if the first 8-byte chunk of `D(e)`
 is zero the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if
 all four chunks are zero, it MUST use the integer value 1. This applies to the
-Matrix binding and to all other consumers of the profile.
+event binding and to all other consumers of this MSC or the `algebraic_v1`
+profile.
 
 ### Matrix event-ID binding
 
@@ -68,6 +67,9 @@ For Matrix event-ID sets, `D(e)` is derived as follows. For room versions 3 and
 later, event IDs are already derived from `SHA-256` event hashes, so no
 auxiliary hash is required. Implementations derive `D(e)` from the decoded event
 ID using the room-version-specific event-ID alphabet:
+
+<!-- TODO: How do room v1 and v2 handle naive ID collisions?
+Should we hash the whole event?-->
 
 - room versions 1 and 2: hash the UTF-8 event ID string with `SHA-256`;
 - room version 3: strip the leading `$` byte and decode the remainder as
@@ -77,9 +79,9 @@ ID using the room-version-specific event-ID alphabet:
 
 Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
 `SHA-256` digest of the event-ID string, or exclude the event from the compared
-population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
-For room version 3 and later, strip the leading `$` byte before applying the
-appropriate Base64 decoder; the decoded 32-byte value is `D(e)`.
+population. This MSC does not use `XXH3` or any other auxiliary hash. For room
+version 3 and later, strip the leading `$` byte before applying the appropriate
+Base64 decoder; the decoded 32-byte value is `D(e)`.
 
 ## Field
 
@@ -108,6 +110,8 @@ the sketch is not `algebraic_v1`.
 This 64-bit field choice is the same algebraic reconciliation setting used by
 PinSketch (Dodis et al., 2008) and the earlier finite-field set reconciliation
 line introduced by Minsky, Trachtenberg, and Zippel (2003).
+
+<!-- Proofread marker. -->
 
 The 128-bit accumulator layer is a plain XOR checksum over 16-byte values and is
 not a field operation.
