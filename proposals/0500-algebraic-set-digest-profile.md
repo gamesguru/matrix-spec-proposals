@@ -108,8 +108,8 @@ encoding, and the 64-bit field arithmetic together. If any one of those differs,
 the sketch is not `algebraic_v1`.
 
 This 64-bit field choice is the same algebraic reconciliation setting used by
-PinSketch (Dodis et al., 2008) and the earlier finite-field set reconciliation
-line introduced by Minsky, Trachtenberg, and Zippel (2003).
+PinSketch.[^1] It also matches the earlier finite-field set reconciliation line
+introduced by Minsky, Trachtenberg, and Zippel.[^2]
 
 <!-- Proofread marker. -->
 
@@ -154,9 +154,9 @@ $$
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: $s_{2i} = s_i^2$.
 
-That odd-power syndrome form is standard BCH syndrome decoding machinery
-(MacWilliams & Sloane, 1977) and is exactly the coding-theory substrate that
-PinSketch specializes for reconciliation.
+That odd-power syndrome form is standard BCH syndrome decoding machinery[^3] and
+is exactly the coding-theory substrate that PinSketch specializes for
+reconciliation.
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
@@ -259,9 +259,8 @@ would require (see "Resident structure"), and unlike that structure it serves
 every depth, not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
-architecture used by Erlay (Naumenko et al., 2019): keep the field math fixed,
-size the exchange before decoding, and split only when the current capacity is
-not enough.
+architecture used by Erlay.[^4] Keep the field math fixed, size the exchange
+before decoding, and split only when the current capacity is not enough.
 
 This split is a localization step, not a proof that the peer is wrong: it only
 narrows the candidate population to the prefix that still overflows.
@@ -670,29 +669,50 @@ Known consumers and possible consumers:
 
 ## References
 
-- _Fuzzy extractors: How to generate strong keys from biometrics and other noisy
-  data_ (Dodis et al., 2008). _SIAM Journal on Computing, 38_(1), 97-139.
-  <https://doi.org/10.1137/060651380>
-- _Set reconciliation with nearly optimal communication complexity_ (Minsky et
-  al., 2003). _IEEE Transactions on Information Theory, 49_(9), 2213-2218.
-  <https://doi.org/10.1109/TIT.2003.815784>
-- _The theory of error-correcting codes_ (MacWilliams & Sloane, 1977).
-  North-Holland Mathematical Library. <https://neilsloane.com/doc/ms77.html>
-- _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019). In
-  _Proceedings of the 2019 ACM SIGSAC Conference on Computer and Communications
-  Security (CCS)_ (pp. 817-831). <https://doi.org/10.1145/3319535.3354237>
-- _What's the difference?: Efficient set reconciliation without prior context_
-  (Eppstein et al., 2011). _ACM SIGCOMM Computer Communication Review, 41_(4),
-  218-229. <https://doi.org/10.1145/2018436.2018462>
-- _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
-  GitHub. <https://github.com/bitcoin-core/minisketch>
-- _Practical Rateless Set Reconciliation_ (Yang et al., 2024). In _Proceedings
-  of the 2024 ACM SIGCOMM Conference_ (pp. 595-612).
-  <https://doi.org/10.1145/3651890.3672219>
-- [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
-  at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
-  implementation, interoperability tests, and benchmark harness
-- Putnam et al. 1968 A6, solution archive:
-  <https://prase.cz/kalva/putnam/psoln/psol686.html>
-- Putnam et al. 2008 A3, archive PDF:
-  <https://kskedlaya.org/putnam-archive/2008.pdf>
+[^1]:
+    _Fuzzy extractors: How to generate strong keys from biometrics and other
+    noisy data_ (Dodis et al., 2008).
+    [doi:10.1137/060651380](https://doi.org/10.1137/060651380)
+
+[^2]:
+    _Set reconciliation with nearly optimal communication complexity_ (Minsky et
+    al., 2003).
+    [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
+
+[^3]:
+    _The theory of error-correcting codes_ (MacWilliams & Sloane, 1977).
+    North-Holland Mathematical Library.
+    [neilsloane.com](https://neilsloane.com/doc/ms77.html)
+
+[^4]:
+    _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019). In
+    _Proceedings of the 2019 ACM SIGSAC Conference on Computer and
+    Communications Security (CCS)_ (pp. 817-831).
+    <https://doi.org/10.1145/3319535.3354237>
+
+[^5]:
+    _What's the difference?: Efficient set reconciliation without prior context_
+    (Eppstein et al., 2011). _ACM SIGCOMM Computer Communication Review, 41_(4),
+    218-229. <https://doi.org/10.1145/2018436.2018462>
+
+[^6]:
+    _Practical Rateless Set Reconciliation_ (Yang et al., 2024). In _Proceedings
+    of the 2024 ACM SIGCOMM Conference_ (pp. 595-612).
+    <https://doi.org/10.1145/3651890.3672219>
+
+[^7]:
+    _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
+    GitHub. <https://github.com/bitcoin-core/minisketch>
+
+[^8]:
+    Putnam et al. 1968 A6, solution archive:
+    <https://prase.cz/kalva/putnam/psoln/psol686.html>
+
+[^9]:
+    Putnam et al. 2008 A3, archive PDF:
+    <https://kskedlaya.org/putnam-archive/2008.pdf>
+
+[^10]:
+    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
+    at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
+    implementation, interoperability tests, and benchmark harness
