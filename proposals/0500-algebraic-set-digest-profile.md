@@ -548,6 +548,20 @@ predictably at scale.
   a compact estimate of $\lvert S_A \triangle S_B \rvert$, in the same broad
   family as probabilistic counting heuristics.
 
+### Optional implementation intuition
+
+This subsection is non-normative. It is for developers who want to test the
+algorithmic ideas behind this profile outside a homeserver environment.
+
+- **XOR accumulator practice:** _LeetCode 260 (Single Number III)_. Exercises
+  state separation using bitwise XOR and zero-allocation reduction.
+- **Recursive partitioning practice:** _LeetCode 427 (Construct Quad Tree)_ and
+  _Codeforces 842D (Vitya and Strange Lesson)_. Exercise divide-and-conquer
+  subdivision and dynamic prefix-trie routing.
+- **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
+  Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery over a
+  finite field.
+
 ## Test vectors
 
 The following vectors are non-normative reference cases distilled from the
