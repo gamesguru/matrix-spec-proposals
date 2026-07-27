@@ -28,14 +28,14 @@ pdf:
 	$(require_f)
 	pandoc "$(f)" -o "$(f).pdf" \
 		--pdf-engine=xelatex \
-		-V geometry:margin=0.75in \
+		-V geometry:margin=0.65in \
 		-V colorlinks=true \
 		-V urlcolor=blue \
 		-V linkcolor=blue \
 		-V pagestyle=empty || \
 	pandoc "$(f)" -o "$(f).pdf" \
 		--pdf-engine=lualatex \
-		-V geometry:margin=0.75in \
+		-V geometry:margin=0.65in \
 		-V colorlinks=true \
 		-V urlcolor=blue \
 		-V linkcolor=blue \
