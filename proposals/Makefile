@@ -23,16 +23,33 @@ lint:
 	$(require_f)
 	markdownlint -- $(FILES_Q)
 
+
+GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD)
+GIT_BRANCH ?= $(shell git branch --show-current)
+TITLE ?= MSC0500: Adaptive Set Reconciliation via PinSketch
+DATE ?= $(shell date --iso)
+
 .PHONY: pdf
 pdf:
 	$(require_f)
 	pandoc "$(f)" -o "$(f).pdf" \
-		--pdf-engine=xelatex \
-		-V geometry:margin=0.65in \
-		-V colorlinks=true \
-		-V urlcolor=blue \
-		-V linkcolor=blue \
-		-V pagestyle=empty
+	  --pdf-engine=xelatex \
+	  -V geometry:margin=0.65in \
+	  -V colorlinks=true \
+	  -V urlcolor=blue \
+	  -V linkcolor=blue \
+	  -V pagestyle=empty \
+	  -M title="$(TITLE)" \
+	  -M subject="Compiled by Shane [$(DATE)]" \
+	  -M keywords="commit $(GIT_COMMIT) (branch: $(GIT_BRANCH))"
+
+# 	pandoc "$(f)" -o "$(f).pdf" \
+# 		--pdf-engine=xelatex \
+# 		-V geometry:margin=0.65in \
+# 		-V colorlinks=true \
+# 		-V urlcolor=blue \
+# 		-V linkcolor=blue \
+# 		-V pagestyle=empty
 # 	|| \
 # 	pandoc "$(f)" -o "$(f).pdf" \
 # 		--pdf-engine=lualatex \

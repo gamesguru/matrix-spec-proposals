@@ -1,7 +1,5 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
-<!-- Edit marker. [251be5f30] -->
-
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. Some consumers need it over a
 room's known event or resolved state set; others may use it to synchronize key
@@ -37,6 +35,8 @@ that both sides digest the same population before comparing them.
 
 ## Element derivation
 
+<!-- Edit marker. [251be5f30] -->
+
 The profile operates over a set `S` of opaque elements. Each consumer MUST map
 every element to a canonical 32-byte digest before applying this profile.
 Consumers define what the elements mean; the kernel treats them as an opaque set
@@ -44,25 +44,16 @@ and does not interpret their content.
 
 Let `D(e)` be the consumer-defined 32-byte digest for element `e`.
 
-```text
-h_128(e) = first nonzero 128-bit chunk of D(e)
-h_64(e)  = first  64 bits of D(e)
-```
+`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
+Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from `D(e)` using network
+byte order (big-endian):
 
-"First" means the leading bytes of `D(e)` in network byte order. $h_{128}(e)$ is
-the first 16-byte chunk unless that chunk is all zero, in which case the next
-nonzero 16-byte chunk is used, or 1 if both chunks are zero. $h_{64}(e)$ is the
-first 8 bytes interpreted as an unsigned big-endian integer.
-
-### Non-zero element normalization
-
-`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$. To derive
-$h_{64}(e)$, implementations MUST scan the 32-byte digest $D(e)$ in four 8-byte
-big-endian chunks and select the first non-zero chunk. If all four chunks are
-zero, $h_{64}(e)$ MUST default to `1`.
-
-For $h_{128}(e)$, implementations use the first non-zero 16-byte chunk of $D(e)$
-as a big-endian integer (or `1` if all 32 bytes of $D(e)$ are zero).
+- **$h_{64}(e)$ (64-bit field element):** Scan `D(e)` in four 8-byte big-endian
+  chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
+  unsigned 64-bit integer, or `1` if all four chunks are zero.
+- **$h_{128}(e)$ (128-bit accumulator element):** Scan `D(e)` in two 16-byte
+  big-endian chunks. $h_{128}(e)$ MUST be the first non-zero chunk interpreted
+  as an unsigned 128-bit integer, or `1` if both chunks are zero.
 
 ### Matrix event-ID binding
 
