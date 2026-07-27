@@ -108,7 +108,7 @@ $$
 \end{aligned}
 $$
 
-where $\bigoplus$ denotes bitwise XOR over all 128-bit elements. The digest is
+where $\bigoplus$ denotes bitwise XOR over the given elements. The digest is
 serialized as a 16-byte unpadded `base64url` string.
 
 Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
