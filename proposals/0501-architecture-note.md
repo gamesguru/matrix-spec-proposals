@@ -213,11 +213,14 @@ MSC0501 instead handles heavy-tailed differences with dynamic tree extraction
 (MSC0500's "Dynamic tree extraction"). `h_64(e)` determines an element's path
 down a binary tree: depth 0 is a single node covering the whole population — the
 same population an unbucketed sketch covers today — and each further bit of
-`h_64(e)` halves it. When a node's local difference exceeds its provisioned
-capacity, only that node is split into two children and retried — recursion
-terminates by construction, since each split strictly shrinks the population
-being decoded, and every step either decodes exactly or fails loudly, with no
-probabilistic gap and no termination rule needed for safety.
+`h_64(e)` halves it, up to the full 64-bit path space. When a node's local
+difference exceeds its provisioned capacity, only that node is split into two
+children and retried. If a split does not reduce the populated set, the result
+is explicitly truncated and the bounded escalation contract must stop at that
+node rather than pretending descendant recovery will always exist. In the normal
+case, recursion still terminates by construction, since each split strictly
+shrinks the population being decoded, and every step either decodes exactly or
+fails loudly.
 
 This is a strict simplification over an earlier design that kept a persistent,
 fixed 256-way partition (one XOR accumulator, count, and syndrome sketch per

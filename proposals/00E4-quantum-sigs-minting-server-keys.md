@@ -410,7 +410,7 @@ compute:
 ```text
 SHA3-256(
     canonical_json({
-        "action": "fn-dsa-key-graph",
+        "action": "tk.nutra.msc45xx.serverkey.v1.graph",
         "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
         "server_name": "example.com"
     }) || uint64_le(nonce)
