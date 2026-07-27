@@ -244,8 +244,7 @@ narrows the candidate population to the prefix that still overflows.
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
 difference sizing. Consumers that expose the estimator in their wire contract
-define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
-responses.
+define whether it is optional; MSC0501 requires all 32 entries in `room_digest`.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
@@ -303,9 +302,9 @@ The peer resolves the short IDs it holds, computes `A(L)`, and compares against
 result MUST be discarded.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
-The asymmetry is intentional: each side verifies the half it can resolve, and
-the residual carries the other half. See "Security considerations" below for
-adversarial limits.
+Each side asymmetrically verifies the half it can resolve, and the residual
+carries the other half. See [Security considerations](#security-considerations)
+below for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
@@ -351,8 +350,8 @@ The three terms cover, respectively: measurement slack when divergence is not
 purely one-sided, a small floor for tiny differences, and events arriving
 concurrently during the round trip.
 
-If the unclamped value exceeds 64, the profile treats that as a signal to use
-tree extraction rather than a single depth-0 request.
+If the unclamped value exceeds 64, the profile uses tree extraction rather than
+a single depth-0 request.
 
 If decode fails at `k`, retry at larger `k` up to the cap, or split into
 dynamic-tree children to localize a two-sided difference. Because sketches
@@ -564,20 +563,17 @@ outside a homeserver environment.
 - **Prefix boundary practice:** _LeetCode 201 (Bitwise AND of Numbers
   Range)_[^15]. Exercises shared bit-prefix and range-bounding logic.
 - **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
-  Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery.
+  Recurrence)_[^16]. Exercises Berlekamp-Massey-style recurrence recovery.
 - **Rateless reconciliation practice:** _Practical Rateless Set Reconciliation_.
   Exercises adaptive split-and-continue reconciliation when a fixed-capacity
   decode overflows.[^6]
 
 ## Test vectors
 
-The following vectors are distilled from the `rezzy` implementation and its
-`libminisketch` cross-checks.[^10]
-
 ### Field multiplication
 
 The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
-illustrated by:
+illustrated by[^10]:
 
 ```text
 mul(0x0000_0000_0000_0000, 0xffff_ffff_ffff_ffff) = 0x0000_0000_0000_0000
@@ -587,9 +583,7 @@ mul(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff) = 0x5555_5555_5555_5513
 mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000) = 0xc000_0000_0000_005a
 ```
 
-### Matrix event-ID derivation
-
-#### Legacy event ID (V1 and V2)
+### Legacy event ID (V1 and V2)
 
 ```text
 input:  $legacy:example.org
@@ -598,11 +592,10 @@ h128:   0x2633_a203_7c72_be2c_8bd6_8c98_3934_e7be
 h64:    0x2633_a203_7c72_be2c
 ```
 
-#### V3 event ID
+### V3 event ID
 
-For a room version 3 event ID of the form
-`$<unpadded standard base64 of 32 bytes>`, decoding the event ID recovers `D(e)`
-directly.
+For a version 3 event ID, decoding `$<unpadded standard base64 of 32 bytes>`
+recovers `D(e)` directly.
 
 ```text
 input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
@@ -613,7 +606,7 @@ h64:    0xfbfb_fbfb_fbfb_fbfb
 For room version 4 and later, the leading `$` is stripped before decoding the
 remaining unpadded URL-safe base64 payload.
 
-#### V4+ event ID
+### V4+ event ID
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
@@ -621,7 +614,7 @@ h128:   0x0000_0000_0000_002a_0000_0000_0000_0000
 h64:    0x0000_0000_0000_002a
 ```
 
-#### All-zero digest fallback
+### All-zero digest fallback
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
@@ -631,8 +624,8 @@ h64:    0x0000_0000_0000_0001
 
 ### PinSketch wire format
 
-For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the following
-little-endian syndrome bytes before `base64url` encoding:
+For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the little-endian
+syndrome bytes before `base64url` encoding:
 
 ```text
 ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93
@@ -653,14 +646,11 @@ Decoding those bytes round-trips to the same sketch.
 
 ## Dependencies
 
-None. This MSC defines a self-contained primitive.
-
-Known consumers and possible consumers:
+None. This MSC defines a self-contained primitive. Known possible consumers:
 
 - MSCXXXX (federation missed-PDU reconciliation) — over a room's known-event set
 - MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
-  machinery for EDU entries, but its current draft has separate version and
-  content-hash semantics and is not wire-compatible.
+  machinery for EDU entries.
 
 <!-- Reverse edit marker. [251be5f30] -->
 
@@ -711,15 +701,15 @@ Known consumers and possible consumers:
     example implementation with tests
 
 [^11]:
-    LeetCode 260, _Single Number III_:
+    LeetCode 260, Medium, _Single Number III_:
     <https://leetcode.com/problems/single-number-iii/>
 
 [^12]:
-    LeetCode 2965, _Find Missing and Repeated Values_:
-    <https://leetcode.ca/2023-12-18-2965-Find-Missing-and-Repeated-Values/>
+    LeetCode 2965, Easy, _Find Missing and Repeated Values_:
+    <https://leetcode.com/problems/find-missing-and-repeated-values/>
 
 [^13]:
-    LeetCode 427, _Construct Quad Tree_:
+    LeetCode 427, Medium, _Construct Quad Tree_:
     <https://leetcode.com/problems/construct-quad-tree/>
 
 [^14]:
@@ -727,5 +717,9 @@ Known consumers and possible consumers:
     <https://codeforces.com/problemset/problem/842/D>
 
 [^15]:
-    LeetCode 201, _Bitwise AND of Numbers Range_:
+    LeetCode 201, Medium, _Bitwise AND of Numbers Range_:
     <https://leetcode.com/problems/bitwise-and-of-numbers-range/>
+
+[^16]:
+    Yosupo Library, _Find Linear Recurrence_:
+    <https://judge.yosupo.jp/problem/find_linear_recurrence>
