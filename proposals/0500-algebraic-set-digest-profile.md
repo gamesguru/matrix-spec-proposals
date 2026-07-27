@@ -125,7 +125,7 @@ $$
 $$
 
 where $\bigoplus$ denotes bitwise XOR over all selected 128-bit values. The
-digest is a 16-byte value, encoded on the wire as unpadded base64url.
+digest is a 16-byte value, encoded on the wire as unpadded `base64url`.
 
 Insertion and removal are the same operation: XOR the same $h_{128}(e)$ value
 into the accumulator and increment or decrement the count. There is no rebuild
@@ -156,18 +156,15 @@ The odd-power syndrome form uses standard error-correcting-code machinery,
 including BCH decoding.[^3] It is the coding-theory substrate that PinSketch
 specializes for reconciliation.
 
-<!-- Proofread marker. -->
-
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
 order $\left(s_1, s_3, s_5, ..., s_{2k-1}\right)$ and each coordinate is
-serialized as an unsigned 64-bit **little-endian** integer. The big-endian hash
-parsing in "Element derivation" and the little-endian coordinate serialization
-here are both normative and are deliberately different; the first follows Matrix
-hash conventions and the second follows `libminisketch`.[^7] This endian split
-is load-bearing for interoperability.
+serialized as an unsigned 64-bit **little-endian** integer. The big-endian
+parsing in element hashing and the little-endian coordinate serialization here
+are both normative and are deliberately different; the first follows Matrix hash
+conventions and the second follows `libminisketch`.[^7]
 
 A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
-unpadded base64url.
+unpadded `base64url`.
 
 **Subtraction.** Two sketches over the same population and capacity are
 subtracted by XOR. The result is the syndrome of the symmetric difference. This
@@ -175,6 +172,8 @@ is the property that makes the profile group-valued and the reason a failed
 exchange can be extended rather than restarted.
 
 ## Dynamic tree extraction
+
+<!-- Proofread marker. -->
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
