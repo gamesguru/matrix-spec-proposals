@@ -52,14 +52,15 @@ the first 16-byte chunk unless that chunk is all zero, in which case the next
 nonzero 16-byte chunk is used, or 1 if both chunks are zero. $h_{64}(e)$ is the
 first 8 bytes interpreted as an unsigned big-endian integer.
 
-Because `minisketch` set elements are nonzero, if the first 16-byte chunk of
-`D(e)` is zero the implementation MUST use the next nonzero 16-byte chunk of
-`D(e)`; if both 16-byte chunks are zero, it MUST use the integer value 1. The
-`h_64(e)` normalization remains unchanged: if the first 8-byte chunk of `D(e)`
-is zero the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if
-all four chunks are zero, it MUST use the integer value 1. This applies to the
-event binding and to all other consumers of this MSC or the `algebraic_v1`
-profile.
+### Non-zero element normalization
+
+`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$. To derive
+$h_{64}(e)$, implementations MUST scan the 32-byte digest $D(e)$ in four 8-byte
+big-endian chunks and select the first non-zero chunk. If all four chunks are
+zero, $h_{64}(e)$ MUST default to `1`.
+
+For $h_{128}(e)$, implementations use the first non-zero 16-byte chunk of $D(e)$
+as a big-endian integer (or `1` if all 32 bytes of $D(e)$ are zero).
 
 ### Matrix event-ID binding
 
