@@ -557,20 +557,21 @@ predictably at scale.
   a compact estimate of $\lvert S_A \triangle S_B \rvert$, in the same broad
   family as probabilistic counting heuristics.
 
-### Optional implementation intuition
+### Exploratory implementer materials
 
 Non-normative. Useful for testing the algorithmic ideas behind this profile
 outside a homeserver environment.
 
-- **XOR accumulator practice:** _LeetCode 260 (Single Number III)_. Exercises
-  bitwise XOR reduction.
-- **Power-sum intuition:** _LeetCode 2965 (Find Missing and Repeated Values)_.
-  Exercises recovering missing elements using aggregated sums and squares.
-- **Recursive partitioning practice:** _LeetCode 427 (Construct Quad Tree)_ and
-  _Codeforces 842D (Vitya and Strange Lesson)_. Exercises recursive subdivision
-  and dynamic prefix-trie routing.
-- **Prefix boundary practice:** _LeetCode 201 (Bitwise AND of Numbers Range)_.
-  Exercises shared bit-prefix and range-bounding logic.
+- **XOR accumulator practice:** _LeetCode 260 (Single Number III)_[^11].
+  Exercises bitwise XOR reduction.
+- **Power-sum intuition:** _LeetCode 2965 (Find Missing and Repeated
+  Values)_[^12]. Exercises recovering missing elements using aggregated sums and
+  squares.
+- **Recursive partitioning practice:** _LeetCode 427 (Construct Quad Tree)_[^13]
+  and _Codeforces 842D (Vitya and Strange Lesson)_[^14]. Exercises recursive
+  subdivision and dynamic prefix-trie routing.
+- **Prefix boundary practice:** _LeetCode 201 (Bitwise AND of Numbers
+  Range)_[^15]. Exercises shared bit-prefix and range-bounding logic.
 - **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
   Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery.
 - **Rateless reconciliation practice:** _Practical Rateless Set Reconciliation_.
@@ -715,3 +716,23 @@ Known consumers and possible consumers:
 [^10]:
     [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
     reference MSC0500 implementation and benchmark harness
+
+[^11]:
+    LeetCode 260, _Single Number III_:
+    <https://leetcode.com/problems/single-number-iii/>
+
+[^12]:
+    LeetCode 2965, _Find Missing and Repeated Values_:
+    <https://leetcode.ca/2023-12-18-2965-Find-Missing-and-Repeated-Values/>
+
+[^13]:
+    LeetCode 427, _Construct Quad Tree_:
+    <https://leetcode.com/problems/construct-quad-tree/>
+
+[^14]:
+    Codeforces 842D, _Vitya and Strange Lesson_:
+    <https://codeforces.com/problemset/problem/842/D>
+
+[^15]:
+    LeetCode 201, _Bitwise AND of Numbers Range_:
+    <https://leetcode.com/problems/bitwise-and-of-numbers-range/>
