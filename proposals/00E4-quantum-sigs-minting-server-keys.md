@@ -35,7 +35,7 @@ The normative shape is:
       "profile": "tk.nutra.msc45xx.serverkey.v1",
       "pow": {
         "nonce": 110,
-        "solution": [15721871, 27250623, "...", 517987691]
+        "solution": [15721871, 27250623, 517987690, 517987691]
       }
     }
   },

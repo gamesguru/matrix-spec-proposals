@@ -266,7 +266,7 @@ narrows the candidate population to the prefix that still overflows.
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
 difference sizing. Consumers that expose the estimator in their wire contract
-define whether it is optional; MSCXXXX requires all 32 entries in `room_digest`
+define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
 
 This is the strata-estimator construction from _What's the Difference?:
