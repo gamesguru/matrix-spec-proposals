@@ -111,8 +111,6 @@ This 64-bit field choice is the same algebraic reconciliation setting used by
 PinSketch.[^1] It also matches the earlier finite-field set reconciliation line
 introduced by Minsky, Trachtenberg, and Zippel.[^2]
 
-<!-- Proofread marker. -->
-
 The 128-bit accumulator layer is a plain XOR checksum over 16-byte values and is
 not a field operation.
 
@@ -139,7 +137,7 @@ is the common lagging-peer case. When both digest and count match over the same
 population, the two sets agree except with negligible probability from an
 accidental 128-bit collision.
 
-The accumulator is an integrity anchor, not an authenticator. See
+The accumulator helps check consistency, but it cannot prove who sent it. See
 [Decode and verification](#decode-and-verification) and the consuming MSC's
 security considerations.
 
@@ -154,17 +152,19 @@ $$
 Even powers are omitted because the Frobenius endomorphism makes them redundant
 in characteristic 2: $s_{2i} = s_i^2$.
 
-That odd-power syndrome form is standard BCH syndrome decoding machinery[^3] and
-is exactly the coding-theory substrate that PinSketch specializes for
-reconciliation.
+The odd-power syndrome form uses standard error-correcting-code machinery,
+including BCH decoding.[^3] It is the coding-theory substrate that PinSketch
+specializes for reconciliation.
+
+<!-- Proofread marker. -->
 
 **Serialization.** Syndrome coordinates are serialized in increasing odd-power
-order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
-64-bit **little-endian** integer. The big-endian hash parsing in "Element
-derivation" and the little-endian coordinate serialization here are both
-normative and are deliberately different; the first follows Matrix hash
-conventions and the second follows `libminisketch`.[^7] This endian split is
-load-bearing for interoperability.
+order $\left(s_1, s_3, s_5, ..., s_{2k-1}\right)$ and each coordinate is
+serialized as an unsigned 64-bit **little-endian** integer. The big-endian hash
+parsing in "Element derivation" and the little-endian coordinate serialization
+here are both normative and are deliberately different; the first follows Matrix
+hash conventions and the second follows `libminisketch`.[^7] This endian split
+is load-bearing for interoperability.
 
 A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
 unpadded base64url.
