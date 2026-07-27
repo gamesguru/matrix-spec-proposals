@@ -550,17 +550,20 @@ predictably at scale.
 
 ### Optional implementation intuition
 
-This subsection is non-normative. It is for developers who want to test the
-algorithmic ideas behind this profile outside a homeserver environment.
+Non-normative. Useful for testing the algorithmic ideas behind this profile
+outside a homeserver environment.
 
 - **XOR accumulator practice:** _LeetCode 260 (Single Number III)_. Exercises
-  state separation using bitwise XOR and zero-allocation reduction.
+  bitwise XOR reduction.
+- **Power-sum intuition:** _LeetCode 2965 (Find Missing and Repeated Values)_.
+  Exercises recovering missing elements using aggregated sums and squares.
 - **Recursive partitioning practice:** _LeetCode 427 (Construct Quad Tree)_ and
-  _Codeforces 842D (Vitya and Strange Lesson)_. Exercise divide-and-conquer
-  subdivision and dynamic prefix-trie routing.
+  _Codeforces 842D (Vitya and Strange Lesson)_. Exercises recursive subdivision
+  and dynamic prefix-trie routing.
+- **Prefix boundary practice:** _LeetCode 201 (Bitwise AND of Numbers Range)_.
+  Exercises shared bit-prefix and range-bounding logic.
 - **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
-  Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery over a
-  finite field.
+  Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery.
 
 ## Test vectors
 
