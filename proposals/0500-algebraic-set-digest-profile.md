@@ -1,5 +1,7 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
+<!-- Edit marker. [251be5f30] -->
+
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. Some consumers need it over a
 room's known event or resolved state set; others may use it to synchronize key
@@ -86,8 +88,13 @@ $$
 \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
-Bit `0` of an $h_{64}$ integer represents the least-significant bit (coefficient
-$x^0$), and bit `63` represents the most-significant bit (coefficient $x^{63}$).
+| Bit index | Coefficient |
+| --------- | ----------- |
+| `0`       | $x^0$       |
+| `2`       | $x^2$       |
+| `3`       | $x^3$       |
+| `4`       | $x^4$       |
+| `63`      | $x^{63}$    |
 
 Sketches MUST be byte-for-byte compatible with `libminisketch` at field size 64
 for identical input sets. This requirement covers coordinate ordering,
@@ -152,8 +159,6 @@ syndrome of their symmetric difference. This group-valued property allows an
 over-capacity exchange to be extended additively rather than restarted.
 
 ## Dynamic tree extraction
-
-<!-- Proofread marker. -->
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
@@ -650,6 +655,8 @@ Known consumers and possible consumers:
 - MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries, but its current draft has separate version and
   content-hash semantics and is not wire-compatible.
+
+<!-- Reverse edit marker. [251be5f30] -->
 
 <!-- ## References -->
 
