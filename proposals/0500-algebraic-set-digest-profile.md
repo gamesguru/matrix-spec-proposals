@@ -163,7 +163,7 @@ order — `s1, s3, s5, ...` — and each coordinate is serialized as an unsigned
 64-bit **little-endian** integer. The big-endian hash parsing in "Element
 derivation" and the little-endian coordinate serialization here are both
 normative and are deliberately different; the first follows Matrix hash
-conventions and the second follows `libminisketch`. This endian split is
+conventions and the second follows `libminisketch`.[^7] This endian split is
 load-bearing for interoperability.
 
 A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
@@ -205,8 +205,8 @@ resident state — see [Resident structure](#resident-structure). A
 ### Antichain invariant and wire ordering
 
 Requests in a single exchange MUST form an antichain and MUST be transmitted in
-canonical key-space range order. For a request `R = (d, p)` with depth `d`
-(`0 <= d <= 32`) and prefix `p` (`0 <= p < 2^d`), define:
+canonical key-space range order. For a request $R=(d,p)$ with depth $d$
+($0 \le d \le 32$) and prefix $p$ ($0 \le p < 2^d$), define:
 
 $$
 \text{start}(R) = p \cdot 2^{32-d}
@@ -216,8 +216,8 @@ $$
 \text{end}(R) = (p + 1) \cdot 2^{32-d}
 $$
 
-A request `R_i` is an ancestor of `R_j` if and only if `d_i <= d_j` and the
-`d_i` most-significant bits of `p_j` equal `p_i`.
+A request $R_i$ is an ancestor of $R_j$ if and only if $d_i \le d_j$ and the
+$d_i$ most-significant bits of $p_j$ equal $p_i$.
 
 A valid request sequence $[R_0, R_1, \dots, R_{N-1}]$ MUST satisfy:
 
@@ -273,7 +273,7 @@ define whether it is optional; MSC0501 requires all 32 entries in `room_digest`
 responses.
 
 This is the strata-estimator construction from _What's the Difference?:
-Efficient Set Reconciliation without Prior Context_ (2011): use a compact
+Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
 pre-decode summary to estimate $|S_A \triangle S_B|$ before committing to a
 decoder.
 
@@ -531,7 +531,7 @@ predictably at scale.
   Even powers are omitted because the Frobenius endomorphism makes them
   redundant in characteristic 2. Recovering the symmetric difference from these
   coordinates is the finite-field analogue of power-sum/root recovery in
-  classical algebra, in the same spirit as Putnam 1968 A6.
+  classical algebra, in the same spirit as Putnam 1968 A6.[^8]
 
 - **The 128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
   provides fault detection but is explicitly not cryptographically binding. Over
@@ -543,7 +543,7 @@ predictably at scale.
   Termination follows from two constraints: requests MUST form an antichain, and
   recursion depth is capped at 32. Each split weakly reduces the population, so
   the search state space remains finite, matching the termination pattern in
-  Putnam 2008 A3.
+  Putnam 2008 A3.[^9]
 
 - **Decode cost bounds:** Decoding a single capacity-$k$ node costs
   $O(k^2 \log k)$. With per-node capacity capped at $k \le 64$ and failures
@@ -573,11 +573,14 @@ outside a homeserver environment.
   Exercises shared bit-prefix and range-bounding logic.
 - **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
   Recurrence)_. Exercises Berlekamp-Massey-style recurrence recovery.
+- **Rateless reconciliation practice:** _Practical Rateless Set Reconciliation_.
+  Exercises adaptive split-and-continue reconciliation when a fixed-capacity
+  decode overflows.[^6]
 
 ## Test vectors
 
 The following vectors are non-normative reference cases distilled from the
-`rezzy` implementation and its `libminisketch` cross-checks.
+`rezzy` implementation and its `libminisketch` cross-checks.[^10]
 
 ### Field multiplication
 
@@ -667,7 +670,7 @@ Known consumers and possible consumers:
   machinery for EDU entries, but its current draft has separate version and
   content-hash semantics and is not wire-compatible with this event-ID profile.
 
-## References
+<!-- ## References -->
 
 [^1]:
     _Fuzzy extractors: How to generate strong keys from biometrics and other
@@ -685,34 +688,30 @@ Known consumers and possible consumers:
     [neilsloane.com](https://neilsloane.com/doc/ms77.html)
 
 [^4]:
-    _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019). In
-    _Proceedings of the 2019 ACM SIGSAC Conference on Computer and
-    Communications Security (CCS)_ (pp. 817-831).
-    <https://doi.org/10.1145/3319535.3354237>
+    _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019).
+    [doi:10.1145/3319535.3354237](https://doi.org/10.1145/3319535.3354237)
 
 [^5]:
     _What's the difference?: Efficient set reconciliation without prior context_
-    (Eppstein et al., 2011). _ACM SIGCOMM Computer Communication Review, 41_(4),
-    218-229. <https://doi.org/10.1145/2018436.2018462>
+    (Eppstein et al., 2011).
+    [doi:10.1145/2018436.2018462](https://doi.org/10.1145/2018436.2018462)
 
 [^6]:
-    _Practical Rateless Set Reconciliation_ (Yang et al., 2024). In _Proceedings
-    of the 2024 ACM SIGCOMM Conference_ (pp. 595-612).
-    <https://doi.org/10.1145/3651890.3672219>
+    _Practical Rateless Set Reconciliation_ (Yang et al., 2024).
+    [doi:10.1145/3651890.3672219](https://doi.org/10.1145/3651890.3672219)
 
 [^7]:
     _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
     GitHub. <https://github.com/bitcoin-core/minisketch>
 
 [^8]:
-    Putnam et al. 1968 A6, solution archive:
+    Putnam Questionnaire. 1968 A6, solution archive:
     <https://prase.cz/kalva/putnam/psoln/psol686.html>
 
 [^9]:
-    Putnam et al. 2008 A3, archive PDF:
+    Putnam Questionnaire. 2008 A3, archive PDF:
     <https://kskedlaya.org/putnam-archive/2008.pdf>
 
 [^10]:
     [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
-    at commit `788ae96c0e1601790d8f4618754726ac70e7c24b` - reference MSC0500
-    implementation, interoperability tests, and benchmark harness
+    reference MSC0500 implementation and benchmark harness
