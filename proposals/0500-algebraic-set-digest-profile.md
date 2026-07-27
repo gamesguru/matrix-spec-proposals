@@ -253,6 +253,9 @@ architecture used by Erlay (Naumenko et al., 2019): keep the field math fixed,
 size the exchange before decoding, and split only when the current capacity is
 not enough.
 
+This split is a localization step, not a proof that the peer is wrong: it only
+narrows the candidate population to the prefix that still overflows.
+
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
@@ -289,6 +292,10 @@ coordinate order. If any of those boundaries shift, the estimate is meaningless.
 A server MUST NOT estimate or subtract across differing frames; the estimator
 MUST NOT substitute for or override frame validation.
 
+In other words, the estimator chooses a likely starting capacity; it does not
+decide whether the comparison is correct, and it does not replace decoding or
+tree splitting.
+
 ## Decode and verification
 
 A decoder recovers up to `k` elements from a capacity-`k` syndrome residual.
@@ -315,6 +322,15 @@ A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 The asymmetry is intentional: each side verifies the half it can resolve, and
 the residual carries the other half. See "Security considerations" below for
 adversarial limits.
+
+**Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
+over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
+missing even syndromes are implied by the Frobenius endomorphism in
+characteristic 2. Implementations MAY use Berlekamp-Massey or an equivalent
+recurrence solver to derive a locator polynomial of degree at most `k`. If the
+observed syndromes are inconsistent with any such polynomial, or if root
+searching does not produce a consistent set of roots, decoding fails and the
+caller MAY split the node and retry at a smaller prefix.
 
 ## Security considerations
 
