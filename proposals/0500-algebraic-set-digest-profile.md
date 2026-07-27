@@ -649,7 +649,7 @@ Known consumers and possible consumers:
 - MSCXXXX (federation missed-PDU reconciliation) — over a room's known-event set
 - MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries, but its current draft has separate version and
-  content-hash semantics and is not wire-compatible with this event-ID profile.
+  content-hash semantics and is not wire-compatible.
 
 <!-- ## References -->
 
