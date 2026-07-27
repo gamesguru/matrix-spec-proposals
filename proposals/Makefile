@@ -11,28 +11,29 @@ define require_f
 endef
 
 FILES := $(filter-out %.pdf,$(wildcard $(f)))
+FILES_Q := $(foreach file,$(FILES),"$(file)")
 
 .PHONY: format
 format:
 	$(require_f)
-	prettier --prose-wrap always --print-width 80 --write -- $(FILES)
+	prettier --prose-wrap always --print-width 80 --write -- $(FILES_Q)
 
 .PHONY: lint
 lint:
 	$(require_f)
-	markdownlint -- $(FILES)
+	markdownlint -- $(FILES_Q)
 
 .PHONY: pdf
 pdf:
 	$(require_f)
-	pandoc $(f) -o $(f).pdf \
+	pandoc "$(f)" -o "$(f).pdf" \
 		--pdf-engine=xelatex \
 		-V geometry:margin=0.75in \
 		-V colorlinks=true \
 		-V urlcolor=blue \
 		-V linkcolor=blue \
 		-V pagestyle=empty || \
-	pandoc $(f) -o $(f).pdf \
+	pandoc "$(f)" -o "$(f).pdf" \
 		--pdf-engine=lualatex \
 		-V geometry:margin=0.75in \
 		-V colorlinks=true \

@@ -10,11 +10,11 @@ consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
 The profile targets differences up to ~4,000 elements per exchange in
-populations up to $10^6$, completing in ~50 ms and under 25 KiB per exchange,
-excluding object payloads. Decoding a capacity-`k` node costs $O(k^2 \log k)$; a
-difference of size $\Delta$ spread over `n` nodes therefore costs
-$O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger differences are
-a frame problem, not a reconciliation problem (see
+populations up to $10^6$, completing in ~50 ms and keeping the initial depth-0
+sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
+costs $O(k^2 \log k)$; a difference of size $\Delta$ spread over `n` nodes
+therefore costs $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger
+differences are a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the capped round sequence extends the
 exchange ceiling to about 82,000 elements.
 
@@ -43,18 +43,22 @@ and does not interpret their content.
 Let `D(e)` be the consumer-defined 32-byte digest for element `e`.
 
 ```text
-h_128(e) = first 128 bits of D(e)
+h_128(e) = first nonzero 128-bit chunk of D(e)
 h_64(e)  = first  64 bits of D(e)
 ```
 
 "First" means the leading bytes of `D(e)` in network byte order. $h_{128}(e)$ is
-the first 16 bytes. $h_{64}(e)$ is the first 8 bytes interpreted as an unsigned
-big-endian integer.
+the first 16-byte chunk unless that chunk is all zero, in which case the next
+nonzero 16-byte chunk is used, or 1 if both chunks are zero. $h_{64}(e)$ is the
+first 8 bytes interpreted as an unsigned big-endian integer.
 
-Because `minisketch` set elements are nonzero, if the first 8-byte chunk of
-`D(e)` is zero the implementation MUST use the next nonzero 8-byte chunk of
-`D(e)`; if all four chunks are zero, it MUST use the integer value 1. This
-applies to the Matrix binding and to all other consumers of the profile.
+Because `minisketch` set elements are nonzero, if the first 16-byte chunk of
+`D(e)` is zero the implementation MUST use the next nonzero 16-byte chunk of
+`D(e)`; if both 16-byte chunks are zero, it MUST use the integer value 1. The
+`h_64(e)` normalization remains unchanged: if the first 8-byte chunk of `D(e)`
+is zero the implementation MUST use the next nonzero 8-byte chunk of `D(e)`; if
+all four chunks are zero, it MUST use the integer value 1. This applies to the
+Matrix binding and to all other consumers of the profile.
 
 ### Matrix event-ID binding
 
@@ -64,14 +68,16 @@ auxiliary hash is required. Implementations derive `D(e)` from the decoded event
 ID using the room-version-specific event-ID alphabet:
 
 - room versions 1 and 2: hash the UTF-8 event ID string with `SHA-256`;
-- room version 3: decode the event ID as unpadded standard Base64;
-- room versions 4 and later: decode event ID as unpadded URL-safe Base64.
+- room version 3: strip the leading `$` byte and decode the remainder as
+  unpadded standard Base64;
+- room versions 4 and later: strip the leading `$` byte and decode the remainder
+  as unpadded URL-safe Base64.
 
 Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
 `SHA-256` digest of the event-ID string, or exclude the event from the compared
 population. This Matrix binding does not use `XXH3` or any other auxiliary hash.
-For room version 3 and later, strip the leading `$` byte before decoding the
-remaining bytes; the decoded 32-byte value is `D(e)`.
+For room version 3 and later, strip the leading `$` byte before applying the
+appropriate Base64 decoder; the decoded 32-byte value is `D(e)`.
 
 ## Field
 
@@ -621,7 +627,7 @@ h64:    0x0000_0000_0000_002a
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
-h128:   0x0000_0000_0000_0000_0000_0000_0000_0000
+h128:   0x0000_0000_0000_0000_0000_0000_0000_0001
 h64:    0x0000_0000_0000_0001
 ```
 

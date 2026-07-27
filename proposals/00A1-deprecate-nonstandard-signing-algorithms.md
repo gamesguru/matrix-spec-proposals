@@ -89,6 +89,10 @@ The following signing algorithms are recognized for Matrix federation:
 
 <!-- markdownlint-enable MD013 -->
 
+For transition-period membership checks, implementations MUST treat
+`tk.nutra.msc45xx.fndsa512` as equivalent to `fndsa512`, or normalize that
+unstable identifier to `fndsa512` before checking the allowlist.
+
 All other algorithm identifiers — including but not limited to custom elliptic
 curves, RSA-based schemes, vendor-specific key types, and any algorithm not
 explicitly defined by an accepted MSC or the Matrix specification — are

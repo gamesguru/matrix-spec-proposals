@@ -44,9 +44,9 @@ For each field in the fixed set, the responder canonicalizes the value it holds
 as Matrix canonical JSON. If the server does not know a field or does not store
 it, the canonical value is `null`. Declining to disclose a known value does not
 change the committed value: the server omits that field from `leaf_paths` and
-the positional response, but still commits to the value it knows. A server MUST
-NOT omit a field from the committed set merely because the requester did not ask
-to disclose it.
+leaves the corresponding positional response slot as `null`, but still commits
+to the value it knows. A server MUST NOT omit a field from the committed set
+merely because the requester did not ask to disclose it.
 
 The fixed set intentionally excludes responder-local processing results such as
 `rejected` and `soft_failed`. Those fields remain queryable hints, but including
@@ -70,8 +70,9 @@ The commitment is then computed as follows:
 - compute the sidecar commitment root as
   `SHA3-256("msc4511:overlay-root:v1" || event_id || leaf_count || merkle_root)`,
   where `event_id` is the UTF-8 encoding of the returned event ID string,
-  `leaf_count` is the number of fixed leaves encoded as an unsigned 32-bit integer
-  in network byte order, and `merkle_root` is the root hash of the fixed-field tree.
+  `leaf_count` is the number of fixed leaves encoded as an unsigned 32-bit
+  integer in network byte order, and `merkle_root` is the root hash of the
+  fixed-field tree.
 
 All concatenations above are byte concatenations: domain-separation strings and
 `field_name` are UTF-8 bytes; `\x00` is a single `0x00` byte; `canonical_value`
@@ -113,7 +114,11 @@ existing federation signing key:
 leaf `origin_server_ts` and MUST NOT be substituted for it. The signature proves
 only that the responder made the assertion. It does not prove that the asserted
 values are true, that the event exists, or that the event ID is bound to those
-values by the room version.
+values by the room version. `attestation_ts` is a Unix epoch timestamp in
+milliseconds taken from the responder's wall clock at signing time; verifiers
+MAY reject or de-prioritize attestations whose `attestation_ts` is more than
+five minutes in the future, and SHOULD treat attestations older than 24 hours as
+stale for liveness-sensitive decisions.
 
 `fields_version` identifies the fixed overlay leaf set, tree construction, and
 domain-separation strings together. A verifier MUST reject an overlay proof with
@@ -166,6 +171,9 @@ that commitment:
   }
 }
 ```
+
+The example above is schematic; the sibling counts are illustrative rather than
+machine-generated.
 
 The `leaf_paths` object maps each disclosed field name to the sibling hashes
 needed to rebuild the fixed-field Merkle root. For a field whose leaf is the

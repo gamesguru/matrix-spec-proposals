@@ -362,7 +362,7 @@ key_id = SHA3-256(canonical_json(minting_object))
 
 where `canonical_json` is Matrix Canonical JSON serialization, `solution` is the
 strictly increasing 42-edge proof solution carried in the `pow` object, and
-`nonce` is the prover-chosen integer (`0 ≤ nonce < 2^64`). The canonical minting
+`nonce` is the prover-chosen integer (`0 ≤ nonce < 2^32`). The canonical minting
 object is reconstructed by the verifier from the enclosing key object and the
 validated `pow` fields; it is not transmitted as a separate object and does not
 include `short_key_id`, signatures, `valid_until_ts`, `claims`, notary metadata,
@@ -459,7 +459,7 @@ The proof response is:
 (The example `solution` is truncated for illustration.) The `solution` array
 MUST contain exactly 42 unsigned integer edge indices in strictly increasing
 order (the canonical form of the edge set). Each edge index MUST be less than
-`2^29`, and `nonce` MUST be an integer in `[0, 2^64)`. Verification MUST reject
+`2^29`, and `nonce` MUST be an integer in `[0, 2^32)`. Verification MUST reject
 duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
 Cuckoo Cycle proof; it then recomputes the Cuckoo graph for the supplied nonce,
 derives the 84 endpoints of the 42 supplied edges, and checks that they form a
@@ -490,7 +490,7 @@ later step once a step has failed:
    plain-hash construction.
 3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
    integers, each strictly less than `2^29`, in strictly increasing order, with
-   no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any violation
+   no duplicates. `pow.nonce` MUST be an integer in `[0, 2^32)`. Any violation
    fails validation here, before any hashing is performed.
 4. **Cuckoo graph selection.** From the enclosing response's advertised `key`
    and `server_name`, plus the supplied `nonce`, compute the 32-byte value
@@ -684,14 +684,14 @@ server-key validation and MUST NOT change acceptance semantics.
           "server_certificate_verify_signature": "<unpadded-base64url-signature>"
         }
       },
-      "key_id": "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2",
+      "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
       "server_key_package_sha256": "<unpadded-base64url-sha256>",
       "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
       "valid_until_ts": 1798848000000,
       "signatures": {
         "notary.example": {
           "ed25519:auto": "<base64-ed25519-signature>",
-          "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<base64-fn-dsa-signature>"
+          "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fn-dsa-signature>"
         }
       }
     }
@@ -916,16 +916,16 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
       "record_version": 1,
       "observed_server_name": "example.com",
       "algorithm": "fndsa512",
-      "short_key_id": "9f3c1ade47b0c2915e6d8a3f10bb47d2",
+      "short_key_id": "5FQ2xg4sWqj3Kp9N8mQhVA",
       "first": {
-        "key_id": "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2",
+        "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
         "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848000000,
         "observed_via": "direct"
       },
       "conflicting": {
-        "key_id": "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2",
+        "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
         "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848600000,
@@ -939,7 +939,7 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
       "signatures": {
         "notary.example": {
           "ed25519:auto": "<base64-ed25519-signature>",
-          "fndsa512:9f3c1ade47b0c2915e6d8a3f10bb47d2": "<base64-fn-dsa-signature>"
+          "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fn-dsa-signature>"
         }
       }
     }
