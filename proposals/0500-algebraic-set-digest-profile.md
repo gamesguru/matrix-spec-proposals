@@ -63,113 +63,92 @@ profile.
 
 ### Matrix event-ID binding
 
-For Matrix event-ID sets, `D(e)` is derived as follows. For room versions 3 and
-later, event IDs are already derived from `SHA-256` event hashes, so no
-auxiliary hash is required. Implementations derive `D(e)` from the decoded event
-ID using the room-version-specific event-ID alphabet:
+For Matrix event-ID populations, `D(e)` is derived based on the room version:
 
-<!-- TODO: How do room v1 and v2 handle naive ID collisions?
-Should we hash the whole event?-->
+- **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
+  digest of the UTF-8 event-ID string.
+- **Room version 3**: Strip the leading `$` byte and decode the remaining 32
+  bytes as unpadded standard Base64.
+- **Room versions 4 and later**: Strip the leading `$` byte and decode the
+  remaining 32 bytes as unpadded URL-safe Base64.
 
-- room versions 1 and 2: hash the UTF-8 event ID string with `SHA-256`;
-- room version 3: strip the leading `$` byte and decode the remainder as
-  unpadded standard Base64;
-- room versions 4 and later: strip the leading `$` byte and decode the remainder
-  as unpadded URL-safe Base64.
-
-Room versions whose event IDs are not hash-derived MUST set `D(e)` to the
-`SHA-256` digest of the event-ID string, or exclude the event from the compared
-population. This MSC does not use `XXH3` or any other auxiliary hash. For room
-version 3 and later, strip the leading `$` byte before applying the appropriate
-Base64 decoder; the decoded 32-byte value is `D(e)`.
+Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
+the event-ID string or exclude the event from the population. This profile does
+not use auxiliary hash functions (e.g., `XXH3`).
 
 ## Field
 
-The 64-bit Galois field is:
+The 64-bit Galois field is defined as:
 
 $$
-\mathbb{F}_{2^{64}}
-\cong
-\mathbb{F}_{2}[x] \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle,
+\mathbb{F}_{2^{64}} \cong \mathbb{F}_{2}[x]
+\big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
-Bit `0` of an $h_{64}$ value denotes the least-significant bit and bit `63`
-denotes the most-significant bit. Field coefficient $x^i$ is the value of bit
-`i`.
+Bit `0` of an $h_{64}$ integer represents the least-significant bit (coefficient
+$x^0$), and bit `63` represents the most-significant bit (coefficient $x^{63}$).
 
-`algebraic_v1` sketches MUST be byte-for-byte compatible with `libminisketch` at
-field size 64 for the same inserted $h_{64}$ values. This compatibility is the
-normative interoperability test for the profile: an implementation that produces
-a different byte string for the same input set is non-conforming, regardless of
-whether its own decoder round-trips.
+Sketches MUST be byte-for-byte compatible with `libminisketch` at field size 64
+for identical input sets. This requirement covers coordinate ordering,
+little-endian encoding, and field arithmetic; any mismatch renders an
+implementation non-conforming, regardless of internal decode success.
 
-This requirement covers the odd-power coordinate order, little-endian coordinate
-encoding, and the 64-bit field arithmetic together. If any one of those differs,
-the sketch is not `algebraic_v1`.
-
-This 64-bit field choice is the same algebraic reconciliation setting used by
-PinSketch.[^1] It also matches the earlier finite-field set reconciliation line
-introduced by Minsky, Trachtenberg, and Zippel.[^2]
-
-The 128-bit accumulator layer is a plain XOR checksum over 16-byte values and is
-not a field operation.
+This field choice aligns with PinSketch[^1] and the foundational finite-field
+set reconciliation introduced by Minsky, Trachtenberg, and Zippel.[^2] The
+128-bit accumulator layer is a bitwise XOR sum and operates independently of
+this field.
 
 ## Level-0 accumulator
 
 $$
 \begin{aligned}
 \mathrm{digest} &= \bigoplus_{e \in S} h_{128}(e) \\
-\\
-\mathrm{count} &= |S|,
+\mathrm{count} &= |S|
 \end{aligned}
 $$
 
-where $\bigoplus$ denotes bitwise XOR over all selected 128-bit values. The
-digest is a 16-byte value, encoded on the wire as unpadded `base64url`.
+where $\bigoplus$ denotes bitwise XOR over all 128-bit elements. The digest is
+serialized as a 16-byte unpadded `base64url` string.
 
-Insertion and removal are the same operation: XOR the same $h_{128}(e)$ value
-into the accumulator and increment or decrement the count. There is no rebuild
-path and no ordering requirement.
+Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
+and update the count. Updates are order-independent and require no state
+rebuilds.
 
-The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ is an
-exact measurement of $|S_A\ \triangle\ S_B|$ when divergence is one-sided, which
-is the common lagging-peer case. When both digest and count match over the same
-population, the two sets agree except with negligible probability from an
-accidental 128-bit collision.
+The count residual $c = \bigl||S_A| - |S_B|\bigr|$ yields the exact symmetric
+difference size $|S_A \triangle S_B|$ during one-sided divergence (e.g., a
+lagging peer). Identical digests and counts over a shared population indicate
+set equality, modulo negligible 128-bit hash collision probability.
 
-The accumulator helps check consistency, but it cannot prove who sent it. See
+The accumulator provides fault detection (integrity), not authentication. See
 [Decode and verification](#decode-and-verification) and the consuming MSC's
 security considerations.
 
 ## Syndrome sketch
 
-The extraction layer is the odd-power syndrome map over the 64-bit field:
+The extraction layer computes the odd-power syndrome map over
+$\mathbb{F}_{2^{64}}$:
 
 $$
-\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, ..., \sum h_{64}(e)^{2k-1}\right)
+\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \dots, \sum h_{64}(e)^{2k-1}\right)
 $$
 
-Even powers are omitted because the Frobenius endomorphism makes them redundant
-in characteristic 2: $s_{2i} = s_i^2$.
+Even powers are omitted because $s_{2i} = s_i^2$ in characteristic 2 via the
+Frobenius endomorphism. This odd-power syndrome representation adapts standard
+BCH error-correction machinery,[^3] forming the substrate specialized by
+PinSketch.
 
-The odd-power syndrome form uses standard error-correcting-code machinery,
-including BCH decoding.[^3] It is the coding-theory substrate that PinSketch
-specializes for reconciliation.
+**Serialization.** Syndrome coordinates $(s_1, s_3, \dots, s_{2k-1})$ are
+serialized in ascending odd-power order as unsigned 64-bit **little-endian**
+integers. The distinction between big-endian element parsing (following Matrix
+conventions) and little-endian coordinate serialization (following
+`libminisketch`)[^7] is normative and intentional.
 
-**Serialization.** Syndrome coordinates are serialized in increasing odd-power
-order $\left(s_1, s_3, s_5, ..., s_{2k-1}\right)$ and each coordinate is
-serialized as an unsigned 64-bit **little-endian** integer. The big-endian
-parsing in element hashing and the little-endian coordinate serialization here
-are both normative and are deliberately different; the first follows Matrix hash
-conventions and the second follows `libminisketch`.[^7]
+A sketch of capacity $k$ is exactly $8k$ bytes, wire-encoded as unpadded
+`base64url`.
 
-A sketch of capacity `k` is therefore exactly $8k$ bytes, encoded on the wire as
-unpadded `base64url`.
-
-**Subtraction.** Two sketches over the same population and capacity are
-subtracted by XOR. The result is the syndrome of the symmetric difference. This
-is the property that makes the profile group-valued and the reason a failed
-exchange can be extended rather than restarted.
+**Subtraction.** Subtracting two sketches of equal capacity via XOR yields the
+syndrome of their symmetric difference. This group-valued property allows an
+over-capacity exchange to be extended additively rather than restarted.
 
 ## Dynamic tree extraction
 
