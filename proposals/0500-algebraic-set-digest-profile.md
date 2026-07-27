@@ -1,4 +1,4 @@
-# MSC0500: Stratified Galois Field `2^64` PinSketch for fast set reconciliation
+# MSC0500: Adaptive Set Reconciliation via PinSketch
 
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. Some consumers need it over a
@@ -9,16 +9,16 @@ This MSC defines that primitive once, as a named digest profile, so that
 consumers reference a field, a hash derivation, a wire encoding, and a decode
 contract rather than building them from scratch each time.
 
-The profile targets differences up to ~4,000 elements per exchange in
-populations up to $10^6$, completing in ~50 ms and keeping the initial depth-0
+The profile targets differences up to 10,000 elements per exchange in
+populations up to $10^6$, completes in 200 ms and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
 costs $O(k^2 \log k)$; a difference of size $\Delta$ spread over `n` nodes
 therefore costs $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger
 differences are a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the capped round sequence extends the
-exchange ceiling to about 82,000 elements.
+exchange ceiling to about 82,000 differing elements.
 
-`algebraic_v1` couples the strata estimator, extraction sketch, and 128-bit
+`algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder. More capacity extends an exchange; it does not
 restart it.
 
@@ -29,8 +29,10 @@ compatibility contract, the level-0 accumulator, the syndrome sketch and its
 capacity bounds, dynamic tree extraction and the strata estimator, the
 decode-and-verify contract, capacity budgets, and the resident structure.
 
-This profile does **not** define endpoints, frames, authorization, negotiation,
-or scheduling; those belong to the consuming MSC. Consumers MUST still verify
+<!-- Proofread marker. -->
+
+This profile does **not** define frames, negotiation, scheduling, endpoints, or
+authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
 
 ## Element derivation
@@ -197,8 +199,6 @@ resident state — see [Resident structure](#resident-structure). A
 `(depth, prefix)` pair is computed only when a peer actually requests it.
 
 ### Antichain invariant and wire ordering
-
-<!-- Proofread marker. -->
 
 Requests in a single exchange MUST form an antichain and MUST be transmitted in
 canonical key-space range order. For a request `R = (d, p)` with depth `d`
