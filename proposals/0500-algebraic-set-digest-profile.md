@@ -12,7 +12,7 @@ contract rather than building them from scratch each time.
 The profile targets differences up to 10,000 elements per exchange in
 populations up to $10^6$, completes in 200 ms and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
-costs $O(k^2 \log k)$.[^3] A difference of size $\Delta$ spread over `n` nodes
+costs $O(k^2 \log k)$. A difference of size $\Delta$ spread over `n` nodes
 therefore costs $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger
 differences are a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the capped round sequence extends the
@@ -424,8 +424,9 @@ per-population structure:
 <!-- markdownlint-enable MD013 -->
 
 Fixed resident state is ~2 KiB per population, independent of population size.
-Node sketches are computed on demand from the `h_64`-sorted index (§Dynamic tree
-extraction), which is `O(n)` in identifiers and not part of the fixed state.
+Node sketches are computed on demand from the `h_64`-sorted index
+([Dynamic tree extraction](#dynamic-tree-extraction)), which is `O(n)` in
+identifiers and not part of the fixed state.
 
 **Update procedure.** On inserting or removing element `e`:
 
@@ -448,7 +449,7 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization, not a correctness requirement.
+The strata estimator is an optimization and protocol requirement.
 
 ## Advertisement
 
@@ -641,7 +642,7 @@ h64:    0x0000_0000_0000_0001
 ### PinSketch wire format
 
 For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the following
-little-endian syndrome bytes before base64url encoding:
+little-endian syndrome bytes before `base64url` encoding:
 
 ```text
 ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93
@@ -714,8 +715,8 @@ Known consumers and possible consumers:
     <https://kskedlaya.org/putnam-archive/2008.pdf>
 
 [^10]:
-    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b)
-    reference MSC0500 implementation and benchmark harness
+    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b),
+    example implementation with tests
 
 [^11]:
     LeetCode 260, _Single Number III_:
