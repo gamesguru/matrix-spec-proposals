@@ -12,7 +12,7 @@ contract rather than building them from scratch each time.
 The profile targets differences up to 10,000 elements per exchange in
 populations up to $10^6$, completes in 200 ms and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
-costs $O(k^2 \log k)$; a difference of size $\Delta$ spread over `n` nodes
+costs $O(k^2 \log k)$.[^3] A difference of size $\Delta$ spread over `n` nodes
 therefore costs $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger
 differences are a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the capped round sequence extends the
@@ -580,8 +580,8 @@ outside a homeserver environment.
 
 ## Test vectors
 
-The following vectors are non-normative reference cases distilled from the
-`rezzy` implementation and its `libminisketch` cross-checks.[^10]
+The following vectors are distilled from the `rezzy` implementation and its
+`libminisketch` cross-checks.[^10]
 
 ### Field multiplication
 
