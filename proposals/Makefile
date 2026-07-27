@@ -26,12 +26,12 @@ lint:
 
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD)
 GIT_BRANCH ?= $(shell git branch --show-current)
+TITLE ?= MSC0500: Adaptive Set Reconciliation via PinSketch
+DATE ?= $(shell date --iso)
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
 QPDF ?= qpdf
 GPG ?= gpg
 QDF_NORMALIZER ?= ../tools/normalize_pdf_qdf.pl
-SUBJECT ?= Built from commit $(GIT_COMMIT)
-KEYWORDS ?= commit=$(GIT_COMMIT),branch=$(GIT_BRANCH),source=$(notdir $(f))
 
 .PHONY: pdf
 pdf:
@@ -48,8 +48,8 @@ pdf:
 	  -V urlcolor=blue \
 	  -V linkcolor=blue \
 	  -V pagestyle=empty \
-	  -M subject="$(SUBJECT)" \
-	  -M keywords="$(KEYWORDS)"; \
+	  -M subject="Compiled by Shane [$(DATE)]" \
+	  -M keywords="commit $(GIT_COMMIT) (branch: $(GIT_BRANCH))"; \
 	"$(QPDF)" --qdf --object-streams=disable "$$raw_pdf" "$$qdf_pdf"; \
 	perl "$(QDF_NORMALIZER)" "$$qdf_pdf" "$$norm_pdf"; \
 	"$(QPDF)" --deterministic-id --linearize "$$norm_pdf" "$(f).pdf"; \

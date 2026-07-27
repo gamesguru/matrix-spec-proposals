@@ -384,6 +384,21 @@ profile's 4096 aggregate capacity yields about 82,000 elements. Larger
 differences should fall back to frame extension or a larger-framed follow-up
 exchange.
 
+**Scale illustration.** These benchmark points are not protocol upper bounds;
+they show that a large population can still have a small difference and keep the
+core algorithm cost nearly flat while setup scales with the resident set size.
+
+<!-- markdownlint-disable MD013 -->
+
+| Population | Difference        | Setup (ms) | Algo (ms) | Interpretation                     |
+| ---------- | ----------------- | ---------: | --------: | ---------------------------------- |
+| 50,000     | +2,100/-1,900     |       9.94 |      1.78 | small set, small difference        |
+| 100,000    | +5,000/-4,000     |      19.28 |      1.79 | larger set, still small difference |
+| 1,000,000  | +10,000/-9,000    |     206.49 |      1.77 | large set, small difference        |
+| 10,000,000 | +500,000/-400,000 |    2668.61 |      1.85 | very large set, setup dominates    |
+
+<!-- markdownlint-enable MD013 -->
+
 ## Resident structure
 
 To make extraction deployable, implementations SHOULD maintain a resident
