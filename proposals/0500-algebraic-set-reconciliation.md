@@ -647,6 +647,25 @@ ff ff ff ff ff ff ff 7f fd 32 33 33 33 33 33 93
 
 Decoding those bytes round-trips to the same sketch.
 
+For capacity 32, toggling `0x1234` and `0x5678` encodes to the little-endian
+syndrome bytes before `base64url` encoding:
+
+```text
+4c 44 00 00 00 00 00 00 40 41 96 be 27 05 00 00 2a b3 f9 7d 92 3c 1e 3c
+54 62 cc de 5c 10 6f d7 41 74 56 42 69 a2 f2 78 ff c2 11 6d 45 e4 b3 ea
+af 36 62 67 c8 e7 2a 94 6c ff 33 8a 89 b4 5b 6f d0 40 12 a7 de 3a c3 50
+80 74 7e 77 e0 6d 8e ab d4 df 23 95 59 bf 21 e7 df 8e 6e ac 00 7a 81 24
+93 9a 8b 72 a8 20 32 bd f7 2b 62 8f 0f 8a 9c 31 1a 33 34 7e f9 5d a9 0e
+5e d3 95 b1 21 53 9d 0b b4 df 33 7d ff e2 5f 40 74 f1 74 59 f3 06 ac cc
+61 09 e4 f1 3c be 9c 87 f1 24 2d 88 43 d8 ff 82 6e e6 cc bf 8f 46 a2 d8
+45 a0 dc fe c6 35 cf d7 f5 fd 88 fc 83 a6 35 7f eb 08 37 7f 4f b4 e3 23
+f0 42 9c 7d 60 b9 88 3d 03 11 6a e0 75 a5 65 c6 53 de 08 70 d5 99 56 be
+f2 b7 5a 02 0e ba b8 00 fe 7c 2b 35 0d 4c 8b e9 fa 95 88 ce 09 1e 56 e7
+d9 32 b3 ba e6 fd 33 99 19 45 a0 84 f2 75 1b 41
+```
+
+Decoding those bytes round-trips to the same sketch.
+
 ## Unstable prefix
 
 <!-- markdownlint-disable MD013 -->
