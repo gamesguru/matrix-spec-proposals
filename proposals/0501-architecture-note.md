@@ -54,7 +54,7 @@ accumulator over a whole frame never forgets.
 
 ### The truncation ladder
 
-MSC0503 defines a coordinated algebraic ladder with separate layers:
+MSC0500 defines a coordinated algebraic ladder with separate layers:
 
 ```text
 sigma_k(S) = (sum h(e), sum h(e)^3, ..., sum h(e)^(2k-1))
@@ -370,7 +370,7 @@ An adversary with freedom over which event IDs to include can therefore
 construct a nonempty subset whose accumulator is zero, by linear algebra alone —
 no hash break required.
 
-Nothing in MSC0501 or MSC0503 relies on the accumulator being binding against
+Nothing in MSC0501 or MSC0500 relies on the accumulator being binding against
 such a peer. Its jobs are to detect accidental decode failure and benign desync,
 both of which it does well. Every returned PDU is still verified independently
 by event ID, hashes, signatures, and authorization rules, which is where the
@@ -390,7 +390,7 @@ state.
 
 ## 6. Integration map
 
-**MSC0503 (`algebraic_v1` profile).** The digest kernel, extracted so that
+**MSC0500 (`algebraic_v1` profile).** The digest kernel, extracted so that
 MSC0501 has one specification of the field, hash derivation, and decoder
 contract. MSC0502 may adapt the same machinery for EDU entries, but its current
 version/content-hash protocol is not a direct consumer of this event-ID profile.
@@ -431,7 +431,7 @@ are not substitutes for each other.
 **MSC0502 (EDU state reconciliation).** The ephemeral-state counterpart, using
 version-vector comparison rather than graph reconciliation. It may later reuse
 the algebraic machinery with an EDU-specific identifier profile, but remains
-wire-independent from MSC0503 as currently drafted.
+wire-independent from MSC0500 as currently drafted.
 
 ## 7. Operational guidance
 

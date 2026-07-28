@@ -344,7 +344,7 @@ $$
 
 field multiplications in the bounded decoder. A local work budget therefore sets
 a practical direct-decode capacity; the profile's `k=64` cap is the wire and
-local-policy boundary used by MSC0503. Given an estimate `\widehat{\Delta}` and
+local-policy boundary used by MSC0500. Given an estimate `\widehat{\Delta}` and
 a per-bucket safe occupancy `\lambda`, choose the bucket depth
 
 $$

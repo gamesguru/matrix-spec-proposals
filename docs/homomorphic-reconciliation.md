@@ -43,7 +43,8 @@ category, and silence is the only failure mode that is not self-correcting.
 
 We conclude with a concrete protocol variant, a bucketed resident structure
 (approximately 23 KiB per room in the design analyzed here), and a
-self-stabilization theorem identifying exactly which three design choices are load-bearing.
+self-stabilization theorem identifying exactly which three design choices are
+load-bearing.
 
 ---
 

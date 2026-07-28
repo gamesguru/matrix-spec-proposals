@@ -646,10 +646,10 @@ Decoding those bytes round-trips to the same sketch.
 
 ## Dependencies
 
-None. This MSC defines a self-contained primitive. Known possible consumers:
+None. This MSC defines a self-contained primitive. Known consumers:
 
-- MSCXXXX (federation missed-PDU reconciliation) — over a room's known-event set
-- MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
+- MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
+- MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
 
 <!-- Reverse edit marker. [251be5f30] -->
