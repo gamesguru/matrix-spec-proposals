@@ -664,8 +664,6 @@ f2 b7 5a 02 0e ba b8 00 fe 7c 2b 35 0d 4c 8b e9 fa 95 88 ce 09 1e 56 e7
 d9 32 b3 ba e6 fd 33 99 19 45 a0 84 f2 75 1b 41
 ```
 
-Decoding those bytes round-trips to the same sketch.
-
 ## Unstable prefix
 
 <!-- markdownlint-disable MD013 -->
