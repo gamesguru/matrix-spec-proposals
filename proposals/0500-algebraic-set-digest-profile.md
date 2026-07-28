@@ -118,9 +118,8 @@ difference size $|S_A \triangle S_B|$ during one-sided divergence (e.g., a
 lagging peer). Identical digests and counts over a shared population indicate
 set equality, modulo negligible 128-bit hash collision probability.
 
-The accumulator provides fault detection (integrity), not authentication. See
-[Decode and verification](#decode-and-verification) and the consuming MSC's
-security considerations.
+The accumulator provides fault detection (integrity) between honest peers. See
+[Decode and verification](#decode-and-verification).
 
 ## Syndrome sketch
 
@@ -133,8 +132,8 @@ $$
 
 Even powers are omitted because $s_{2i} = s_i^2$ in characteristic 2 via the
 Frobenius endomorphism. This odd-power syndrome representation adapts standard
-BCH error-correction machinery,[^3] forming the substrate specialized by
-PinSketch.
+Bose–Chaudhuri–Hocquenghem (BCH) error-correction machinery,[^3] forming the
+substrate specialized by PinSketch.
 
 **Serialization.** Syndrome coordinates $(s_1, s_3, \dots, s_{2k-1})$ are
 serialized in ascending odd-power order as unsigned 64-bit **little-endian**
@@ -549,24 +548,21 @@ predictably at scale.
 
 ### Exploratory implementer materials
 
-Non-normative. Useful for testing the algorithmic ideas behind this profile
-outside a homeserver environment.
+Exploratory exercises. Useful for testing the theory prior to implementation.
 
-- **XOR accumulator practice:** _LeetCode 260 (Single Number III)_[^11].
-  Exercises bitwise XOR reduction.
+- **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
+  reduction.
 - **Power-sum intuition:** _LeetCode 2965 (Find Missing and Repeated
-  Values)_[^12]. Exercises recovering missing elements using aggregated sums and
-  squares.
-- **Recursive partitioning practice:** _LeetCode 427 (Construct Quad Tree)_[^13]
-  and _Codeforces 842D (Vitya and Strange Lesson)_[^14]. Exercises recursive
-  subdivision and dynamic prefix-trie routing.
-- **Prefix boundary practice:** _LeetCode 201 (Bitwise AND of Numbers
-  Range)_[^15]. Exercises shared bit-prefix and range-bounding logic.
-- **Syndrome decoder practice:** _Yosupo Library Checker (Find Linear
-  Recurrence)_[^16]. Exercises Berlekamp-Massey-style recurrence recovery.
-- **Rateless reconciliation practice:** _Practical Rateless Set Reconciliation_.
-  Exercises adaptive split-and-continue reconciliation when a fixed-capacity
-  decode overflows.[^6]
+  Values)_[^12]. Recover missing elements via aggregated sums and squares.
+- **Recursive partitioning:** _LeetCode 427 (Construct Quad Tree)_[^13] and
+  _Codeforces 842D (Vitya and Strange Lesson)_[^14]. Recursive subdivision and
+  dynamic prefix-trie routing.
+- **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
+  Shared bit-prefix / range-bounding logic.
+- **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
+  Berlekamp-Massey recurrence recovery.
+- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_. Adaptive
+  split-and-continue reconciliation when a fixed-capacity decode overflows.[^6]
 
 ## Test vectors
 
@@ -667,9 +663,9 @@ None. This MSC defines a self-contained primitive. Known consumers:
     [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
 
 [^3]:
-    _The theory of error-correcting codes_ (MacWilliams & Sloane, 1977).
-    North-Holland Mathematical Library.
-    [neilsloane.com](https://neilsloane.com/doc/ms77.html)
+    _An introduction to BCH codes and finite fields_ (MacWilliams & Sloane,
+    1977). The theory of error-correcting codes.
+    [sciencedirect.com](https://www.sciencedirect.com/science/chapter/bookseries/abs/pii/S0924650908705282)
 
 [^4]:
     _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019).
