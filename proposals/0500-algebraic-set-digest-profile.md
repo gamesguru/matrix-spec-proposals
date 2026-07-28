@@ -61,7 +61,7 @@ byte order (big-endian):
 
 ### Matrix event-ID binding
 
-For Matrix event-ID populations, `D(e)` is derived based on the room version:
+For event sets, `D(e)` is derived based on the room version:
 
 - **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
   digest of the UTF-8 event-ID string.
@@ -527,7 +527,7 @@ transferable to a third party; unnecessary where, as here, transferred objects
 are independently verifiable by signature and hash. Left to a future
 `digest_type`.
 
-## Theoretical Analogies
+## Theoretical models
 
 The reconciliation mechanisms in this MSC use standard algebraic and
 combinatorial ideas. Implementations need only follow the wire format and decode
@@ -541,7 +541,7 @@ contracts, but these analogies may help understand the protocol.
   coordinates is the finite-field analogue of power-sum/root recovery in
   classical algebra.[^8]
 
-- **The 128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
+- **128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
   provides fault detection but is explicitly not cryptographically binding. Over
   $\mathbb{F}_2$, any set of 129 128-bit values is linearly dependent, so a
   nonempty subset can always have XOR sum zero.
@@ -558,7 +558,7 @@ contracts, but these analogies may help understand the protocol.
   independently, a difference of size $d$ spread over $n$ nodes has total decode
   cost $O\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
 
-- **Strata estimation and trailing-zero counting:** The pre-decode estimator
+- **Strata estimation and trailing-zero counts:** The pre-decode estimator
   buckets elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
   modeled as uniformly distributed, the highest nonempty residual stratum gives
   a compact estimate of $d = \lvert S_A \triangle S_B \rvert$, in the same broad
@@ -570,8 +570,8 @@ Exploratory exercises. Useful for testing the theory prior to implementation.
 
 - **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
   reduction.
-- **Power-sum intuition:** _LeetCode 2965 (Find Missing and Repeated
-  Values)_[^12]. Recover missing elements via aggregated sums and squares.
+- **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
+  Recover missing elements via aggregated sums and squares.
 - **Recursive partitioning:** _LeetCode 427 (Construct Quad Tree)_[^13] and
   _Codeforces 842D (Vitya and Strange Lesson)_[^14]. Recursive subdivision and
   dynamic prefix-trie routing.
