@@ -339,7 +339,9 @@ Provision extraction capacity from the count residual. In the common one-sided
 lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ and
 $d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
 rate of newly arriving elements relevant to the comparison, and
-$\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds.
+$\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds. The strata
+estimate can guide first-round pre-splitting, but only within the same
+aggregate-capacity budget described in [Scale boundary](#scale-boundary).
 
 $$
 k = \min\left(64,\ \left\lceil 1.5c \right\rceil + 4 +
@@ -383,6 +385,12 @@ aggregate capacity reaches about 82,000 elements under the default profile
 parameters. Larger differences remain structurally addressable if an application
 chooses to raise the round limit or per-round capacity; absent that, they should
 fall back to frame extension or a larger-framed follow-up exchange.
+
+Non-normative implementation note: a peer can use the strata estimate to
+pre-split a first request into a wider antichain when it expects a large but
+still bounded difference. This trades fewer rounds for a larger first exchange,
+but the cap still applies, and bucket load remains probabilistic rather than
+uniform in the face of clustering or skew.
 
 **Scale illustration.** These benchmark points are not protocol upper bounds;
 they show that a large population can still have a small difference and keep the
