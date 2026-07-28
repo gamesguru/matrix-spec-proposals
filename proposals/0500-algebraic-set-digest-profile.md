@@ -378,9 +378,9 @@ The escalation sequence is:
 ### Scale boundary
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
-arbitrary divergence. A Δ ≈ 100,000 case forces very wide first-round fan-out
-under a k = 64 bucket cap, which makes end-to-end extraction expensive even
-though per-bucket decode remains fast. The point is not that reconciliation
+arbitrary divergence. A $d \approx 100,000$ case forces very wide first-round
+fan-out under a k = 64 bucket cap, which makes end-to-end extraction expensive
+even though per-bucket decode remains fast. The point is not that reconciliation
 becomes mathematically impossible, but that the baseline ~82,000 figure reflects
 the default operating point of the profile, not a hard algorithmic ceiling.
 Beyond that point, applications can still choose to spend more round budget or
@@ -495,22 +495,19 @@ policy and rebuild on demand.
 
 ## Alternatives
 
-**Fixed-Capacity Invertible Bloom Lookup Tables (IBLT).** Standard IBLTs are in
-the same group-valued family and offer linear-time decoding. They are rejected
-for the baseline because BCH/PinSketch-style syndromes are significantly more
-compact. An IBLT requires three fields per cell (`count`, `id_sum`, `hash_sum`)
-and typically requires 1.35x to 1.5x more cells than the expected difference
-size to decode successfully. `algebraic_v1` requires exactly one field element
-per unit of capacity, making it both cheaper per exchange and cheaper to
-provision when dynamic tree extraction requests a node's sketch.
+**Fixed-Capacity Invertible Bloom Lookup Tables (IBLT).** Standard IBLTs offer
+linear-time decoding. They are rejected for the baseline because
+BCH/PinSketch-style syndromes are significantly more compact. An IBLT requires
+three fields per cell (`count`, `id_sum`, `hash_sum`) and typically requires
+1.35x to 1.5x more cells than the expected difference size to decode
+successfully. `algebraic_v1` requires exactly one field element per unit of
+capacity, making it both cheaper per exchange and cheaper to provision when
+dynamic tree extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
 capacity up front, but they need their own wire format and a second decoder.
 Dynamic tree extraction reuses PinSketch's decoder and `D(e)` digest with no
 capacity guess.
-
-**Bloom filters.** Rejected. A Bloom filter is a homomorphism into an idempotent
-monoid: it supports membership tests but not subtraction.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
 higher per-update cost. Appropriate where accumulator evidence must be
@@ -520,10 +517,9 @@ are independently verifiable by signature and hash. Left to a future
 
 ## Theoretical Analogies
 
-The reconciliation mechanisms in this profile map to standard algebraic and
-combinatorial ideas. Implementations only need to satisfy the wire format and
-decode contracts, but these analogies explain why the protocol behaves
-predictably at scale.
+The reconciliation mechanisms in this MSC use standard algebraic and
+combinatorial ideas. Implementations need only follow the wire format and decode
+contracts, but these analogies may help understand the protocol.
 
 - **Syndrome sketches and BCH-style power sums:** The extraction layer computes
   an odd-power syndrome map over $\mathbb{F}_{2^{64}}$:
@@ -531,7 +527,7 @@ predictably at scale.
   Even powers are omitted because the Frobenius endomorphism makes them
   redundant in characteristic 2. Recovering the symmetric difference from these
   coordinates is the finite-field analogue of power-sum/root recovery in
-  classical algebra, in the same spirit as Putnam 1968 A6.[^8]
+  classical algebra.[^8]
 
 - **The 128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
   provides fault detection but is explicitly not cryptographically binding. Over
@@ -545,16 +541,15 @@ predictably at scale.
   the search state space remains finite, matching the termination pattern in
   Putnam 2008 A3.[^9]
 
-- **Decode cost bounds:** Decoding a single capacity-$k$ node costs
-  $O(k^2 \log k)$. With per-node capacity capped at $k \le 64$ and failures
-  isolated independently, a difference of size $\Delta$ spread over $n$ nodes
-  yields aggregate decode cost
-  $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$.
+- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log k)$.
+  With per-node capacity capped at $k \le 64$ and failures isolated
+  independently, a difference of size $d$ spread over $n$ nodes has total decode
+  cost $O\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
 
 - **Strata estimation and trailing-zero counting:** The pre-decode estimator
   buckets elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
   modeled as uniformly distributed, the highest nonempty residual stratum gives
-  a compact estimate of `d = \lvert S_A \triangle S_B \rvert`, in the same broad
+  a compact estimate of $d = \lvert S_A \triangle S_B \rvert$, in the same broad
   family as probabilistic counting heuristics.
 
 ### Exploratory implementer materials
@@ -583,11 +578,11 @@ The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
 illustrated by[^10]:
 
 ```text
-mul(0x0000_0000_0000_0000, 0xffff_ffff_ffff_ffff) = 0x0000_0000_0000_0000
-mul(0x0000_0000_0000_0001, 0xffff_ffff_ffff_ffff) = 0xffff_ffff_ffff_ffff
-mul(0x0000_0000_0000_001b, 0x0000_0000_0000_001b) = 0x0000_0000_0000_0145
-mul(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff) = 0x5555_5555_5555_5513
-mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000) = 0xc000_0000_0000_005a
+mul(0x0000_0000_0000_0000, 0xffff_ffff_ffff_ffff)  =  0x0000_0000_0000_0000
+mul(0x0000_0000_0000_0001, 0xffff_ffff_ffff_ffff)  =  0xffff_ffff_ffff_ffff
+mul(0x0000_0000_0000_001b, 0x0000_0000_0000_001b)  =  0x0000_0000_0000_0145
+mul(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff)  =  0x5555_5555_5555_5513
+mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000)  =  0xc000_0000_0000_005a
 ```
 
 ### Legacy event ID (V1 and V2)
@@ -653,8 +648,9 @@ Decoding those bytes round-trips to the same sketch.
 
 ## Dependencies
 
-None. This MSC defines a self-contained primitive. Known consumers:
+None. This MSC defines a self-contained primitive. Possible consumers:
 
+- MSC4242 (State DAGs) — over an index of state events.
 - MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
