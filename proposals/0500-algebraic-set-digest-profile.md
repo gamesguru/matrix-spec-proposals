@@ -92,10 +92,10 @@ for identical input sets. This requirement covers coordinate ordering,
 little-endian encoding, and field arithmetic; any mismatch renders an
 implementation non-conforming, regardless of internal decode success.
 
-This field choice aligns with PinSketch[^1] and the foundational finite-field
-set reconciliation introduced by Minsky, Trachtenberg, and Zippel.[^2] The
-128-bit accumulator layer is a bitwise XOR sum and operates independently of
-this field.
+The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1], but
+the concrete field choice here follows the foundational finite-field set
+reconciliation introduced by Minsky, Trachtenberg, and Zippel.[^2] The 128-bit
+accumulator layer is a bitwise XOR sum and operates independently of this field.
 
 ## Level-0 accumulator
 
