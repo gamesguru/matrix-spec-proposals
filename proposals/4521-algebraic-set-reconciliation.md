@@ -115,12 +115,12 @@ Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
 and update the count. Updates are order-independent and require no state
 rebuilds.
 
-The count residual $c = \bigl||S_A| - |S_B|\bigr|$ yields the exact symmetric
-difference size $d = |S_A \triangle S_B|$ during one-sided divergence (e.g., a
-lagging peer), and in that case $c = d$. Matching digests and counts are
-consistency and fault-detection signals, not an authoritative proof of equality;
-the decoder, frame checks, and population verification remain the source of
-truth.
+The count residual $c = \left\lvert|S_A| - |S_B|\right\rvert$ yields the exact
+symmetric difference size $d = |S_A \triangle S_B|$ during one-sided divergence
+(e.g., a lagging peer), and in that case $c = d$. Matching digests and counts
+are consistency and fault-detection signals, not an authoritative proof of
+equality; the decoder, frame checks, and population verification remain the
+source of truth.
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
@@ -347,12 +347,12 @@ to `algebraic_v1`.
 ## Capacity provisioning
 
 Provision extraction capacity from the count residual. In the common one-sided
-lag case, $c = \bigl||S_A| - |S_B|\bigr|$ and $d = |S_A \triangle S_B|$ are
-equal. Here $r_{\mathrm{obs}}$ is the observed rate of newly arriving elements
-relevant to the comparison, and $\widehat{\mathrm{RTT}}$ is the estimated
-round-trip time in seconds. The strata estimate can guide first-round
-pre-splitting, but only within the same aggregate-capacity budget described in
-[Scalability](#scalability).
+lag case, $c = \left\lvert|S_A| - |S_B|\right\rvert$ and
+$d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
+rate of newly arriving elements relevant to the comparison, and
+$\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds. The strata
+estimate can guide first-round pre-splitting, but only within the same
+aggregate-capacity budget described in [Scalability](#scalability).
 
 $$
 k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +
