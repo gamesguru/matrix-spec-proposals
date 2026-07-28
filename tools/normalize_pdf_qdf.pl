@@ -5,7 +5,7 @@ use warnings;
 my ($infile, $outfile) = @ARGV;
 die "usage: $0 INFILE OUTFILE\n" unless defined $infile && defined $outfile;
 
-open my $in, '<', $infile or die "open($infile): $!";
+open my $in, '<:raw', $infile or die "open($infile): $!";
 local $/;
 my $text = <$in>;
 close $in;
@@ -43,6 +43,6 @@ $text =~ s{
 
 $text =~ s{/ID \[<[^>]+><[^>]+>\]}{/ID [<00000000000000000000000000000000><00000000000000000000000000000000>]}g;
 
-open my $out, '>', $outfile or die "open($outfile): $!";
+open my $out, '>:raw', $outfile or die "open($outfile): $!";
 print {$out} $text;
 close $out;

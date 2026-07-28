@@ -1,9 +1,9 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
 Several federation mechanisms need to know whether two servers hold the same set
-of identifiers, and if not, which ones differ. With a lot of work, this profile
-lets them compute the exact symmetric difference between large populations
-without round-off errors, guaranteed.
+of identifiers, and if not, which ones differ. With a lot of work, this MSC lets
+them compute the exact symmetric difference between large populations without
+any probabilistic errors, guaranteed.
 
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
@@ -11,19 +11,20 @@ other identifier populations. This MSC defines the primitive once, as a named
 digest profile, so consumers can share the field, hash derivation, wire
 encoding, and decode contract instead of rebuilding them from scratch.
 
+`algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
+accumulator into one ladder.
+
 The profile targets differences up to 10,000 elements per exchange in
-populations up to $10^6$, completes in 200 ms, and keeps the initial depth-0
+populations up to $10^7$, completes in 200 ms, and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
 costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes therefore
-costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. Larger differences are a
-frame problem, not a reconciliation problem (see
+costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. The quadratic complexity
+means invertible bloom filters will outscale this MSC asymptotically, but that
+this MSC will dominate at smaller differences (nearly all typical use cases).
+Larger differences are a frame problem, not a reconciliation problem (see
 [Scale boundary](#scale-boundary)); the baseline 20-round, 4096-capacity
-sequence reaches about 82,000 differing elements under the default profile
-parameters.
-
-`algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
-accumulator into one ladder. More capacity extends an exchange; it does not
-restart it.
+sequence reaches about 82,000 differing elements under the default ceiling
+parameters. More capacity extends an exchange; it does not restart it.
 
 ## Scope
 
@@ -110,7 +111,8 @@ $$
 $$
 
 where $\bigoplus$ denotes bitwise XOR over the given elements. The digest is
-serialized as a 16-byte unpadded `base64url` string.
+serialized as 16 big-endian bytes, then encoded as an unpadded `base64url`
+string.
 
 Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
 and update the count. Updates are order-independent and require no state
@@ -124,6 +126,14 @@ and counts over a shared population indicate set equality, modulo negligible
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
+
+**Wire digest test vector.** Big-endian serialization is visible in the byte
+order of this one-hot accumulator value:
+
+```text
+digest: 0x0000_0000_0000_0000_0000_0000_0000_0001
+wire:   AAAAAAAAAAAAAAAAAAAAAQ
+```
 
 ## Syndrome sketch
 
