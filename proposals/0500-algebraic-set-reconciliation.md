@@ -1,7 +1,5 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
-<!-- Edit marker. [48004bade] -->
-
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. With a lot of work, this MSC lets
 them compute the exact symmetric difference between large populations without
@@ -11,8 +9,8 @@ synchronization.
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
 other identifier populations. This MSC defines the primitive once, as a named
-digest profile, so consumers can share the field, hash derivation, wire
-encoding, and decode contract instead of rebuilding them from scratch.
+digest profile, so that consumers can share the field, hash derivation, wire
+encoding, and decoding contract instead of rebuilding them from scratch.
 
 `algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder.
@@ -41,6 +39,8 @@ authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
 
 ## Element derivation
+
+<!-- Edit marker. [0ce42be35] -->
 
 The profile operates over a set `S` of opaque elements. Each consumer MUST map
 every element to a canonical 32-byte digest before applying this profile.
@@ -320,12 +320,12 @@ below for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
-missing even syndromes are implied by the Frobenius endomorphism in
-characteristic 2. Implementations MAY use Berlekamp-Massey or an equivalent
-recurrence solver to derive a locator polynomial of degree at most `k`. If the
-observed syndromes are inconsistent with any such polynomial, or if root
-searching does not produce a consistent set of roots, decoding fails and the
-caller MAY split the node and retry at a smaller prefix.
+missing even syndromes are derived or implied. Implementations MAY use
+Berlekamp-Massey or an equivalent recurrence solver to derive a locator
+polynomial of degree at most `k`. If the observed syndromes are inconsistent
+with any such polynomial, or if root searching does not produce a consistent set
+of roots, decoding fails, and the caller MAY split the node and retry at a
+smaller prefix.
 
 ## Security considerations
 
@@ -497,7 +497,7 @@ and trigger dynamic tree extraction more often than necessary. Unlike a rateless
 encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
-population sizes in scope this is rare, and the 128-bit verification step
+population sizes in scope, this is rare, and the 128-bit verification step
 catches the resulting bad decode, but it does mean a decode can fail for reasons
 unrelated to capacity. Implementations MUST NOT interpret repeated verification
 failure at adequate capacity as evidence of peer misbehavior without further
@@ -569,7 +569,7 @@ contracts, but these analogies may help understand the protocol.
 
 ### Exploratory implementer materials
 
-Exploratory exercises. Useful for testing the theory prior to implementation.
+Exploratory exercises. Useful for testing the theory, before implementation.
 
 - **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
   reduction.
@@ -731,11 +731,11 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
     <https://kskedlaya.org/putnam-archive/2008.pdf>
 
 [^10]:
-    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b),
-    example implementation with tests.
+    Example Rust implementation with tests:
+    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b).
 
-    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/80fd84afc763f1812f548410a66511837bd84afc/reconcile/algebraic.go),
-    2nd example implementation
+    Non-optimized example implementation in Golang:
+    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/80fd84afc763f1812f548410a66511837bd84afc/reconcile/algebraic.go).
 
 [^11]:
     LeetCode 260, Medium, _Single Number III_:
