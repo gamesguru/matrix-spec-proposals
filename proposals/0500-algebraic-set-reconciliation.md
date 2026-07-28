@@ -5,7 +5,8 @@
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. With a lot of work, this MSC lets
 them compute the exact symmetric difference between large populations without
-any probabilistic errors, guaranteed.
+any probabilistic errors, guaranteed. This MSC helps ensure network
+synchronization.
 
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
@@ -24,9 +25,9 @@ therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. The quadratic
 complexity means invertible bloom filters will outscale this MSC asymptotically,
 but this MSC will dominate at smaller differences (nearly all typical use
 cases). Larger differences are a frame problem, not a reconciliation problem
-(see [Scale boundary](#scale-boundary)); the baseline 20-round, 4096-capacity
-sequence reaches about 82,000 differing elements under the default ceiling
-parameters. More capacity extends a round; it does not restart it.
+(see [Scalability](#scalability)); the baseline 20-round, 4096-capacity sequence
+reaches about 82,000 differing elements under the default ceiling parameters.
+More capacity extends a round; it does not restart it.
 
 ## Scope
 
@@ -352,7 +353,7 @@ $d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
 rate of newly arriving elements relevant to the comparison, and
 $\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds. The strata
 estimate can guide first-round pre-splitting, but only within the same
-aggregate-capacity budget described in [Scale boundary](#scale-boundary).
+aggregate-capacity budget described in [Scalability](#scalability).
 
 $$
 k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +
@@ -386,7 +387,7 @@ The escalation sequence is:
    depth, treat it as a frame problem rather than a reconciliation problem — see
    the scale boundary section below.
 
-### Scale boundary
+### Scalability
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. A $d \approx 100,000$ case forces very wide first-round
@@ -652,6 +653,8 @@ Decoding those bytes round-trips to the same sketch.
 For capacity 32, toggling `0x1234` and `0x5678` encodes to the little-endian
 syndrome bytes before `base64url` encoding:
 
+<!-- markdownlint-disable MD013 -->
+
 ```text
 4C 44 00 00 00 00 00 00 40 41 96 BE 27 05 00 00 2A B3 F9 7D 92 3C 1E 3C 54 62 CC DE 5C 10 6F D7
 41 74 56 42 69 A2 F2 78 FF C2 11 6D 45 E4 B3 EA AF 36 62 67 C8 E7 2A 94 6C FF 33 8A 89 B4 5B 6F
@@ -662,6 +665,8 @@ B4 DF 33 7D FF E2 5F 40 74 F1 74 59 F3 06 AC CC 61 09 E4 F1 3C BE 9C 87 F1 24 2D
 F0 42 9C 7D 60 B9 88 3D 03 11 6A E0 75 A5 65 C6 53 DE 08 70 D5 99 56 BE F2 B7 5A 02 0E BA B8 00
 FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0 84 F2 75 1B 41
 ```
+
+<!-- markdownlint-enable MD013 -->
 
 ## Unstable prefix
 
@@ -727,7 +732,10 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 
 [^10]:
     [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b),
-    example implementation with tests
+    example implementation with tests.
+
+    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/80fd84afc763f1812f548410a66511837bd84afc/reconcile/algebraic.go),
+    2nd example implementation
 
 [^11]:
     LeetCode 260, Medium, _Single Number III_:
