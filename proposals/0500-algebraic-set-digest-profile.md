@@ -1,16 +1,18 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
 Several federation mechanisms need to know whether two servers hold the same set
-of identifiers, and if not, which ones differ. Some consumers need it over a
-room's known event or resolved state set; others may use it to synchronize key
-IDs between notaries, or for ephemeral or other identifier populations.
+of identifiers, and if not, which ones differ. With a lot of work, this profile
+lets them compute the exact symmetric difference between large populations
+without round-off errors, guaranteed.
 
-This MSC defines that primitive once, as a named digest profile, so that
-consumers reference a field, a hash derivation, a wire encoding, and a decode
-contract rather than building them from scratch each time.
+Some consumers need that over a room's known event or resolved state set; others
+use it to synchronize key IDs between notaries, or to reconcile ephemeral and
+other identifier populations. This MSC defines the primitive once, as a named
+digest profile, so consumers can share the field, hash derivation, wire
+encoding, and decode contract instead of rebuilding them from scratch.
 
 The profile targets differences up to 10,000 elements per exchange in
-populations up to $10^6$, completes in 200 ms and keeps the initial depth-0
+populations up to $10^6$, completes in 200 ms, and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
 costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes therefore
 costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. Larger differences are a
@@ -578,11 +580,11 @@ The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
 illustrated by[^10]:
 
 ```text
-mul(0x0000_0000_0000_0000, 0xffff_ffff_ffff_ffff)  =  0x0000_0000_0000_0000
-mul(0x0000_0000_0000_0001, 0xffff_ffff_ffff_ffff)  =  0xffff_ffff_ffff_ffff
-mul(0x0000_0000_0000_001b, 0x0000_0000_0000_001b)  =  0x0000_0000_0000_0145
-mul(0xffff_ffff_ffff_ffff, 0xffff_ffff_ffff_ffff)  =  0x5555_5555_5555_5513
-mul(0x8000_0000_0000_0000, 0x8000_0000_0000_0000)  =  0xc000_0000_0000_005a
+mul(0x0000_0000_0000_0000  ×  0xffff_ffff_ffff_ffff)  =  0x0000_0000_0000_0000
+mul(0x0000_0000_0000_0001  ×  0xffff_ffff_ffff_ffff)  =  0xffff_ffff_ffff_ffff
+mul(0x0000_0000_0000_001b  ×  0x0000_0000_0000_001b)  =  0x0000_0000_0000_0145
+mul(0xffff_ffff_ffff_ffff  ×  0xffff_ffff_ffff_ffff)  =  0x5555_5555_5555_5513
+mul(0x8000_0000_0000_0000  ×  0x8000_0000_0000_0000)  =  0xc000_0000_0000_005a
 ```
 
 ### Legacy event ID (V1 and V2)
