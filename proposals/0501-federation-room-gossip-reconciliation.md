@@ -647,7 +647,7 @@ verified against the 128-bit accumulator per MSC0500, not inferred from graph
 structure, so there is nothing analogous to a probabilistic fallback's
 extremity-convergence requirement.
 
-The requester SHOULD use the strata-estimated `Δ̂` from `room_digest` to size the
+The requester SHOULD use the strata-estimated `d̂` from `room_digest` to size the
 initial depth-0 request's _capacity_ (bounded by the per-entry cap of 32, above)
 — not its depth. This spec always starts a `sketch` exchange at depth 0 and
 splits one level at a time on `capacity_exceeded`. This is an efficiency choice,
@@ -659,34 +659,34 @@ exactly the trigger for the next split, not a lost result.
 per-branch depth count understates it.** Each round is capacity-bounded: the
 aggregate cap (4096) limits any single round to at most `4096 / 32 = 128` new
 node-decodes. A node only stops needing further splitting once its local count
-is ≤32, so fully localizing a difference of size `Δ` requires roughly `Δ / 32`
+is ≤32, so fully localizing a difference of size `d` requires roughly `d / 32`
 successful node-decodes in total — and at most 128 of those fit in one round.
-That gives a round-count floor of `Δ / 4096`, independent of how many depth
-levels are involved: **~123 rounds at `Δ = 500,000`, ~2,442 at
-`Δ = 10,000,000`.** A depth count alone (`log2(Δ/32)` ≈ 14 and ≈18 respectively)
+That gives a round-count floor of `d / 4096`, independent of how many depth
+levels are involved: **~123 rounds at `d = 500,000`, ~2,442 at
+`d = 10,000,000`.** A depth count alone (`log2(d/32)` ≈ 14 and ≈18 respectively)
 understates this badly: it only holds while the frontier is narrower than the
 aggregate cap allows, which stops being true once the frontier passes 128 nodes
 — around depth 7. Each round is gated on the previous response, so at typical
 federation RTT (50–200 ms) this is many seconds to tens of seconds for the
 differences dynamic tree extraction is meant to handle.
 
-Choosing a smarter starting depth from `Δ̂` cannot fix this: the best a different
+Choosing a smarter starting depth from `d̂` cannot fix this: the best a different
 starting point can do is skip the ramp-up below the 128-node aggregate ceiling —
 at most ~7 rounds, against a floor already in the hundreds. The floor is a
 throughput bound (total decodes ÷ per-round decode cap), not a latency bound
 (how many depth levels are walked), and no starting-depth choice changes total
-decode throughput. This spec therefore does not define Δ̂-driven initial depth:
+decode throughput. This spec therefore does not define d̂-driven initial depth:
 the ~7-round saving it could offer is not worth the added spec surface against a
 floor it cannot move.
 
 **The floor implies a hard precondition, not just a documented cost.**
-`Δ̂ × per_node_cap` rounds are needed regardless of strategy, so a requester
-whose round budget cannot cover `Δ̂` MUST NOT begin a `sketch` exchange for that
-difference at all. Concretely: a requester MUST compare `Δ̂` (or the exact count
+`d̂ × per_node_cap` rounds are needed regardless of strategy, so a requester
+whose round budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that
+difference at all. Concretely: a requester MUST compare `d̂` (or the exact count
 residual `c`, if available) against `round_cap * 4096` — using this MSC's round
 cap of 20 (see "Amplification via oversized sketches," below), that ceiling is
 **~82,000 elements** — and MUST route to `extremity` mode, backfill, or frame
-extension instead of `sketch` mode when `Δ̂` exceeds it. This is the load-bearing
+extension instead of `sketch` mode when `d̂` exceeds it. This is the load-bearing
 check: it stops a peer from starting a round sequence it cannot finish, rather
 than letting it discover that dozens of rounds in. See "Scope" in MSC0500 for
 the corresponding profile-level guidance.
@@ -1072,7 +1072,7 @@ arbitrary: it is the same `round_cap * 4096 ≈ 82,000`-element ceiling that
 "sketch mode," above, derives from decode throughput, restated here as the
 enforcement side of that MUST NOT precondition. A well-behaved requester never
 reaches this cap, because it already refused to start past the same ceiling;
-this bound exists for peers that skip that check or misestimate `Δ̂`.
+this bound exists for peers that skip that check or misestimate `d̂`.
 
 ### Depth manipulation
 
