@@ -32,13 +32,15 @@ $text =~ s{
 	(?:-(Identity-[HV]|UTF16))?
 	\b
 }{
+	my $source_prefix = $1;
 	my $full = $2;
 	my $suffix = defined($3) ? "-$3" : "";
 	my $core = $full;
 	$core =~ s/-(?:Identity-[HV]|UTF16)$//;
 
-	$font_prefix{$core} //= stable_prefix($next_prefix++);
-	$font_prefix{$core} . '+' . $core . $suffix;
+	my $font_key = "$source_prefix+$core";
+	$font_prefix{$font_key} //= stable_prefix($next_prefix++);
+	$font_prefix{$font_key} . '+' . $core . $suffix;
 }gex;
 
 $text =~ s{/ID \[<[^>]+><[^>]+>\]}{/ID [<00000000000000000000000000000000><00000000000000000000000000000000>]}g;
