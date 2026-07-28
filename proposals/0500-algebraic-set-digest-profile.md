@@ -62,10 +62,10 @@ For Matrix event-ID populations, `D(e)` is derived based on the room version:
 
 - **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
   digest of the UTF-8 event-ID string.
-- **Room version 3**: Strip the leading `$` byte and decode the remaining 32
-  bytes as unpadded standard Base64.
+- **Room version 3**: Strip the leading `$` byte and decode the remaining
+  unpadded standard Base64 payload.
 - **Room versions 4 and later**: Strip the leading `$` byte and decode the
-  remaining 32 bytes as unpadded URL-safe Base64.
+  remaining unpadded URL-safe Base64 payload.
 
 Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
 the event-ID string or exclude the event from the population. This profile does
@@ -399,12 +399,12 @@ core algorithm cost nearly flat while setup scales with the resident set size.
 
 <!-- markdownlint-disable MD013 -->
 
-| Population | Difference        | Setup (ms) | Algo (ms) | Interpretation                     |
-| ---------- | ----------------- | ---------: | --------: | ---------------------------------- |
-| 50,000     | +2,100/-1,900     |       9.94 |      1.78 | small set, small difference        |
-| 100,000    | +5,000/-4,000     |      19.28 |      1.79 | larger set, still small difference |
-| 1,000,000  | +10,000/-9,000    |     206.49 |      1.77 | large set, small difference        |
-| 10,000,000 | +500,000/-400,000 |    2668.61 |      1.85 | very large set, setup dominates    |
+| Population | Difference        | Setup (ms) | Algo (ms) | Interpretation                         |
+| ---------- | ----------------- | ---------: | --------: | -------------------------------------- |
+| 50,000     | +2,100/-1,900     |       6.25 |      1.80 | small population, small absolute diff  |
+| 100,000    | +5,000/-4,000     |      12.89 |      1.44 | larger population, small absolute diff |
+| 1,000,000  | +10,000/-9,000    |     123.93 |      2.26 | large population, small absolute diff  |
+| 10,000,000 | +500,000/-400,000 |    1282.86 |      1.44 | very large population, setup dominates |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -596,8 +596,8 @@ h64:    0x2633_a203_7c72_be2c
 
 ### V3 event ID
 
-For a version 3 event ID, decoding `$<unpadded standard base64 of 32 bytes>`
-recovers `D(e)` directly.
+For room version 3, strip the leading `$` and decode the remaining unpadded
+standard Base64 payload to recover `D(e)`.
 
 ```text
 input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
@@ -605,10 +605,10 @@ h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
 h64:    0xfbfb_fbfb_fbfb_fbfb
 ```
 
+### V4+ event ID
+
 For room version 4 and later, the leading `$` is stripped before decoding the
 remaining unpadded URL-safe base64 payload.
-
-### V4+ event ID
 
 ```text
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
@@ -646,9 +646,7 @@ Decoding those bytes round-trips to the same sketch.
 
 <!-- markdownlint-enable MD013 -->
 
-## Dependencies
-
-None. This MSC defines a self-contained primitive. Possible consumers:
+## Possible consumers
 
 - MSC4242 (State DAGs) — over an index of state events.
 - MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
