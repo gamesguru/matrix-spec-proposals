@@ -378,13 +378,14 @@ The escalation sequence is:
 ### Scale boundary
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
-arbitrary divergence. It is round-limited rather than log-limited: once the
-search frontier outruns a round's capacity, the cost is about $d/c$ rounds,
-where `c` is the aggregate capacity, and a 20-round cap with this profile's 4096
-aggregate capacity reaches about 82,000 elements under the default profile
-parameters. Larger differences remain structurally addressable if an application
-chooses to raise the round limit or per-round capacity; absent that, they should
-fall back to frame extension or a larger-framed follow-up exchange.
+arbitrary divergence. A Δ ≈ 100,000 case forces very wide first-round fan-out
+under a k = 64 bucket cap, which makes end-to-end extraction expensive even
+though per-bucket decode remains fast. The point is not that reconciliation
+becomes mathematically impossible, but that the baseline ~82,000 figure reflects
+the default operating point of the profile, not a hard algorithmic ceiling.
+Beyond that point, applications can still choose to spend more round budget or
+per-round capacity, while truly structural divergence should fall back to
+frame/DAG alignment.
 
 Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
