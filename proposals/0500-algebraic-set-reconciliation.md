@@ -16,17 +16,17 @@ encoding, and decode contract instead of rebuilding them from scratch.
 `algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder.
 
-The profile targets differences up to 10,000 elements per exchange in
-populations up to $10^7$, completes in 200 ms, and keeps the initial depth-0
-sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
-costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes therefore
-costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. The quadratic complexity
-means invertible bloom filters will outscale this MSC asymptotically, but that
-this MSC will dominate at smaller differences (nearly all typical use cases).
-Larger differences are a frame problem, not a reconciliation problem (see
-[Scale boundary](#scale-boundary)); the baseline 20-round, 4096-capacity
+The profile targets differences up to 4,096 elements per round in populations up
+to $10^7$, keeps the initial depth-0 sketch under 256 B, and keeps a fully
+saturated round under 32 KiB, excluding object payloads. Decoding a capacity-`k`
+node costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes
+therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. The quadratic
+complexity means invertible bloom filters will outscale this MSC asymptotically,
+but this MSC will dominate at smaller differences (nearly all typical use
+cases). Larger differences are a frame problem, not a reconciliation problem
+(see [Scale boundary](#scale-boundary)); the baseline 20-round, 4096-capacity
 sequence reaches about 82,000 differing elements under the default ceiling
-parameters. More capacity extends an exchange; it does not restart it.
+parameters. More capacity extends a round; it does not restart it.
 
 ## Scope
 
@@ -55,9 +55,10 @@ byte order (big-endian):
 - **$h_{64}(e)$ (64-bit field element):** Scan `D(e)` in four 8-byte big-endian
   chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
   unsigned 64-bit integer, or `1` if all four chunks are zero.
-- **$h_{128}(e)$ (128-bit accumulator element):** Scan `D(e)` in two 16-byte
-  big-endian chunks. $h_{128}(e)$ MUST be the first non-zero chunk interpreted
-  as an unsigned 128-bit integer, or `1` if both chunks are zero.
+- **$h_{128}(e)$ (128-bit accumulator element):** Take the first 16 bytes of
+  `D(e)` as an unsigned 128-bit big-endian integer. Zero is permitted here; the
+  accumulator is a plain XOR sum, so it does not need the $h_{64}$ non-zero
+  fallback.
 
 ### Matrix event-ID binding
 
@@ -83,23 +84,19 @@ $$
 \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
-| Bit index | Coefficient |
-| --------- | ----------- |
-| `0`       | $x^0$       |
-| `2`       | $x^2$       |
-| `3`       | $x^3$       |
-| `4`       | $x^4$       |
-| `63`      | $x^{63}$    |
+Bit `i` is the coefficient of $x^i$; bit `0` is the least-significant bit and
+bit `63` the most-significant bit.
 
 Sketches MUST be byte-for-byte compatible with `libminisketch` at field size 64
 for identical input sets. This requirement covers coordinate ordering,
 little-endian encoding, and field arithmetic; any mismatch renders an
 implementation non-conforming, regardless of internal decode success.
 
-The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1], but
-the concrete field choice here follows the foundational finite-field set
-reconciliation introduced by Minsky, Trachtenberg, and Zippel.[^2] The 128-bit
-accumulator layer is a bitwise XOR sum and operates independently of this field.
+The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1]. The
+syndrome construction is PinSketch; the field and reduction polynomial follow
+`libminisketch`.[^7] Finite-field set reconciliation originates with Minsky,
+Trachtenberg, and Zippel.[^2] The 128-bit accumulator layer is a bitwise XOR sum
+and operates independently of this field.
 
 ## Level-0 accumulator
 
@@ -120,9 +117,10 @@ rebuilds.
 
 The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ yields the
 exact symmetric difference size $d = |S_A \triangle S_B|$ during one-sided
-divergence (e.g., a lagging peer), and in that case $c = d$. Identical digests
-and counts over a shared population indicate set equality, modulo negligible
-128-bit hash collision probability.
+divergence (e.g., a lagging peer), and in that case $c = d$. Matching digests
+and counts are a consistency and fault-detection signal, not an authoritative
+proof of equality; the decoder, frame checks, and population verification remain
+the source of truth.
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
@@ -256,8 +254,9 @@ narrows the candidate population to the prefix that still overflows.
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
-difference sizing. Consumers that expose the estimator in their wire contract
-define whether it is optional; MSC0501 requires all 32 entries in `room_digest`.
+difference sizing. MSC0501 requires all 32 entries in `room_digest`; other
+consumers MAY treat the estimator as a local recommendation if they expose it at
+all.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
@@ -396,8 +395,8 @@ even though per-bucket decode remains fast. The point is not that reconciliation
 becomes mathematically impossible, but that the baseline ~82,000 figure reflects
 the default operating point of the profile, not a hard algorithmic ceiling.
 Beyond that point, applications can still choose to spend more round budget or
-per-round capacity, while truly structural divergence should fall back to
-frame/DAG alignment.
+per-round capacity, while truly structural divergence should switch to frame/DAG
+alignment.
 
 Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
@@ -408,15 +407,17 @@ uniform in the face of clustering or skew.
 **Scale illustration.** These benchmark points are not protocol upper bounds;
 they show that a large population can still have a small difference and keep the
 core algorithm cost nearly flat while setup scales with the resident set size.
+The `Bookkeeping` column measures resident accumulator and strata work only; no
+extraction or decode occurs in these numbers.
 
 <!-- markdownlint-disable MD013 -->
 
-| Population | Difference        | Setup (ms) | Algo (ms) | Interpretation                         |
-| ---------- | ----------------- | ---------: | --------: | -------------------------------------- |
-| 50,000     | +2,100/-1,900     |       6.25 |      1.80 | small population, small absolute diff  |
-| 100,000    | +5,000/-4,000     |      12.89 |      1.44 | larger population, small absolute diff |
-| 1,000,000  | +10,000/-9,000    |     123.93 |      2.26 | large population, small absolute diff  |
-| 10,000,000 | +500,000/-400,000 |    1282.86 |      1.44 | very large population, setup dominates |
+| Population | Difference        | Setup (ms) | Bookkeeping (ms) | Interpretation                         |
+| ---------- | ----------------- | ---------: | ---------------: | -------------------------------------- |
+| 50,000     | +2,100/-1,900     |       6.25 |             1.80 | small population, small absolute diff  |
+| 100,000    | +5,000/-4,000     |      12.89 |             1.44 | larger population, small absolute diff |
+| 1,000,000  | +10,000/-9,000    |     123.93 |             2.26 | large population, small absolute diff  |
+| 10,000,000 | +500,000/-400,000 |    1282.86 |             1.44 | very large population, setup dominates |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -460,7 +461,8 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization and protocol requirement.
+The strata estimator is an optimization; MSC0501 requires it in `room_digest`,
+while other consumers MAY treat it as a local recommendation.
 
 ## Advertisement
 
@@ -490,8 +492,8 @@ no defined meaning and must fail at negotiation rather than at decode.
 **Fixed capacity caps.** The 4096 aggregate cap is conservative and chosen for
 the small one-sided differences expected to dominate normal federation repair.
 Populations with routinely large or heavy-tailed differences will hit the cap
-and fall back to dynamic tree extraction more often than necessary. Unlike a
-rateless encoding, tree extraction requires no second decoder.
+and trigger dynamic tree extraction more often than necessary. Unlike a rateless
+encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
 population sizes in scope this is rare, and the 128-bit verification step
