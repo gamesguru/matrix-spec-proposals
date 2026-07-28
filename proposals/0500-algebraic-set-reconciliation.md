@@ -1,10 +1,9 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
-Several federation mechanisms need to know whether two servers hold the same set
-of identifiers, and if not, which ones differ. With a lot of work, this MSC lets
-them compute the exact symmetric difference between large populations without
-any probabilistic errors, guaranteed. This MSC helps ensure network
-synchronization.
+Several federation mechanisms need to know whether two servers contain the same
+set of identifiers. With a lot of work, this MSC lets them compute the exact
+symmetric difference between large populations, without any probabilistic
+errors. This MSC helps ensure network synchronization.
 
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
@@ -19,9 +18,9 @@ The profile targets differences up to 4,096 elements per round in populations up
 to $10^7$, keeps the initial depth-0 sketch under 256 B, and keeps a fully
 saturated round under 32 KiB, excluding object payloads. Decoding a capacity-`k`
 node costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes
-therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. The quadratic
-complexity means invertible bloom filters will outscale this MSC asymptotically,
-but this MSC will dominate at smaller differences (nearly all typical use
+therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. Quadratic
+complexity means that invertible bloom filters will outscale this MSC
+asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
 cases). Larger differences are a frame problem, not a reconciliation problem
 (see [Scalability](#scalability)); the baseline 20-round, 4096-capacity sequence
 reaches about 82,000 differing elements under the default ceiling parameters.
@@ -108,7 +107,7 @@ $$
 \end{aligned}
 $$
 
-where $\bigoplus$ denotes bitwise XOR over the given elements. The digest is
+where $\bigoplus$ denotes bitwise XOR over the given elements; the digest is
 serialized as 16 big-endian bytes, then encoded as an unpadded `base64url`
 string.
 
@@ -119,7 +118,7 @@ rebuilds.
 The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ yields the
 exact symmetric difference size $d = |S_A \triangle S_B|$ during one-sided
 divergence (e.g., a lagging peer), and in that case $c = d$. Matching digests
-and counts are a consistency and fault-detection signal, not an authoritative
+and counts are consistency and fault-detection signals, not an authoritative
 proof of equality; the decoder, frame checks, and population verification remain
 the source of truth.
 
@@ -165,7 +164,7 @@ over-capacity exchange to be extended additively rather than restarted.
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
-is localized by recursive binary subdivision instead of a fixed partition.
+is localized via recursive binary subdivision (instead of a fixed partition).
 
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
 element belongs to node `prefix` if and only if the most-significant `d` bits of
@@ -176,8 +175,8 @@ wide. If a node still overflows at its requested capacity, the peer that detects
 the failure requests two child sketches at `depth + 1`, for prefixes
 `2 * prefix` and `2 * prefix + 1`. A child that still overflows is split again.
 A node that still overflows at `depth = 32` MUST NOT be split further; the peer
-that detects the failure MUST report failure for that prefix and let the
-consuming protocol retry with a larger frame or a different reconciliation
+that detects the failure MUST report failure for that prefix and allow the
+consuming protocol to retry with a larger frame or a different reconciliation
 mechanism. The recursion terminates: each split reduces node population weakly,
 depth is bounded at 32, and a node still overflowing at the cap is reported
 rather than split further.
@@ -242,7 +241,7 @@ identifiers ordered by `h_64`, so that a node's element subset is a range slice
 — $O(\log n)$ to locate plus the slice size — not a full-population scan. This
 index holds only identifiers and `h_64` keys, not precomputed syndromes; it is
 far cheaper than the resident per-node syndrome structure a fixed partition
-would require (see "Resident structure"), and unlike that structure it serves
+would require (see "Resident structure") — and unlike that structure it serves
 every depth, not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
@@ -288,7 +287,7 @@ A server MUST NOT estimate or subtract across differing frames; the estimator
 MUST NOT substitute for or override frame validation.
 
 In other words, the estimator chooses a likely starting capacity; it does not
-decide whether the comparison is correct, and it does not replace decoding or
+determine whether the comparison is correct, nor does it replace decoding or
 tree splitting.
 
 ## Decode and verification
@@ -314,16 +313,16 @@ The peer resolves the short IDs it holds, computes $A(L)$, and compares against
 result MUST be discarded.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
-Each side asymmetrically verifies the half it can resolve, and the residual
-carries the other half. See [Security considerations](#security-considerations)
-below for adversarial limits.
+Each side asymmetrically verifies the half it can resolve, the residual carrying
+the other half. See [Security considerations](#security-considerations) below
+for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
 missing even syndromes are derived or implied. Implementations MAY use
 Berlekamp-Massey or an equivalent recurrence solver to derive a locator
 polynomial of degree at most `k`. If the observed syndromes are inconsistent
-with any such polynomial, or if root searching does not produce a consistent set
+with any such polynomial, or if root searching fails to produce a consistent set
 of roots, decoding fails, and the caller MAY split the node and retry at a
 smaller prefix.
 
@@ -367,7 +366,7 @@ concurrently during the round trip.
 If the unclamped value exceeds 32, the profile uses tree extraction rather than
 a single depth-0 request.
 
-If decode fails at `k`, retry at larger `k` up to the cap, or split into
+If decode fails at `k`, retry a larger `k` up to the cap, or split into
 dynamic-tree children to localize a two-sided difference. Because sketches
 subtract, a retry at higher capacity is a continuation of the same comparison,
 not a restart. Additive extension is valid only when the syndrome coordinates
@@ -390,14 +389,14 @@ The escalation sequence is:
 ### Scalability
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
-arbitrary divergence. A $d \approx 100,000$ case forces very wide first-round
-fan-out under a k = 32 bucket cap, which makes end-to-end extraction expensive
-even though per-bucket decode remains fast. The point is not that reconciliation
-becomes mathematically impossible, but that the baseline ~82,000 figure reflects
-the default operating point of the profile, not a hard algorithmic ceiling.
-Beyond that point, applications can still choose to spend more round budget or
-per-round capacity, while truly structural divergence should switch to frame/DAG
-alignment.
+arbitrary divergence. A value of $d \approx 100,000$ forces very wide
+first-round fan-out under a k = 32 bucket cap, which makes end-to-end extraction
+expensive even though per-bucket decode remains fast. The point is not that
+reconciliation becomes mathematically impossible, but that the baseline ~82,000
+figure reflects the MSC’s default operating point (not a hard algorithmic
+ceiling). Beyond that point, applications can still choose to spend more round
+budget or per-round capacity, while truly structural divergence should switch to
+frame/DAG alignment.
 
 Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
@@ -454,8 +453,8 @@ In characteristic 2, insertion and removal are the same XOR operation, so no
 separate deletion path is needed.
 
 This update path is the operational side of the same BCH/PinSketch machinery and
-is the reason the profile can stay fully additive while still supporting
-pre-decode sizing.
+is why the profile remains fully additive while still supporting pre-decode
+sizing.
 
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
@@ -483,10 +482,10 @@ Dynamic tree extraction is part of `algebraic_v1` itself, not a separate
 and their recursive refinement under the same flag, since both use the same
 field, hash derivation, and decoder.
 
-A future profile that changes the field, the hash derivation, the coordinate
-ordering, or the capacity caps MUST use a new `digest_type` name. Profiles are
-not versioned in place, because a comparison between two different profiles has
-no defined meaning and must fail at negotiation rather than at decode.
+A future profile that changes the field, hash derivation, coordinate ordering,
+or capacity caps MUST use a new `digest_type` name. Profiles are not versioned
+in place because a comparison between two different profiles has no defined
+meaning and must fail at negotiation rather than at decode.
 
 ## Potential issues
 
@@ -498,10 +497,9 @@ encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
 population sizes in scope, this is rare, and the 128-bit verification step
-catches the resulting bad decode, but it does mean a decode can fail for reasons
-unrelated to capacity. Implementations MUST NOT interpret repeated verification
-failure at adequate capacity as evidence of peer misbehavior without further
-diagnosis.
+catches the resulting bad decode, but a decode can fail for reasons unrelated to
+capacity. Implementations MUST NOT interpret repeated verification failure at
+adequate capacity as evidence of peer misbehavior without further diagnosis.
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -514,14 +512,14 @@ policy and rebuild on demand.
 linear-time decoding. They are rejected for the baseline because
 BCH/PinSketch-style syndromes are significantly more compact. An IBLT requires
 three fields per cell (`count`, `id_sum`, `hash_sum`) and typically requires
-1.35x to 1.5x more cells than the expected difference size to decode
-successfully. `algebraic_v1` requires exactly one field element per unit of
-capacity, making it both cheaper per exchange and cheaper to provision when
-dynamic tree extraction requests a node's sketch.
+1.35x to 1.5x the cells as the expected difference size to decode successfully.
+`algebraic_v1` requires exactly one field element per unit of capacity, making
+it both cheaper per exchange and cheaper to provision when dynamic tree
+extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
 capacity up front, but they need their own wire format and a second decoder.
-Dynamic tree extraction reuses PinSketch's decoder and `D(e)` digest with no
+Dynamic tree extraction reuses PinSketch's decoder and `D(e)` digest without a
 capacity guess.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
@@ -569,7 +567,7 @@ contracts, but these analogies may help understand the protocol.
 
 ### Exploratory implementer materials
 
-Exploratory exercises. Useful for testing the theory, before implementation.
+Exploratory exercises. Useful for testing the theory before implementation.
 
 - **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
   reduction.
