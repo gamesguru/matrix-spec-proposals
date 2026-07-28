@@ -1,5 +1,7 @@
 # MSC0500: Adaptive Set Reconciliation via PinSketch
 
+<!-- Edit marker. [48004bade] -->
+
 Several federation mechanisms need to know whether two servers hold the same set
 of identifiers, and if not, which ones differ. With a lot of work, this MSC lets
 them compute the exact symmetric difference between large populations without
@@ -38,8 +40,6 @@ authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
 
 ## Element derivation
-
-<!-- Edit marker. [251be5f30] -->
 
 The profile operates over a set `S` of opaque elements. Each consumer MUST map
 every element to a canonical 32-byte digest before applying this profile.
@@ -665,7 +665,7 @@ Decoding those bytes round-trips to the same sketch.
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
 
-<!-- Reverse edit marker. [251be5f30] -->
+<!-- Reverse edit marker. [48004bade] -->
 
 <!-- ## References -->
 
