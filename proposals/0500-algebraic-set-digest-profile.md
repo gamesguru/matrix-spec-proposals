@@ -12,11 +12,12 @@ contract rather than building them from scratch each time.
 The profile targets differences up to 10,000 elements per exchange in
 populations up to $10^6$, completes in 200 ms and keeps the initial depth-0
 sketch under 25 KiB, excluding object payloads. Decoding a capacity-`k` node
-costs $O(k^2 \log k)$. A difference of size $\Delta$ spread over `n` nodes
-therefore costs $O\!\left(\frac{\Delta^2}{n}\log\frac{\Delta}{n}\right)$. Larger
-differences are a frame problem, not a reconciliation problem (see
-[Scale boundary](#scale-boundary)); the capped round sequence extends the
-exchange ceiling to about 82,000 differing elements.
+costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes therefore
+costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. Larger differences are a
+frame problem, not a reconciliation problem (see
+[Scale boundary](#scale-boundary)); the baseline 20-round, 4096-capacity
+sequence reaches about 82,000 differing elements under the default profile
+parameters.
 
 `algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder. More capacity extends an exchange; it does not
@@ -113,10 +114,11 @@ Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
 and update the count. Updates are order-independent and require no state
 rebuilds.
 
-The count residual $c = \bigl||S_A| - |S_B|\bigr|$ yields the exact symmetric
-difference size $|S_A \triangle S_B|$ during one-sided divergence (e.g., a
-lagging peer). Identical digests and counts over a shared population indicate
-set equality, modulo negligible 128-bit hash collision probability.
+The count residual $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ yields the
+exact symmetric difference size $d = |S_A \triangle S_B|$ during one-sided
+divergence (e.g., a lagging peer), and in that case $c = d$. Identical digests
+and counts over a shared population indicate set equality, modulo negligible
+128-bit hash collision probability.
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
@@ -226,7 +228,7 @@ request: since `h_64(e)` is a fixed 64-bit key per element, any
 `(depth, prefix)` subset is a contiguous range under `h_64`-sorted order.
 Implementations MUST maintain (or build and cache) an index of element
 identifiers ordered by `h_64`, so that a node's element subset is a range slice
-— O(log n) to locate plus the slice size — not a full-population scan. This
+— $O(\log n)$ to locate plus the slice size — not a full-population scan. This
 index holds only identifiers and `h_64` keys, not precomputed syndromes; it is
 far cheaper than the resident per-node syndrome structure a fixed partition
 would require (see "Resident structure"), and unlike that structure it serves
@@ -247,7 +249,7 @@ define whether it is optional; MSC0501 requires all 32 entries in `room_digest`.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
-pre-decode summary to estimate $|S_A \triangle S_B|$ before committing to a
+pre-decode summary to estimate $d = |S_A \triangle S_B|$ before committing to a
 decoder.
 
 Stratum $s_i$ contains the same odd syndrome coordinates $s_1$ through $s_{15}$
@@ -256,11 +258,10 @@ trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
 Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate $|S_A \triangle S_B|$ before choosing between a single
-depth-0 extraction, provisioning an initial dynamic-tree request, or abandoning
-the comparison.
+stratum to estimate $d$ before choosing between a single depth-0 extraction,
+provisioning an initial dynamic-tree request, or abandoning the comparison.
 
-If the highest nonempty residual stratum is `i < 31` and it decodes to $k_i$
+If the highest nonempty residual stratum is $i < 31$ and it decodes to $k_i$
 elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
 $k_{31}$ elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
 highest nonempty residual stratum overflows, the standard fallback estimate is
@@ -280,7 +281,7 @@ tree splitting.
 
 ## Decode and verification
 
-A decoder recovers up to `k` elements from a capacity-`k` syndrome residual.
+A decoder recovers up to $k$ elements from a capacity-`k` syndrome residual.
 Decode either succeeds with a set of $h_{64}$ values, or fails.
 
 Decode failure is loud, and this is the central operational property of the
@@ -296,7 +297,7 @@ $$
 E = R \oplus A(L)
 $$
 
-The peer resolves the short IDs it holds, computes `A(L)`, and compares against
+The peer resolves the short IDs it holds, computes $A(L)$, and compares against
 `E`. A mismatch means the decode was wrong or the populations differed; the
 result MUST be discarded.
 
@@ -335,10 +336,10 @@ to `algebraic_v1`.
 ## Capacity provisioning
 
 Provision extraction capacity from the count residual. In the common one-sided
-lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ equals the exact
-difference size. Here $r_{\mathrm{obs}}$ is the observed rate of newly arriving
-elements relevant to the comparison, and $\widehat{\mathrm{RTT}}$ is the
-estimated round-trip time in seconds.
+lag case, $c = \operatorname{abs}\left(|S_A| - |S_B|\right)$ and
+$d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
+rate of newly arriving elements relevant to the comparison, and
+$\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds.
 
 $$
 k = \min\left(64,\ \left\lceil 1.5c \right\rceil + 4 +
@@ -376,11 +377,12 @@ The escalation sequence is:
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. It is round-limited rather than log-limited: once the
-search frontier outruns a round's capacity, the cost is about $\Delta / c$
-rounds, where `c` is the aggregate capacity, and a 20-round cap with this
-profile's 4096 aggregate capacity yields about 82,000 elements. Larger
-differences should fall back to frame extension or a larger-framed follow-up
-exchange.
+search frontier outruns a round's capacity, the cost is about $d/c$ rounds,
+where `c` is the aggregate capacity, and a 20-round cap with this profile's 4096
+aggregate capacity reaches about 82,000 elements under the default profile
+parameters. Larger differences remain structurally addressable if an application
+chooses to raise the round limit or per-round capacity; absent that, they should
+fall back to frame extension or a larger-framed follow-up exchange.
 
 **Scale illustration.** These benchmark points are not protocol upper bounds;
 they show that a large population can still have a small difference and keep the
@@ -543,7 +545,7 @@ predictably at scale.
 - **Strata estimation and trailing-zero counting:** The pre-decode estimator
   buckets elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
   modeled as uniformly distributed, the highest nonempty residual stratum gives
-  a compact estimate of $\lvert S_A \triangle S_B \rvert$, in the same broad
+  a compact estimate of `d = \lvert S_A \triangle S_B \rvert`, in the same broad
   family as probabilistic counting heuristics.
 
 ### Exploratory implementer materials

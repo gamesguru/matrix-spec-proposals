@@ -354,11 +354,12 @@ the next round. Unboundedness is an outage.
 
 A `sketch` exchange's aggregate capacity across all `requests` entries caps at
 4096, whether that is a single depth-0 request or the leaves of a tree split
-several levels deep. This is sized for the small one-sided differences expected
-to dominate. A deployment routinely hitting it is telling you something — either
-its peers are diverging far more than expected, or it should be sizing its
-initial request from the strata estimate more aggressively, or it wants a
-rateless profile.
+several levels deep. This is the default operating point for the baseline
+profile, sized for the small one-sided differences expected to dominate. A
+deployment routinely hitting it is telling you something, but not necessarily
+that reconciliation is the wrong mechanism: it may want to raise the round
+limit, increase per-round capacity, size its initial request from the strata
+estimate more aggressively, or switch to a rateless profile.
 
 ## 5. Accumulator forgery, stated precisely
 
