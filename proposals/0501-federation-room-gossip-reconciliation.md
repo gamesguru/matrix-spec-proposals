@@ -368,7 +368,7 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "digest_type": "algebraic_v1",
   "local_known_event_count": 81000,
   "frame_event_ids": ["$join_anchor"],
-  "requests": [{ "depth": 0, "prefix": 0, "capacity": 64 }],
+  "requests": [{ "depth": 0, "prefix": 0, "capacity": 32 }],
   "local_sketches": ["<base64url_syndrome_sketch>"],
   "limit": 1000
 }
@@ -397,7 +397,7 @@ the following shape:
     "capacity": {
       "type": "integer",
       "minimum": 1,
-      "maximum": 64
+      "maximum": 32
     }
   }
 }
@@ -446,7 +446,7 @@ time and `O(1)` memory when the wire order is already canonical.
 | `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `digest_type`               | string   | If mode=sketch          | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `requests`                  | [object] | If mode=sketch          | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 64). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
+| `requests`                  | [object] | If mode=sketch          | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 32). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
 | `local_sketches`            | [string] | If mode=sketch          | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order. A length mismatch against `requests` MUST be rejected before subtraction.                                                                                                                                                                                                                                                                                                                        |
 | `max_depth_delta`           | integer  | No                      | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `max_events`                | integer  | No                      | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                                                                                                                                                                                                                         |
@@ -604,7 +604,7 @@ The responding server:
    decoded bytes, `requests` is a well-formed array of
    `(depth, prefix, capacity)` entries in canonical key-space range order with
    no duplicates and no entry's range containing another's (an antichain), each
-   entry's `capacity` does not exceed 64, the sum of `capacity` across
+   entry's `capacity` does not exceed 32, the sum of `capacity` across
    `requests` does not exceed 4096, and the request frame matches the
    responder's digest frame.
 2. Computes `residual_digest = remote_digest XOR local_digest`.
@@ -648,7 +648,7 @@ structure, so there is nothing analogous to a probabilistic fallback's
 extremity-convergence requirement.
 
 The requester SHOULD use the strata-estimated `Δ̂` from `room_digest` to size the
-initial depth-0 request's _capacity_ (bounded by the per-entry cap of 64, above)
+initial depth-0 request's _capacity_ (bounded by the per-entry cap of 32, above)
 — not its depth. This spec always starts a `sketch` exchange at depth 0 and
 splits one level at a time on `capacity_exceeded`. This is an efficiency choice,
 not a correctness one: an under-provisioned node produces
@@ -657,26 +657,26 @@ exactly the trigger for the next split, not a lost result.
 
 **This has a latency cost that is worth stating in concrete terms — and a
 per-branch depth count understates it.** Each round is capacity-bounded: the
-aggregate cap (4096) limits any single round to at most `4096 / 64 = 64` new
+aggregate cap (4096) limits any single round to at most `4096 / 32 = 128` new
 node-decodes. A node only stops needing further splitting once its local count
-is ≤64, so fully localizing a difference of size `Δ` requires roughly `Δ / 64`
-successful node-decodes in total — and at most 64 of those fit in one round.
+is ≤32, so fully localizing a difference of size `Δ` requires roughly `Δ / 32`
+successful node-decodes in total — and at most 128 of those fit in one round.
 That gives a round-count floor of `Δ / 4096`, independent of how many depth
 levels are involved: **~123 rounds at `Δ = 500,000`, ~2,442 at
-`Δ = 10,000,000`.** A depth count alone (`log2(Δ/64)` ≈ 13 and ≈17 respectively)
+`Δ = 10,000,000`.** A depth count alone (`log2(Δ/32)` ≈ 14 and ≈18 respectively)
 understates this badly: it only holds while the frontier is narrower than the
-aggregate cap allows, which stops being true once the frontier passes 64 nodes —
-around depth 6. Each round is gated on the previous response, so at typical
+aggregate cap allows, which stops being true once the frontier passes 128 nodes
+— around depth 7. Each round is gated on the previous response, so at typical
 federation RTT (50–200 ms) this is many seconds to tens of seconds for the
 differences dynamic tree extraction is meant to handle.
 
 Choosing a smarter starting depth from `Δ̂` cannot fix this: the best a different
-starting point can do is skip the ramp-up below the 64-node aggregate ceiling —
-at most ~6 rounds, against a floor already in the hundreds. The floor is a
+starting point can do is skip the ramp-up below the 128-node aggregate ceiling —
+at most ~7 rounds, against a floor already in the hundreds. The floor is a
 throughput bound (total decodes ÷ per-round decode cap), not a latency bound
 (how many depth levels are walked), and no starting-depth choice changes total
 decode throughput. This spec therefore does not define Δ̂-driven initial depth:
-the ~6-round saving it could offer is not worth the added spec surface against a
+the ~7-round saving it could offer is not worth the added spec surface against a
 floor it cannot move.
 
 **The floor implies a hard precondition, not just a documented cost.**
@@ -843,7 +843,7 @@ fetchable event; this prevents permanent digest mismatches and fetch loops.
          │    local_digest: "...",                 │
          │    local_known_event_count: 81000,      │
          │    requests: [{depth: 0, prefix: 0,     │
-         │                capacity: 64}],          │
+         │                capacity: 32}],          │
          │    local_sketches: ["..."] }            │
          │────────────────────────────────────────>│
          │                                         │
@@ -1054,13 +1054,13 @@ failing any check MUST be discarded without affecting local state.
 ### Amplification via oversized sketches
 
 Servers MUST reject a `sketch` request whose aggregate `requests` capacity
-exceeds 4096, whose any single entry's capacity exceeds 64, oversized decoded
+exceeds 4096, whose any single entry's capacity exceeds 32, oversized decoded
 responses, and requests exceeding per-peer or per-room CPU budgets. The
 per-entry cap bounds decode CPU for a single node; the aggregate cap bounds
 total wire size and work across the exchange — neither substitutes for the
 other, since a single `{depth: 0, capacity: 4096}` entry would otherwise pass an
-aggregate-only check while costing roughly 64x the decode budget of a
-capacity-64 node. Servers SHOULD reject requests whose `local_known_event_count`
+aggregate-only check while costing roughly 16,384x the decode budget of a
+capacity-32 node. Servers SHOULD reject requests whose `local_known_event_count`
 is grossly inconsistent with the supplied accumulator history or negotiated
 frame.
 

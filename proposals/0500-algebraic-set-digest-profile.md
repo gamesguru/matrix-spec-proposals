@@ -227,7 +227,7 @@ for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
-MUST NOT exceed 64; the sum of `capacity` across all requests in a single
+MUST NOT exceed 32; the sum of `capacity` across all requests in a single
 exchange MUST NOT exceed 4096. These are separate bounds for separate reasons:
 the per-entry cap bounds decode cost ($O(k^2 \log k)$ per node), while the
 aggregate cap bounds total wire size and responder work across a whole exchange.
@@ -356,7 +356,7 @@ estimate can guide first-round pre-splitting, but only within the same
 aggregate-capacity budget described in [Scale boundary](#scale-boundary).
 
 $$
-k = \min\left(64,\ \left\lceil 1.5c \right\rceil + 4 +
+k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +
 \left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{RTT}} \right\rceil\right)
 $$
 
@@ -364,7 +364,7 @@ The three terms cover, respectively: measurement slack when divergence is not
 purely one-sided, a small floor for tiny differences, and events arriving
 concurrently during the round trip.
 
-If the unclamped value exceeds 64, the profile uses tree extraction rather than
+If the unclamped value exceeds 32, the profile uses tree extraction rather than
 a single depth-0 request.
 
 If decode fails at `k`, retry at larger `k` up to the cap, or split into
@@ -391,7 +391,7 @@ The escalation sequence is:
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. A $d \approx 100,000$ case forces very wide first-round
-fan-out under a k = 64 bucket cap, which makes end-to-end extraction expensive
+fan-out under a k = 32 bucket cap, which makes end-to-end extraction expensive
 even though per-bucket decode remains fast. The point is not that reconciliation
 becomes mathematically impossible, but that the baseline ~82,000 figure reflects
 the default operating point of the profile, not a hard algorithmic ceiling.
@@ -554,7 +554,7 @@ contracts, but these analogies may help understand the protocol.
   Putnam 2008 A3.[^9]
 
 - **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log k)$.
-  With per-node capacity capped at $k \le 64$ and failures isolated
+  With per-node capacity capped at $k \le 32$ and failures isolated
   independently, a difference of size $d$ spread over $n$ nodes has total decode
   cost $O\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
 
