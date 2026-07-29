@@ -25,6 +25,11 @@ cases). Larger differences are a frame problem, not a reconciliation problem
 (see [Scalability](#scalability)). More capacity extends a round; it does not
 restart it.
 
+Note that $O(k^2 \log k)$ is the CPU cost to decode a single node, which is
+strictly bounded by the $k \le 32$ cap. End-to-end performance is instead
+bounded by the 4,096-element aggregate cap per round and by the number of
+RTT-gated rounds required to walk the frontier.
+
 ## Scope
 
 This profile defines identifier derivation, the 64-bit field and `libminisketch`
