@@ -425,8 +425,8 @@ The escalation sequence is:
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. A value of $d \approx 100,000$ forces very wide
-first-round fan-out under a k = 32 bucket cap, which makes end-to-end extraction
-expensive even though per-bucket decode remains fast. The point is not that
+first-round fan-out under a `k = 32` node cap, which makes end-to-end extraction
+expensive even though per-node decode remains fast. The point is not that
 reconciliation becomes mathematically impossible, but that the baseline ~82,000
 figure reflects the MSC’s default operating point (not a hard algorithmic
 ceiling). Beyond that point, applications can still choose to spend more round
@@ -436,7 +436,7 @@ frame/DAG alignment.
 Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
 still bounded difference. This trades fewer rounds for a larger first exchange,
-but the cap still applies, and bucket load remains probabilistic rather than
+but the cap still applies, and node load remains probabilistic rather than
 uniform in the face of clustering or skew. For lower-allocation lookup, a peer
 can keep a sorted `h_64` index and use binary-search range slicing to locate a
 node in $O(\log N)$ plus slice size, instead of maintaining a persistent
@@ -600,7 +600,7 @@ contracts, but these analogies may help understand the protocol.
   cost $O\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
 
 - **Strata estimation and trailing-zero counts:** The pre-decode estimator
-  buckets elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
+  groups elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
   modeled as uniformly distributed, the highest nonempty residual stratum gives
   a compact estimate of $d = \lvert S_A \triangle S_B \rvert$, in the same broad
   family as probabilistic counting heuristics.
