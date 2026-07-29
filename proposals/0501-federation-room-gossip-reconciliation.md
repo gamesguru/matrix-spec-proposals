@@ -869,6 +869,17 @@ fetchable event; this prevents permanent digest mismatches and fetch loops.
 skip the diff and event fetch phases entirely. This is the common no-difference
 path and costs 16 accumulator bytes plus the count field.
 
+**Algebraic preflight.** A recent MSC4521 sketch result for the same room and
+frame MAY be used as an earlier backoff signal for that peer/room pair once the
+receiver has deterministically resolved the returned `requester_only_short_ids`
+to the same full event IDs in its local store and verified the
+`expected_requester_side_accumulator` against that local set. This is only a
+hint: it can suppress an otherwise redundant `room_digest` poll or delay the
+next `room_diff` attempt, but it MUST NOT be treated as proof of equality across
+different frames or as a replacement for `room_digest`/`room_diff`. The hint
+expires with the same local cache policy used for other unsupported or stale
+synchronization signals.
+
 ### Gossip scheduling
 
 Servers SHOULD implement periodic gossip-based reconciliation for active rooms.

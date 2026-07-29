@@ -317,6 +317,15 @@ Back-off: after 3 consecutive polls returning identical digests, back off
 exponentially per peer/room pair to a maximum of 24 hours. Any new event in the
 room resets it.
 
+A recent MSC4521 sketch result for the same room and frame MAY be used as an
+earlier backoff signal for that peer/room pair once the receiver has
+deterministically resolved the returned `requester_only_short_ids` to the same
+full event IDs in its local store and verified the
+`expected_requester_side_accumulator` against that local set. This is only a
+hint: it can suppress a redundant `room_digest` poll or delay the next
+`room_diff` attempt, but it MUST NOT be treated as proof of equality across
+different frames or as a replacement for `room_digest`/`room_diff`.
+
 The jitter requirement is normative rather than advisory because the failure
 mode it prevents is correlated and self-amplifying: a large homeserver restart
 or a partition heal puts thousands of room/peer pairs on the same schedule, and
@@ -325,9 +334,14 @@ absorb it.
 
 MSC4500 interacts here. Rooms whose recent inbound transactions carry matching
 state accumulator digests have already demonstrated agreement passively, and may
-back off periodic polling accordingly. The two mechanisms compose: MSC4500
-provides free continuous divergence detection for active rooms, MSC0501 provides
-enumeration and healing when it fires.
+back off periodic polling accordingly. This is a hint, not a proof: the
+transaction digest can suppress redundant polling, but `room_digest` and
+`room_diff` remain the authoritative reconciliation path. MSC4521 can provide an
+additional algebraic backoff hint once the receiver has resolved the short IDs
+locally. The mechanisms compose: MSC4500 provides free continuous divergence
+detection for active rooms, MSC4521 can suppress redundant polling after
+deterministic local resolution, and MSC0501 provides enumeration and healing
+when it fires.
 
 ### 4.3 Walk bounds
 
