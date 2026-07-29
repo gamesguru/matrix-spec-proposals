@@ -25,7 +25,6 @@ lint:
 
 
 GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD)
-TITLE ?= MSC0500: Adaptive Set Reconciliation via PinSketch
 SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
 DATE ?= $(shell perl -MPOSIX=strftime -e 'print strftime("%F", gmtime(shift))' $(SOURCE_DATE_EPOCH))
 QPDF ?= qpdf
@@ -36,6 +35,7 @@ QDF_NORMALIZER ?= ../tools/normalize_pdf_qdf.pl
 pdf:
 	$(require_f)
 	set -e; \
+	title="$$(sed -n 's/^# //p; /^# /q' "$(f)")"; \
 	raw_pdf="$(f).tmp.raw.pdf"; \
 	qdf_pdf="$(f).tmp.qdf.pdf"; \
 	norm_pdf="$(f).tmp.norm.qdf.pdf"; \
@@ -47,6 +47,7 @@ pdf:
 	  -V urlcolor=blue \
 	  -V linkcolor=blue \
 	  -V pagestyle=empty \
+	  -M title="$$title" \
 	  -M subject="Compiled by Shane [$(DATE)]" \
 	  -M keywords="commit $(GIT_COMMIT)"; \
 		"$(QPDF)" --qdf --object-streams=disable "$$raw_pdf" "$$qdf_pdf"; \
