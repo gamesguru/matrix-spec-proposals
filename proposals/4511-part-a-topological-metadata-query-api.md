@@ -57,15 +57,17 @@ implement the topology query at all.
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4511.topology_query": true
+    "tk.nutra.msc4511.topology_query": true,
+    "tk.nutra.msc4511.computed_graph_queries": true
   }
 }
 ```
 
 The `tk.nutra.msc4511.overlay_attestations` flag is advertised separately in
-Part II for overlay proofs. Future room-version commitments described in Part
-III are gated by room-version negotiation instead of a federation capability
-flag.
+Part II for overlay proofs. The `tk.nutra.msc4511.computed_graph_queries` flag
+advertises the optional `compute` extension in this part. Future room-version
+commitments described in Part III are gated by room-version negotiation instead
+of a federation capability flag.
 
 A server that does not advertise this flag SHOULD be treated as not supporting
 the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to

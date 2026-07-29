@@ -139,8 +139,9 @@ Instead, the version acts as a per-user, per-EDU-type monotonic counter:
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation of
 the EDU content body. It is a consistency checksum, not a tie-breaker. If two
 servers have the same `version` for a user but different `content_hash` values,
-their responses are inconsistent and MUST be rejected; the lexicographically
-larger hash MUST NOT be used to choose a winner.
+their responses are inconsistent. The requester MUST treat the returned
+authoritative value as replacing its cached copy, and MUST NOT use the
+lexicographically larger hash to choose a winner.
 
 **Scoping (Privacy):**
 
@@ -274,11 +275,10 @@ nested structure:
 }
 ```
 
-For receipts, the `version` SHOULD be the `origin_server_ts` of the event that
-the receipt points to (not the receipt's own timestamp), ensuring that receipts
-always advance monotonically with the room timeline. `origin_server_ts` informs
-the payload ordering, but the `version` counter itself MUST still advance by one
-per change.
+For receipts, `origin_server_ts` SHOULD be stored in the EDU content body for
+the referenced event, but reconciliation MUST use the monotonic `version`
+counter only. That keeps receipt ordering visible without reintroducing the
+clock-skew problem this MSC avoids elsewhere.
 
 ### Reconciliation Protocol
 
@@ -354,9 +354,10 @@ The ETag SHOULD be computed as:
 > `XXH3-64(canonical_json({edu_type, users, next_batch}))`
 
 Because the hash covers the full representation, any change to a returned user,
-room, or pagination cursor changes the ETag. Servers MAY cache the canonical
-serialization or maintain an incrementally updated digest, but they MUST NOT
-derive the ETag from a single maximum version counter.
+room, or pagination cursor changes the ETag. Servers MAY cache the serialized
+page, but they MUST NOT derive the ETag from a single maximum version counter.
+Conditional requests are therefore most useful on a stable first page; page-
+specific `since` requests should be treated as ordinary incremental fetches.
 
 ### Capability discovery
 
@@ -472,11 +473,11 @@ development:
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier             | Development identifier                                     | Value  |
-| ------------------------------------- | ---------------------------------------------------------- | ------ |
-| `tk.nutra.msc0502.edu_reconciliation` | capability flag                                            | `true` |
-| `/_matrix/federation/v1/edu_digest`   | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_digest` | —      |
-| `/_matrix/federation/v1/edu_state`    | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_state`  | —      |
+| Proposed final identifier             | Purpose         | Development identifier                                     |
+| ------------------------------------- | --------------- | ---------------------------------------------------------- |
+| `tk.nutra.msc0502.edu_reconciliation` | capability flag | `true`                                                     |
+| `/_matrix/federation/v1/edu_digest`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_digest` |
+| `/_matrix/federation/v1/edu_state`    | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_state`  |
 
 <!-- markdownlint-enable MD013 -->
 
