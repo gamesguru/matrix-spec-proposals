@@ -20,8 +20,8 @@ saturated round at most 32 KiB of unencoded syndrome data (~43.7 KiB wire-
 encoded as base64url), excluding object payloads. Here $q = 2^{64}$ is the size
 of the finite field used by the syndrome coordinates, so $\log q = 64$. Decoding
 a capacity-`k` node costs $O(k^2 \log q)$. A difference of size $d$ spread over
-$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
-Quadratic complexity means that invertible bloom filters will outscale this MSC
+$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log q\right)$. Quadratic
+complexity means that invertible bloom filters will outscale this MSC
 asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
 cases). Larger differences are a frame problem, not a reconciliation problem
 (see [Scalability](#scalability)). More capacity extends a round; it does not
