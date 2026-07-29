@@ -206,6 +206,12 @@ mechanism. The recursion terminates: each split reduces node population weakly,
 depth is bounded at 32, and a node still overflowing at the cap is reported
 rather than split further.
 
+Implementations SHOULD retain the unexplored frontier across rounds as a pending
+queue of outstanding `(depth, prefix, capacity)` nodes, rather than discarding
+children after each response. That queue is the natural place to carry the round
+counter implied by the per-round 4096 cap and to ensure that `capacity_exceeded`
+nodes defer their children to later rounds instead of forcing a restart.
+
 Every node, at any depth, is decoded and verified exactly as in
 [Decode and verification](#decode-and-verification), below: it either decodes
 within its capacity and passes the 128-bit residual check, or it fails loudly

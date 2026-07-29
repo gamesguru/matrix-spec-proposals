@@ -129,23 +129,24 @@ GET /_matrix/federation/v1/room_digest/{roomId}/strata
 ```
 
 The example above is the `/strata` form. If strata cannot be produced,
-responders SHOULD omit `strata` rather than fabricate it.
+responders MUST return HTTP 503 with a Matrix error body such as `M_UNKNOWN`
+rather than a strata-less `200`.
 
 **Fields:**
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                    | Type               | Required | Description                                                                                                                                             |
-| ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                                |
-| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                           |
-| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                         |
-| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                             |
-| `strata`                 | [string]           | No       | The 32-entry strata estimator, included only on `/_matrix/federation/v1/room_digest/{roomId}/strata`. Each entry is a base64url-encoded 64-byte sketch. |
-| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.              |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                      |
-| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                               |
-| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                              |
+| Field                    | Type               | Required | Description                                                                                                                                        |
+| ------------------------ | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                           |
+| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                      |
+| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                    |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                        |
+| `strata`                 | [string]           | Yes      | The 32-entry strata estimator, required on `/_matrix/federation/v1/room_digest/{roomId}/strata`. Each entry is a base64url-encoded 64-byte sketch. |
+| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.         |
+| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                 |
+| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                          |
+| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                         |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -176,6 +177,15 @@ round-budget precondition. A requester MAY substitute the exact count residual
 `c` only when it has independent evidence that the divergence is one-sided;
 otherwise `c` is not a safe replacement for `d̂`. Responders MAY reject a
 `sketch` request from a requester that has not performed this preflight.
+
+Requesters MUST retain the outstanding tree frontier across rounds as a pending
+queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
+canonical order until adding another node would exceed either 128 requests or
+the 4096 aggregate capacity cap. Any node that returns `capacity_exceeded`
+pushes its two children onto the back of the queue for a later round rather than
+into the current round. The exchange ends when the queue empties, the round
+counter reaches 20, or the requester must fall back to `extremity` mode,
+backfill, or frame extension.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
