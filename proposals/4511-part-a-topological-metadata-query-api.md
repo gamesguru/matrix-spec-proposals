@@ -47,6 +47,26 @@ A new federation endpoint is added:
 POST /_matrix/federation/unstable/tk.nutra.msc4511/topology_query
 ```
 
+### Capability discovery
+
+Servers advertise support for this endpoint via
+`GET /_matrix/federation/v1/version`. Support is advertised in
+`unstable_features` so that peers can avoid probing servers which do not
+implement the topology query at all.
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc4511.topology_query": true
+  }
+}
+```
+
+The `tk.nutra.msc4511.overlay_attestations` flag is advertised separately in
+Part II for overlay proofs. Future room-version commitments described in Part
+III are gated by room-version negotiation instead of a federation capability
+flag.
+
 The endpoint accepts a bounded query over one or more starting events. The
 requesting homeserver chooses the edge types it wants to walk, how deep it wants
 to recurse, and which specific metadata fields it wants back.

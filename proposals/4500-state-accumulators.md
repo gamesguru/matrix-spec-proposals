@@ -60,6 +60,26 @@ accumulation of the room's state exactly at the DAG tip of each included PDU.
 It then collapses each PDU's vectorized state into a standard 32-byte digest and
 includes them in the transaction payload as a dictionary.
 
+### Capability discovery
+
+Servers advertise support for this MSC via `GET /_matrix/federation/v1/version`.
+Support is advertised in `unstable_features` so that backports and other
+pre-standard implementations can avoid probing unsupported peers.
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc4500.state_accumulator": true
+  }
+}
+```
+
+A server that does not advertise this flag SHOULD be treated as not supporting
+the `/state_accumulator` endpoint for routine federation repair. Receivers
+SHOULD avoid repeated probes to unsupported peers; a `404 M_NOT_FOUND` or
+`501 Not Implemented` HTTP response SHOULD be cached as an unsupported signal
+for at least 24 hours unless an operator explicitly overrides the cache.
+
 ### Algorithm specification
 
 To guarantee interoperability and collision resistance, the algorithm MUST be
@@ -389,6 +409,13 @@ Server-Server APIs.
 When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
 against the sender's full accumulator lattice.
+
+This lookup primitive is complementary to MSC4511 and MSC4521, not superseded by
+either one. MSC4511 can provide graph metadata and ancestor hints for choosing
+candidate repair points, and MSC4521 can reconcile known event sets after a gap
+has been identified, but neither proposal exposes historical resolved-state
+accumulators. For resolved-state divergence, `/state_accumulator` remains the
+lookup primitive.
 
 The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the
@@ -834,7 +861,9 @@ following unstable identifiers. Everywhere else in this document,
 `state_hashes`, `state_hash_mismatch`, and the `/state_accumulator` endpoint are
 written under their eventual stable names for readability; unstable
 implementations MUST substitute the identifiers below in the wire format
-instead, with identical shapes and semantics.
+instead, with identical shapes and semantics. The capability flag is
+`tk.nutra.msc4500.state_accumulator`, and the unstable federation endpoint is
+`/_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`.
 
 - The transaction payload key: `tk.nutra.msc4500.state_hashes` (replacing
   `state_hashes` at the root of the `/send` request body)
