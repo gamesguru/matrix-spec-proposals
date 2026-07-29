@@ -48,12 +48,12 @@ The following summary consolidates the shared bounds used throughout this MSC.
 
 <!-- markdownlint-disable MD013 -->
 
-| Bound                       |  Value | Normative meaning                                              |
-| --------------------------- | -----: | -------------------------------------------------------------- |
-| Request depth cap           |   `32` | A node MUST NOT split past depth 32.                           |
-| Per-entry capacity cap      |   `32` | A single entry's `capacity` MUST NOT exceed 32.                |
-| Aggregate exchange capacity | `4096` | The sum of `capacity` across an exchange MUST NOT exceed 4096. |
-| Strata entry count          |   `32` | Implementations SHOULD maintain 32 strata entries.             |
+| Bound                                |  Value | Normative meaning                                              |
+| ------------------------------------ | -----: | -------------------------------------------------------------- |
+| Request depth cap                    |   `32` | A node MUST NOT split past depth 32.                           |
+| Per-entry capacity cap               |   `32` | A single entry's `capacity` MUST NOT exceed 32.                |
+| Aggregate exchange capacity          | `4096` | The sum of `capacity` across an exchange MUST NOT exceed 4096. |
+| Strata count (trailing-zero buckets) |   `32` | Implementations SHOULD maintain 32 strata entries.             |
 
 <!-- markdownlint-enable MD013 -->
 

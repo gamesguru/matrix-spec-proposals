@@ -428,7 +428,9 @@ $$
 $$
 
 This condition is normative. Implementations MAY validate it in place in `O(N)`
-time and `O(1)` memory when the wire order is already canonical.
+time and `O(1)` memory when the wire order is already canonical. That works by
+checking each request against the previous request's `end` boundary, which
+avoids heap allocation in the common case.
 
 **Fields (request):**
 
