@@ -90,8 +90,8 @@ For event sets, `D(e)` is derived based on the room version:
   digest of the UTF-8 event-ID string.
 - **Room version 3**: Strip the leading `$` byte and decode the remaining
   unpadded standard Base64 payload.
-- **Room versions 4 and later**: Strip the leading `$` byte and decode the
-  remaining unpadded URL-safe Base64 payload.
+- **Room versions 4 and later**: Strip leading `$` byte; decode remaining
+  unpadded URL-safe Base64 payload.
 
 Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
 the event-ID string or exclude the event from the population. This profile does
