@@ -281,9 +281,9 @@ Non-normative baseline note: the reference sequence note uses a 20-round,
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
-difference sizing. MSC0501 requires all 32 entries in `room_digest`; other
-consumers MAY treat the estimator as a local recommendation if they expose it at
-all.
+difference sizing. MSC0501 requires all 32 entries when a requester fetches
+`room_digest?strata=true` for sketch sizing; other consumers MAY treat the
+estimator as a local recommendation if they expose it at all.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
@@ -488,8 +488,9 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization; MSC0501 requires it in `room_digest`,
-while other consumers MAY treat it as a local recommendation.
+The strata estimator is an optimization; MSC0501 requires it when a requester
+fetches `room_digest?strata=true` for sketch sizing, while other consumers MAY
+treat it as a local recommendation.
 
 ## Advertisement
 

@@ -22,6 +22,28 @@ signed contradiction to other servers or operators. Native event authenticity
 requires the Part III split-canonicalization design, where the metadata
 commitment is part of event identity.
 
+### Capability discovery
+
+Servers advertise support for overlay attestations via
+`GET /_matrix/federation/v1/version`. Support is advertised in
+`unstable_features` so that responders which do not implement the sidecar can be
+skipped before probing.
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc4511.overlay_attestations": true
+  }
+}
+```
+
+A server that does not advertise this flag SHOULD be treated as not supporting
+`overlay_proofs`. Receivers SHOULD avoid repeated probes to unsupported peers; a
+`501 Not Implemented` response, or a `404` response with `M_UNRECOGNIZED` or a
+non-Matrix body, SHOULD be cached as an unsupported signal for at least 24 hours
+unless an operator explicitly overrides the cache. The cache MUST be invalidated
+on any observed change to the peer's `/version` document.
+
 ### Overlay commitment construction
 
 The overlay commitment is computed per returned event over a fixed leaf set,
@@ -152,14 +174,9 @@ that commitment:
   "events": {
     "$missing_event_A": {
       "leaf_paths": {
-        "prev_events": [],
-        "sender_domain": [
-          { "side": "right", "hash": "base64url_sha3_256_hash" },
-          { "side": "left", "hash": "base64url_sha3_256_hash" }
-        ],
-        "type": [
-          { "side": "left", "hash": "base64url_sha3_256_hash" }
-        ]
+        "prev_events": "<elided_path>",
+        "sender_domain": "<elided_path>",
+        "type": "<elided_path>"
       },
       "overlay_commitment": "base64url_sha3_256_hash",
       "leaf_index": 0,
@@ -172,8 +189,8 @@ that commitment:
 }
 ```
 
-The example above is schematic; the sibling counts are illustrative rather than
-machine-generated.
+The example above is schematic; the sibling counts and path shapes are
+intentionally elided rather than machine-generated.
 
 The `leaf_paths` object maps each disclosed field name to the sibling hashes
 needed to rebuild the fixed-field Merkle root. For a field whose leaf is the
@@ -328,6 +345,16 @@ sparse query response. It does not replace Part III's native room-version
 commitment model: a signed overlay proves only that the responding server made a
 claim, while split canonicalization can make selected metadata part of event
 identity.
+
+## Unstable prefix
+
+<!-- markdownlint-disable MD013 -->
+
+| Proposed final identifier               | Purpose         | Development identifier                  |
+| --------------------------------------- | --------------- | --------------------------------------- |
+| `tk.nutra.msc4511.overlay_attestations` | capability flag | `tk.nutra.msc4511.overlay_attestations` |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Security considerations
 

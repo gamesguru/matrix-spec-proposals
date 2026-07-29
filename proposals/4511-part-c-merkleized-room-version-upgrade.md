@@ -6,6 +6,16 @@ independently provable by committing it into event identity. Current room
 versions should use Part I as hint-only; Part II provides responder-scoped
 attestations without a room-version change.
 
+## Unstable prefix
+
+<!-- markdownlint-disable MD013 -->
+
+| Proposed final identifier | Purpose      | Development identifier |
+| ------------------------- | ------------ | ---------------------- |
+| `room_version`            | room version | `tk.nutra.msc4511.12`  |
+
+<!-- markdownlint-enable MD013 -->
+
 ## Proposal
 
 To make selected event metadata independently verifiable, this MSC sketches a

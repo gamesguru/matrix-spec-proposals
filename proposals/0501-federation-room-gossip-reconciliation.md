@@ -69,8 +69,8 @@ architecture note for the full argument.
 
 Homeserver implementations maintain a single table or column family, tracking
 the resident sketch and strata per room. These structures are computed only from
-local data and are reused across peers; the strata projection is included in
-each `room_digest` response, while no per-peer cache or remote knowledge is
+local data and are reused across peers; the strata projection is requested only
+when needed for sketch sizing, while no per-peer cache or remote knowledge is
 required.
 
 ## Proposal
@@ -103,13 +103,13 @@ invalidated on any observed change to the peer's `/version` document.
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
 event set. Two servers can compare digests in `O(1)` to determine whether their
-event sets have diverged (about 3 KB of bandwidth on a `200` response, and much
-less on a `304`).
+event sets have diverged (about 200-400 bytes on a `200` response without
+`strata`, or about 3 KB with `strata`; much less on a `304`).
 
 **Request:**
 
 ```http
-GET /_matrix/federation/v1/room_digest/{roomId}
+GET /_matrix/federation/v1/room_digest/{roomId}?strata=true
 ```
 
 **Response:**
@@ -128,21 +128,24 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 }
 ```
 
+The example above is the `?strata=true` form. If strata was not requested or
+cannot be produced, responders SHOULD omit `strata` rather than fabricate it.
+
 **Fields:**
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                    | Type               | Required | Description                                                                                                                                |
-| ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                   |
-| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                              |
-| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
-| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                |
-| `strata`                 | [string]           | No       | The 32-entry strata estimator, included when requested for sketch sizing. Each entry is a base64url-encoded 64-byte sketch.                |
-| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
-| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                  |
-| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                 |
+| Field                    | Type               | Required | Description                                                                                                                                         |
+| ------------------------ | ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                            |
+| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                       |
+| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                     |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                         |
+| `strata`                 | [string]           | No       | The 32-entry strata estimator, included only when requested for sketch sizing via `?strata=true`. Each entry is a base64url-encoded 64-byte sketch. |
+| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.          |
+| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                  |
+| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                           |
+| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                          |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -162,8 +165,17 @@ in `K`; their soft-fail status specifically is not part of reconciliation.
 Given that population, `digest` and `known_event_count` are the level-0
 accumulator and count defined in MSC4521, and `strata` is that profile's strata
 estimator. MSC0501 requires the estimator on `room_digest` when the requester
-asks for sketch sizing; other consumers of MSC4521 MAY use it only when their
-wire contract includes it. This MSC adds no arithmetic of its own.
+asks for sketch sizing via `?strata=true`; other consumers of MSC4521 MAY use it
+only when their wire contract includes it. This MSC adds no arithmetic of its
+own.
+
+Requesters that intend to open a `sketch` exchange for a given frame MUST first
+fetch a strata-bearing `room_digest` for that frame. A requester MUST use the
+resulting `d̂` for the round-budget precondition. A requester MAY substitute the
+exact count residual `c` only when it has independent evidence that the
+divergence is one-sided; otherwise `c` is not a safe replacement for `d̂`.
+Responders MAY reject a `sketch` request from a requester that has not performed
+this preflight.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
@@ -294,10 +306,9 @@ Given a requesting server's event ID set (or a compact representation thereof),
 returns the set of event IDs that the responding server has but the requester
 likely does not. This is the "what am I missing?" query.
 
-**Comparison scope.** The default `scope` is `event_set`, which compares `K`
-within the negotiated frame. This proposal does not define a resolved-state
-comparison scope; MSC4500 remains the lookup primitive for resolved-state
-divergence.
+**Comparison.** The endpoint compares `K` within the negotiated frame. This
+proposal does not define a resolved-state comparison scope; MSC4500 remains the
+lookup primitive for resolved-state divergence.
 
 **Two modes.** The endpoint supports two diff modes because Matrix federation
 produces two fundamentally different classes of data loss:
@@ -331,7 +342,6 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 ```json
 {
   "mode": "extremity",
-  "scope": "event_set",
   "frame_id": "<base64url_32_byte_frame_id>",
   "local_extremity_event_ids": ["$abc123", "$def456"],
   "have_event_ids": [
@@ -634,11 +644,11 @@ verified against the 128-bit accumulator per MSC4521, not inferred from graph
 structure, so there is nothing analogous to a probabilistic fallback's
 extremity-convergence requirement.
 
-The requester SHOULD use the strata-estimated `d̂` from `room_digest` to size the
-initial depth-0 request's _capacity_ (bounded by the per-entry cap of 32, above)
-— not its depth. This spec always starts a `sketch` exchange at depth 0 and
-splits one level at a time on `capacity_exceeded`. This is an efficiency choice,
-not a correctness one: an under-provisioned node produces
+The requester SHOULD use the strata-estimated `d̂` from the preflight digest to
+size the initial depth-0 request's _capacity_ (bounded by the per-entry cap of
+32, above) — not its depth. This spec always starts a `sketch` exchange at depth
+0 and splits one level at a time on `capacity_exceeded`. This is an efficiency
+choice, not a correctness one: an under-provisioned node produces
 `sketch_status: "capacity_exceeded"` for that node specifically, which is
 exactly the trigger for the next split, not a lost result.
 
@@ -666,17 +676,19 @@ decode throughput. This spec therefore does not define d̂-driven initial depth:
 the ~7-round saving it could offer is not worth the added spec surface against a
 floor it cannot move.
 
-**The floor implies a hard precondition, not just a documented cost.** roughly
+**The floor implies a hard precondition, not just a documented cost.** Roughly
 `d̂ / 4096` rounds are needed regardless of strategy, so a requester whose round
 budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that difference
-at all. Concretely: a requester MUST compare `d̂` (or the exact count residual
-`c`, if available) against `round_cap * 4096` — using this MSC's round cap of 20
-(see "Amplification via oversized sketches," below), that ceiling is **~82,000
+at all. Concretely: a requester MUST compare `d̂` from the preflight digest
+against `round_cap * 4096` — using this MSC's round cap of 20 (see
+"Amplification via oversized sketches," below), that ceiling is **~82,000
 elements** — and MUST route to `extremity` mode, backfill, or frame extension
-instead of `sketch` mode when `d̂` exceeds it. This is the load-bearing check: it
-stops a peer from starting a round sequence it cannot finish, rather than
-letting it discover that dozens of rounds in. See "Scope" in MSC4521 for the
-corresponding profile-level guidance.
+instead of `sketch` mode when `d̂` exceeds it. If the requester only has `c`, it
+MAY substitute `c` only when it has independent evidence that the divergence is
+one-sided; otherwise `c` is not a safe replacement. This is the load-bearing
+check: it stops a peer from starting a round sequence it cannot finish, rather
+than letting it discover that dozens of rounds in. See "Scope" in MSC4521 for
+the corresponding profile-level guidance.
 
 #### Causal closure and truncation
 
