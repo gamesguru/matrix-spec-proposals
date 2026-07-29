@@ -410,12 +410,12 @@ When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
 least one party is desynchronized. The receiver performs homomorphic subtraction
 against the sender's full accumulator lattice.
 
-This lookup primitive is complementary to MSC4511 and MSC4521, not superseded by
-either one. MSC4511 can provide graph metadata and ancestor hints for choosing
-candidate repair points, and MSC4521 can reconcile known event sets after a gap
-has been identified, but neither proposal exposes historical resolved-state
-accumulators. For resolved-state divergence, `/state_accumulator` remains the
-lookup primitive.
+MSC4511 and MSC4521 complement this lookup primitive rather than replace it:
+MSC4511 can provide graph metadata and ancestor hints for choosing candidate
+repair points, and MSC4521 can reconcile known event sets after a gap has been
+identified, but neither proposal exposes historical resolved-state accumulators.
+For resolved-state divergence, `/state_accumulator` remains the lookup
+primitive.
 
 The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the

@@ -25,10 +25,11 @@ cases). Larger differences are a frame problem, not a reconciliation problem
 (see [Scalability](#scalability)). More capacity extends a round; it does not
 restart it.
 
-Note that $O(k^2 \log k)$ is the CPU cost to decode a single node, which is
-strictly bounded by the $k \le 32$ cap. End-to-end performance is instead
-bounded by the 4,096-element aggregate cap per round and by the number of
-RTT-gated rounds required to walk the frontier.
+These bounds are load-bearing protocol invariants, not tuning guidance: the
+$k \le 32$ per-node cap constrains single-node CPU cost, while the 4,096-element
+aggregate cap constrains per-round wire size and responder work. End-to-end
+performance is therefore bounded by the number of RTT-gated rounds required to
+walk the frontier, not just by the local decode cost.
 
 ## Scope
 
@@ -55,6 +56,10 @@ The following summary consolidates the shared bounds used throughout this MSC.
 | Strata entry count          |   `32` | Implementations SHOULD maintain 32 strata entries.             |
 
 <!-- markdownlint-enable MD013 -->
+
+The first three rows are hard protocol bounds. The strata entry count is
+advisory sizing guidance for implementations that expose the pre-decode
+estimator.
 
 ## Element derivation
 

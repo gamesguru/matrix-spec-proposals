@@ -67,6 +67,12 @@ Part II for overlay proofs. Future room-version commitments described in Part
 III are gated by room-version negotiation instead of a federation capability
 flag.
 
+A server that does not advertise this flag SHOULD be treated as not supporting
+the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to
+unsupported peers; a `404 M_NOT_FOUND` or `501 Not Implemented` HTTP response
+SHOULD be cached as an unsupported signal for at least 24 hours unless an
+operator explicitly overrides the cache.
+
 The endpoint accepts a bounded query over one or more starting events. The
 requesting homeserver chooses the edge types it wants to walk, how deep it wants
 to recurse, and which specific metadata fields it wants back.
