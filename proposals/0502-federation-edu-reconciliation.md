@@ -473,11 +473,10 @@ development:
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier             | Purpose         | Development identifier                                     |
-| ------------------------------------- | --------------- | ---------------------------------------------------------- |
-| `tk.nutra.msc0502.edu_reconciliation` | capability flag | `true`                                                     |
-| `/_matrix/federation/v1/edu_digest`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_digest` |
-| `/_matrix/federation/v1/edu_state`    | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_state`  |
+| Proposed final identifier           | Purpose  | Development identifier                                     |
+| ----------------------------------- | -------- | ---------------------------------------------------------- |
+| `/_matrix/federation/v1/edu_digest` | endpoint | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_digest` |
+| `/_matrix/federation/v1/edu_state`  | endpoint | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_state`  |
 
 <!-- markdownlint-enable MD013 -->
 

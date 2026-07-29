@@ -378,12 +378,18 @@ POST /_matrix/federation/v1/room_diff/{roomId}
   "local_digest": "<base64url_16_byte_accumulator>",
   "digest_type": "algebraic_v1",
   "local_known_event_count": 81000,
+  "estimated_delta": 50000,
   "frame_event_ids": ["$join_anchor"],
   "requests": [{ "depth": 0, "prefix": 0, "capacity": 32 }],
   "local_sketches": ["<base64url_syndrome_sketch>"],
   "limit": 1000
 }
 ```
+
+If present, `estimated_delta` SHOULD be the requester's local strata-based
+estimate for the negotiated frame. Responders MAY use it as a plausibility check
+before performing extraction, but they MUST still validate the request against
+the actual frame state.
 
 #### Dynamic tree request schema
 
@@ -457,6 +463,7 @@ avoids heap allocation in the common case.
 | `local_digest`              | string   | If mode=sketch       | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `digest_type`               | string   | If mode=sketch       | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `local_known_event_count`   | integer  | If mode=sketch       | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `estimated_delta`           | integer  | No                   | Sketch mode only. The requester’s local strata-based estimate of the frame delta. Responders MAY use it to sanity-check that the requested capacity is plausible before performing extraction.                                                                                                                                                                                                                                                                                                                           |
 | `requests`                  | [object] | If mode=sketch       | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 32). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
 | `local_sketches`            | [string] | If mode=sketch       | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order. A length mismatch against `requests` MUST be rejected before subtraction.                                                                                                                                                                                                                                                                                                                        |
 | `max_depth_delta`           | integer  | No                   | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                                                                                                                                                                      |

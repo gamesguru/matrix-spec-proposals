@@ -174,7 +174,7 @@ that commitment:
   "events": {
     "$missing_event_A": {
       "leaf_paths": {
-        "prev_events": "<elided_path>",
+        "prev_events": ["<elided_hash>"],
         "sender_domain": "<elided_path>",
         "type": "<elided_path>"
       },

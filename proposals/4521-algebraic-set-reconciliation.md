@@ -16,10 +16,12 @@ accumulator into one ladder.
 
 The profile targets differences up to 4,096 elements per round in populations up
 to $10^7$, keeps the initial depth-0 sketch under 256 B, and keeps a fully
-saturated round under 32 KiB, excluding object payloads. Decoding a capacity-`k`
-node costs $O(k^2 \log k)$. A difference of size $d$ spread over $n$ nodes
-therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$. Quadratic
-complexity means that invertible bloom filters will outscale this MSC
+saturated round at most 32 KiB of unencoded syndrome data (~43.7 KiB wire-
+encoded as base64url), excluding object payloads. Here $q = 2^{64}$ is the size
+of the finite field used by the syndrome coordinates, so $\log q = 64$. Decoding
+a capacity-`k` node costs $O(k^2 \log q)$. A difference of size $d$ spread over
+$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
+Quadratic complexity means that invertible bloom filters will outscale this MSC
 asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
 cases). Larger differences are a frame problem, not a reconciliation problem
 (see [Scalability](#scalability)). More capacity extends a round; it does not
@@ -263,7 +265,7 @@ requests, each a `(depth, prefix, capacity)` triple.
   antichain array.
 
 These are separate bounds for separate reasons: the per-entry cap bounds decode
-cost ($O(k^2 \log k)$ per node), while the aggregate cap bounds total wire size
+cost ($O(k^2 \log q)$ per node), while the aggregate cap bounds total wire size
 and responder work across a whole exchange. A future profile MAY raise either
 cap; `algebraic_v1` MUST NOT.
 
@@ -312,10 +314,10 @@ Two peers XOR corresponding strata and inspect the highest nonempty residual
 stratum to estimate $d$ before choosing between a single depth-0 extraction,
 provisioning an initial dynamic-tree request, or abandoning the comparison.
 
-If the highest nonempty residual stratum is $i < 31$ and it decodes to $k_i$
-elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
-$k_{31}$ elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
-highest nonempty residual stratum overflows, the standard fallback estimate is
+If the residual strata decode successfully, let $r$ be the lowest decoded
+stratum and let $T$ be the total decoded tail cardinality across the decoded
+tail strata. The standard estimate is then $T \cdot 2^r$. If the highest
+nonempty residual stratum overflows, the standard fallback estimate is
 $8 \cdot 2^{31}$ for analytical sizing. Implementations MAY instead treat that
 complete overflow as advisory `None` and allow the consuming protocol to fall
 back directly to extremity-based frame diffing or graph alignment.
@@ -352,7 +354,11 @@ $$
 
 The peer resolves the short IDs it holds, computes $A(L)$, and compares against
 `E`. A mismatch means the decode was wrong or the populations differed; the
-result MUST be discarded.
+result MUST be discarded. Implementations SHOULD enforce a computational work
+budget across polynomial root-finding during an exchange to prevent
+denial-of-service attacks from synthetic high-degree syndromes. Implementations
+SHOULD also re-encode the recovered roots into a temporary sketch and verify
+that it matches the residual sketch before returning elements.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 Each side asymmetrically verifies the half it can resolve, the residual carrying
@@ -601,10 +607,11 @@ contracts, but these analogies may help understand the protocol.
   split weakly reduces the population, so the search state space remains finite,
   matching the termination pattern in Putnam 2008 A3.[^9]
 
-- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log k)$.
-  With per-node capacity capped at $k \le 32$ and failures isolated
-  independently, a difference of size $d$ spread over $n$ nodes has total decode
-  cost $O\left(\frac{d^2}{n}\log\frac{d}{n}\right)$.
+- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log q)$,
+  where $q = 2^{64}$ and thus $\log q = 64$. With per-node capacity capped at
+  $k \le 32$ and failures isolated independently, a difference of size $d$
+  spread over $n$ nodes has total decode cost
+  $O\left(\frac{d^2}{n}\log q\right)$.
 
 - **Strata estimation and trailing-zero counts:** The pre-decode estimator
   groups elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
