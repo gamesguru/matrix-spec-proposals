@@ -188,7 +188,8 @@ over-capacity exchange to be extended additively rather than restarted.
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
-is localized via recursive binary subdivision (instead of a fixed partition).
+is localized via bit-prefix trie routing over `h_64(e)` rather than RFC 6962
+dyadic-interval splitting.
 
 `h_64(e)` determines an element's path down a binary tree: at depth `d`, an
 element belongs to node `prefix` if and only if the most-significant `d` bits of
@@ -248,12 +249,17 @@ against the previous request's `end` boundary. That yields `O(N)` time and
 for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
-requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
-MUST NOT exceed 32; the sum of `capacity` across all requests in a single
-exchange MUST NOT exceed 4096. These are separate bounds for separate reasons:
-the per-entry cap bounds decode cost ($O(k^2 \log k)$ per node), while the
-aggregate cap bounds total wire size and responder work across a whole exchange.
-A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
+requests, each a `(depth, prefix, capacity)` triple.
+
+- `depth <= 32` bounds trie depth.
+- `capacity <= 32` bounds a single node's PinSketch capacity.
+- `sum(capacity) <= 4096` bounds the total wire and decode budget across the
+  antichain array.
+
+These are separate bounds for separate reasons: the per-entry cap bounds decode
+cost ($O(k^2 \log k)$ per node), while the aggregate cap bounds total wire size
+and responder work across a whole exchange. A future profile MAY raise either
+cap; `algebraic_v1` MUST NOT.
 
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
 requires the subset of the population whose `h_64(e)` shares that `depth`-bit
@@ -303,7 +309,9 @@ If the highest nonempty residual stratum is $i < 31$ and it decodes to $k_i$
 elements, the standard estimate is $2^{i+1} \cdot k_i$. If stratum 31 decodes to
 $k_{31}$ elements, the standard estimate is $2^{31} \cdot k_{31}$. If the
 highest nonempty residual stratum overflows, the standard fallback estimate is
-$8 \cdot 2^{31}$.
+$8 \cdot 2^{31}$ for analytical sizing. Implementations MAY instead treat that
+complete overflow as advisory `None` and allow the consuming protocol to fall
+back directly to extremity-based frame diffing or graph alignment.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
@@ -429,7 +437,10 @@ Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
 still bounded difference. This trades fewer rounds for a larger first exchange,
 but the cap still applies, and bucket load remains probabilistic rather than
-uniform in the face of clustering or skew.
+uniform in the face of clustering or skew. For lower-allocation lookup, a peer
+can keep a sorted `h_64` index and use binary-search range slicing to locate a
+node in $O(\log N)$ plus slice size, instead of maintaining a persistent
+partition tree.
 
 **Scale illustration.** These benchmark points are not protocol upper bounds;
 they show that a large population can still have a small difference and keep the
@@ -576,11 +587,12 @@ contracts, but these analogies may help understand the protocol.
   nonempty subset can always have XOR sum zero.
 
 - **Dynamic tree extraction and antichain invariants:** When divergence exceeds
-  a node's capacity, localization proceeds by recursive binary subdivision.
-  Termination follows from two constraints: requests MUST form an antichain, and
-  recursion depth is capped at 32. Each split weakly reduces the population, so
-  the search state space remains finite, matching the termination pattern in
-  Putnam 2008 A3.[^9]
+  a node's capacity, localization proceeds by bit-prefix trie routing over
+  `h_64(e)`, not RFC 6962-style largest-power-of-two interval splitting.
+  Termination follows from two constraints: requests MUST form an antichain,
+  `depth` is capped at 32, and each node's `capacity` is capped at 32. Each
+  split weakly reduces the population, so the search state space remains finite,
+  matching the termination pattern in Putnam 2008 A3.[^9]
 
 - **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log k)$.
   With per-node capacity capped at $k \le 32$ and failures isolated

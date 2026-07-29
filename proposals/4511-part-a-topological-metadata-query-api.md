@@ -109,6 +109,10 @@ This asks the responding server to walk backwards through `prev_events`, up to
 50 hops, returning previous-event edges, sender/type hints, candidate-server
 routing hints, and requested edge errors.
 
+The request uses `fields`, while the sparse response returns `event_fields` as a
+positional header so the `events` rows can be decoded unambiguously even when
+sidecar maps such as `edge_errors` are present.
+
 The response is intentionally sparse:
 
 ```json

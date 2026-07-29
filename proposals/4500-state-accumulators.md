@@ -578,9 +578,10 @@ consumption and write-time I/O amplification:
 - Rust-based implementations like **Conduit-based derivatives** optimize
   read-time reconstruction by hashing sorted lists of state events (e.g.,
   `ShortStateHash`), but incur heavy write-time amplification. Because standard
-  hashes (like SHA-256) are not homomorphic, generating a hash requires
-  materializing, re-sorting, and re-hashing the entire state vector upon every
-  state change.
+  hashes like `BLAKE2b-256` are not homomorphic, generating a state-collapse
+  digest requires materializing, re-sorting, and re-hashing the entire state
+  vector upon every state change; that is a separate concern from event-ID
+  hashing.
 
 With an `LtHash16` accumulator, the 32-byte collapsed digest acts as a
 deterministic, cryptographically-secure natural fingerprint for the resolved

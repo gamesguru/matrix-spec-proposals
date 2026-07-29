@@ -183,7 +183,8 @@ The sample inputs are:
 
 The `origin` value above is included only as sample signed input for the test
 vector's `other_signed_fields_hash`. It does not define `origin` as a queryable
-field for this MSC.
+field for this MSC. It is an arbitrary signed property used to demonstrate hash
+absorption only.
 
 The `signature_envelope` value above is the sample canonical signed envelope for
 the stated `event_root`. It is signed with the sample Ed25519 key below to make
