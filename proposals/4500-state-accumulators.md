@@ -402,7 +402,7 @@ Server-Server APIs.
   `ETag` header on `200 OK` responses so standard conditional-request semantics
   hold end-to-end. Requesters SHOULD include the 32-byte accumulator digest in
   the `If-None-Match` header. The receiving server simply compares this against
-  its own local LRU cache of the requested event's digest. If they match, the
+  its own local LRU cache of the requested state digest. If they match, the
   server immediately returns `304 Not Modified`, bypassing the legacy database
   traversal and JSON serialization of tens of thousands of state events.
 

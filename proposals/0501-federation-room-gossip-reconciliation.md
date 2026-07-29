@@ -701,14 +701,14 @@ floor it cannot move.
 budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that difference
 at all. Concretely: a requester MUST compare `d̂` from the preflight digest
 against `round_cap * 4096` — using this MSC's round cap of 20 (see
-"Amplification via oversized sketches," below), that ceiling is **~82,000
-elements** — and MUST route to `extremity` mode, backfill, or frame extension
-instead of `sketch` mode when `d̂` exceeds it. If the requester only has `c`, it
-MAY substitute `c` only when it has independent evidence that the divergence is
-one-sided; otherwise `c` is not a safe replacement. This is the load-bearing
-check: it stops a peer from starting a round sequence it cannot finish, rather
-than letting it discover that dozens of rounds in. See "Scope" in MSC4521 for
-the corresponding profile-level guidance.
+"Amplification via oversized sketches," below), that consumer-derived
+illustration is **~82,000 elements** — and MUST route to `extremity` mode,
+backfill, or frame extension instead of `sketch` mode when `d̂` exceeds it. If
+the requester only has `c`, it MAY substitute `c` only when it has independent
+evidence that the divergence is one-sided; otherwise `c` is not a safe
+replacement. This is the load-bearing check: it stops a peer from starting a
+round sequence it cannot finish, rather than letting it discover that dozens of
+rounds in. See "Scope" in MSC4521 for the corresponding profile-level guidance.
 
 #### Causal closure and truncation
 
