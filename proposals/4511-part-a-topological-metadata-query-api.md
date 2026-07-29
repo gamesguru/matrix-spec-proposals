@@ -250,7 +250,7 @@ the State DAG relation. Otherwise the server MUST reject the request with
 `M_UNSUPPORTED_ROOM_VERSION`, rather than silently treating the edge as empty.
 
 If the server does not support computed graph queries at all, it rejects any
-request containing `compute` with `M_UNRECOGNIZED`, as described below. If the
+request containing `compute` with `M_INVALID_PARAM`, as described below. If the
 server does support computed graph queries, unrecognized `compute` names cause
 the request to fail with `M_INVALID_PARAM`.
 
@@ -443,9 +443,9 @@ metadata fields. These queries are bounded by the same recursion, record, time,
 authorization, and room-boundary limits as normal traversal.
 
 If a server does not support computed graph queries, it MUST reject requests
-containing the `compute` field with `M_UNRECOGNIZED`. This ensures the requester
-can gracefully fall back to raw edge traversal rather than silently failing to
-receive expected computations.
+containing the `compute` field with `M_INVALID_PARAM`. This ensures the
+requester can gracefully fall back to raw edge traversal rather than silently
+failing to receive expected computations.
 
 Computed graph queries operate on `compute_event_pairs`. Each entry is a
 two-element list of event IDs. If `compute` is present, `compute_event_pairs`

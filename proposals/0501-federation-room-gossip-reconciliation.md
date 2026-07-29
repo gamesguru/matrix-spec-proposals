@@ -75,8 +75,8 @@ required.
 
 ## Proposal
 
-Three new federation endpoints are introduced under the
-`/_matrix/federation/v1/` namespace.
+Four federation endpoints are introduced under the `/_matrix/federation/v1/`
+namespace.
 
 ### Capability discovery
 
@@ -109,7 +109,7 @@ event sets have diverged (about 200-400 bytes on a `200` response without
 **Request:**
 
 ```http
-GET /_matrix/federation/v1/room_digest/{roomId}?strata=true
+GET /_matrix/federation/v1/room_digest/{roomId}/strata
 ```
 
 **Response:**
@@ -128,24 +128,24 @@ GET /_matrix/federation/v1/room_digest/{roomId}?strata=true
 }
 ```
 
-The example above is the `?strata=true` form. If strata was not requested or
-cannot be produced, responders SHOULD omit `strata` rather than fabricate it.
+The example above is the `/strata` form. If strata cannot be produced,
+responders SHOULD omit `strata` rather than fabricate it.
 
 **Fields:**
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                    | Type               | Required | Description                                                                                                                                         |
-| ------------------------ | ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                            |
-| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                       |
-| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                     |
-| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                         |
-| `strata`                 | [string]           | No       | The 32-entry strata estimator, included only when requested for sketch sizing via `?strata=true`. Each entry is a base64url-encoded 64-byte sketch. |
-| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.          |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                  |
-| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                           |
-| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                          |
+| Field                    | Type               | Required | Description                                                                                                                                             |
+| ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                                |
+| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                           |
+| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                         |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                             |
+| `strata`                 | [string]           | No       | The 32-entry strata estimator, included only on `/_matrix/federation/v1/room_digest/{roomId}/strata`. Each entry is a base64url-encoded 64-byte sketch. |
+| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.              |
+| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                      |
+| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                               |
+| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                              |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -164,18 +164,18 @@ in `K`; their soft-fail status specifically is not part of reconciliation.
 
 Given that population, `digest` and `known_event_count` are the level-0
 accumulator and count defined in MSC4521, and `strata` is that profile's strata
-estimator. MSC0501 requires the estimator on `room_digest` when the requester
-asks for sketch sizing via `?strata=true`; other consumers of MSC4521 MAY use it
-only when their wire contract includes it. This MSC adds no arithmetic of its
-own.
+estimator. MSC0501 requires the estimator on
+`/_matrix/federation/v1/room_digest/{roomId}/strata` when the requester asks for
+sketch sizing; other consumers of MSC4521 MAY use it only when their wire
+contract includes it. This MSC adds no arithmetic of its own.
 
 Requesters that intend to open a `sketch` exchange for a given frame MUST first
-fetch a strata-bearing `room_digest` for that frame. A requester MUST use the
-resulting `d̂` for the round-budget precondition. A requester MAY substitute the
-exact count residual `c` only when it has independent evidence that the
-divergence is one-sided; otherwise `c` is not a safe replacement for `d̂`.
-Responders MAY reject a `sketch` request from a requester that has not performed
-this preflight.
+fetch a strata-bearing `/_matrix/federation/v1/room_digest/{roomId}/strata`
+response for that frame. A requester MUST use the resulting `d̂` for the
+round-budget precondition. A requester MAY substitute the exact count residual
+`c` only when it has independent evidence that the divergence is one-sided;
+otherwise `c` is not a safe replacement for `d̂`. Responders MAY reject a
+`sketch` request from a requester that has not performed this preflight.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
@@ -939,6 +939,11 @@ wanting byte-stable behavior across implementations SHOULD use Matrix canonical
 JSON over bytewise-sorted `extremity_event_ids`, hashed with SHA-256, truncated
 to the first 8 bytes.
 
+Requesting servers MUST NOT send `If-None-Match` on
+`/_matrix/federation/v1/room_digest/{roomId}/strata` requests. The strata
+preflight is a distinct representation, and it must be fetched unconditionally
+when a requester needs sketch-sizing data.
+
 If the computed ETag matches `If-None-Match`, the server MUST return HTTP 304
 with no body. The server evaluates the conditional request in O(E), where E is
 the number of extremities (typically 1–5), using the incrementally maintained
@@ -1113,13 +1118,14 @@ endpoints.
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier                     | Purpose         | Development identifier                                               |
-| --------------------------------------------- | --------------- | -------------------------------------------------------------------- |
-| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}` |
-| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_diff/{roomId}`   |
-| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_events/{roomId}` |
-| `algebraic_v1`                                | digest type     | `algebraic_v1`                                                       |
-| `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                    |
+| Proposed final identifier                            | Purpose         | Development identifier                                                      |
+| ---------------------------------------------------- | --------------- | --------------------------------------------------------------------------- |
+| `/_matrix/federation/v1/room_digest/{roomId}`        | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}`        |
+| `/_matrix/federation/v1/room_digest/{roomId}/strata` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}/strata` |
+| `/_matrix/federation/v1/room_diff/{roomId}`          | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_diff/{roomId}`          |
+| `/_matrix/federation/v1/room_events/{roomId}`        | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_events/{roomId}`        |
+| `algebraic_v1`                                       | digest type     | `algebraic_v1`                                                              |
+| `X-Matrix-Partial-State`                             | response header | `X-Matrix-Unstable-Partial-State`                                           |
 
 <!-- markdownlint-enable MD013 -->
 

@@ -882,8 +882,9 @@ This proposal is fully backwards-compatible:
 
 - Unknown transaction keys (`state_hashes`) are silently ignored by existing
   servers, per current federation behavior.
-- The unstable reconciliation endpoint returns a `404 Not Found` on
-  non-implementing servers, which callers treat as an "unsupported" signal.
+- The unstable reconciliation endpoint returns a `404` response with
+  `M_UNRECOGNIZED` or a non-Matrix body on non-implementing servers, which
+  callers treat as an "unsupported" signal.
 - No room version consensus rules are modified.
 
 ## Dependencies
