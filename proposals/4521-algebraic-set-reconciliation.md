@@ -281,7 +281,7 @@ Non-normative baseline note: the reference sequence note uses a 20-round,
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
-difference sizing. MSCXXXX requires all 32 entries in `room_digest`; other
+difference sizing. MSC0501 requires all 32 entries in `room_digest`; other
 consumers MAY treat the estimator as a local recommendation if they expose it at
 all.
 
@@ -488,7 +488,7 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization; MSCXXXX requires it in `room_digest`,
+The strata estimator is an optimization; MSC0501 requires it in `room_digest`,
 while other consumers MAY treat it as a local recommendation.
 
 ## Advertisement
@@ -707,8 +707,8 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 ## Possible consumers
 
 - MSC4242 (State DAGs) — over an index of state events.
-- MSCXXXX (federation missed-PDU reconciliation) — over a room's known-event set
-- MSCYYYY (federation EDU state reconciliation) may adapt the same algebraic
+- MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
+- MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
 
 <!-- Reverse edit marker. [48004bade] -->

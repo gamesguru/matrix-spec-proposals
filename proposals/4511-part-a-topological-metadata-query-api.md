@@ -69,9 +69,11 @@ flag.
 
 A server that does not advertise this flag SHOULD be treated as not supporting
 the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to
-unsupported peers; a `404 M_NOT_FOUND` or `501 Not Implemented` HTTP response
-SHOULD be cached as an unsupported signal for at least 24 hours unless an
-operator explicitly overrides the cache.
+unsupported peers; a `501 Not Implemented` response, or a `404` response with
+`M_UNRECOGNIZED` or a non-Matrix body, SHOULD be cached as an unsupported signal
+for at least 24 hours unless an operator explicitly overrides the cache. The
+cache MUST be invalidated on any observed change to the peer's `/version`
+document.
 
 The endpoint accepts a bounded query over one or more starting events. The
 requesting homeserver chooses the edge types it wants to walk, how deep it wants

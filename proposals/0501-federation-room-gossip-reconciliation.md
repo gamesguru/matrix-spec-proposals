@@ -15,7 +15,7 @@ requiring full state map comparisons or new room versions.
 
 **Companion documents.** The digest algebra — field, hash derivation, sketch
 encoding, decoder contract, and capacity budgets — is specified separately in
-MSC0500 (`algebraic_v1` digest profile). The design rationale, rejected
+MSC4521 (`algebraic_v1` digest profile). The design rationale, rejected
 alternatives, and operational tuning guidance are in the MSC0501 architecture
 note. This document specifies the protocol and its wire contract.
 
@@ -88,20 +88,23 @@ endpoint revisions can be added without changing the stable version document.
 {
   "unstable_features": {
     "tk.nutra.msc0501.reconciliation": true,
-    "algebraic_v1": true
+    "tk.nutra.msc4521.digest.algebraic_v1": true
   }
 }
 ```
 
-A server that receives HTTP 404 or 501 from a reconciliation endpoint MUST cache
-that peer as unsupported for at least 24 hours and MUST NOT retry during that
-period unless an operator explicitly overrides the cache.
+A server that receives a `501 Not Implemented` response, or a `404` response
+with `M_UNRECOGNIZED` or a non-Matrix body, from a reconciliation endpoint MUST
+cache that peer as unsupported for at least 24 hours and MUST NOT retry during
+that period unless an operator explicitly overrides the cache. The cache MUST be
+invalidated on any observed change to the peer's `/version` document.
 
 ### Room digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
 event set. Two servers can compare digests in `O(1)` to determine whether their
-event sets have diverged (about 50 ms compute and 20 KB of bandwidth).
+event sets have diverged (about 3 KB of bandwidth on a `200` response, and much
+less on a `304`).
 
 **Request:**
 
@@ -131,11 +134,11 @@ GET /_matrix/federation/v1/room_digest/{roomId}
 
 | Field                    | Type               | Required | Description                                                                                                                                |
 | ------------------------ | ------------------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC0500.                   |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                   |
 | `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                              |
 | `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.            |
 | `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                |
-| `strata`                 | [string]           | Yes      | The required 32-entry strata estimator, per MSC0500. Each entry is a base64url-encoded 64-byte sketch. (Efficiency/performance gain).      |
+| `strata`                 | [string]           | No       | The 32-entry strata estimator, included when requested for sketch sizing. Each entry is a base64url-encoded 64-byte sketch.                |
 | `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame. |
 | `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                         |
 | `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                  |
@@ -157,10 +160,10 @@ in `K`; their soft-fail status specifically is not part of reconciliation.
 <!-- Edit marker. -->
 
 Given that population, `digest` and `known_event_count` are the level-0
-accumulator and count defined in MSC0500, and `strata` is that profile's strata
-estimator. MSC0501 requires the estimator on `room_digest`; other consumers of
-MSC0500 MAY use it only when their wire contract includes it. This MSC adds no
-arithmetic of its own.
+accumulator and count defined in MSC4521, and `strata` is that profile's strata
+estimator. MSC0501 requires the estimator on `room_digest` when the requester
+asks for sketch sizing; other consumers of MSC4521 MAY use it only when their
+wire contract includes it. This MSC adds no arithmetic of its own.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
@@ -239,9 +242,9 @@ The `room_diff` response MUST include `frame_status` whenever
 `frame_negotiation` is requested. `frame_status` is one of `common`, `none`, or
 `not_requested`; `negotiated_frame_event_ids` is required for `common` and
 omitted otherwise. Once a common frame is selected, both sides MUST compute all
-subsequent digests, counts, sketches, and bucket summaries over that exact
-frame. An implementation MUST NOT silently substitute its local frame between
-the digest and diff requests.
+subsequent digests, counts, and sketches over that exact frame. An
+implementation MUST NOT silently substitute its local frame between the digest
+and diff requests.
 
 **Lifetime.** Implementations SHOULD maintain resident accumulators keyed by the
 canonical frame anchor set rather than only by room ID, under a bounded TTL
@@ -268,13 +271,13 @@ MUST then abandon algebraic reconciliation for that frame and fall back to
 retired, the responder MUST NOT claim that a digest mismatch proves an event-set
 divergence.
 
-**Validation is a transport-layer responsibility.** Before invoking the MSC0500
+**Validation is a transport-layer responsibility.** Before invoking the MSC4521
 kernel, the responder MUST resolve and validate the requested `frame_id` and
 confirm that it matches the frame used by the supplied digest metadata. A
 missing, expired, or mismatched frame MUST terminate the request before the
-responder computes any residual, subtraction, or bucket summary. The kernel MUST
-receive only inputs already validated as belonging to the same frame; it MUST
-NOT interpret `frame_status: "none"` or perform frame negotiation itself.
+responder computes any residual or subtraction. The kernel MUST receive only
+inputs already validated as belonging to the same frame; it MUST NOT interpret
+`frame_status: "none"` or perform frame negotiation itself.
 
 MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
 `edges.oldest` response field is an antichain that can become the next frame
@@ -292,19 +295,9 @@ returns the set of event IDs that the responding server has but the requester
 likely does not. This is the "what am I missing?" query.
 
 **Comparison scope.** The default `scope` is `event_set`, which compares `K`
-within the negotiated frame. A request MAY instead use `scope: "resolved_state"`
-to compare only the event IDs in each server's locally resolved state map at one
-common `state_at` event. Both peers MUST agree on `scope` and `state_at` before
-comparing digests or sketches.
-
-A resolved-state comparison is still only event-ID/PDU transport: the responder
-MUST NOT send `(type, state_key) -> event_id` map entries, and the requester
-MUST rerun state resolution locally after admitting any returned PDUs. For
-`scope: "resolved_state"`, `state_at` MUST be present in the negotiated frame
-and both servers MUST hold and resolve that event under the same room version.
-MSC0500 identifier derivation applies to state event IDs exactly as to timeline
-event IDs. A peer that cannot establish these conditions MUST reject the request
-with `M_INVALID_PARAM` or `M_UNSUPPORTED_ROOM_VERSION` before comparing digests.
+within the negotiated frame. This proposal does not define a resolved-state
+comparison scope; MSC4500 remains the lookup primitive for resolved-state
+divergence.
 
 **Two modes.** The endpoint supports two diff modes because Matrix federation
 produces two fundamentally different classes of data loss:
@@ -361,8 +354,6 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 ```json
 {
   "mode": "sketch",
-  "scope": "resolved_state",
-  "state_at": "$state_point:example.com",
   "frame_id": "<base64url_32_byte_frame_id>",
   "local_digest": "<base64url_16_byte_accumulator>",
   "digest_type": "algebraic_v1",
@@ -433,24 +424,22 @@ time and `O(1)` memory when the wire order is already canonical.
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                       | Type     | Required                | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| --------------------------- | -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`                      | string   | Yes                     | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `scope`                     | string   | No                      | `event_set` (default), or `resolved_state`. The latter compares resolved state event IDs at `state_at` and is never a state-map adoption mechanism.                                                                                                                                                                                                                                                                                                                                                                      |
-| `state_at`                  | string   | If scope=resolved_state | Common event ID at which both servers resolve state. It MUST be in the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `local_extremity_event_ids` | [string] | If mode=extremity       | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `have_event_ids`            | [string] | If mode=extremity       | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `frame_negotiation`         | bool     | No                      | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                                                                                                                                                                                                                             |
-| `frame_event_ids`           | [string] | If frame negotiation    | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                                                                                                                                                                                                                     |
-| `frame_id`                  | string   | If mode=sketch          | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                                                                                                                                                                                                                      |
-| `local_digest`              | string   | If mode=sketch          | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `digest_type`               | string   | If mode=sketch          | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `local_known_event_count`   | integer  | If mode=sketch          | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `requests`                  | [object] | If mode=sketch          | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 32). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
-| `local_sketches`            | [string] | If mode=sketch          | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order. A length mismatch against `requests` MUST be rejected before subtraction.                                                                                                                                                                                                                                                                                                                        |
-| `max_depth_delta`           | integer  | No                      | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                                                                                                                                                                      |
-| `max_events`                | integer  | No                      | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                                                                                                                                                                                                                         |
-| `limit`                     | integer  | No                      | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Field                       | Type     | Required             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | -------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`                      | string   | Yes                  | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `local_extremity_event_ids` | [string] | If mode=extremity    | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `have_event_ids`            | [string] | If mode=extremity    | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `frame_negotiation`         | bool     | No                   | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                                                                                                                                                                                                                             |
+| `frame_event_ids`           | [string] | If frame negotiation | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                                                                                                                                                                                                                     |
+| `frame_id`                  | string   | If mode=sketch       | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `local_digest`              | string   | If mode=sketch       | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `digest_type`               | string   | If mode=sketch       | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `local_known_event_count`   | integer  | If mode=sketch       | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `requests`                  | [object] | If mode=sketch       | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 32). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
+| `local_sketches`            | [string] | If mode=sketch       | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order. A length mismatch against `requests` MUST be rejected before subtraction.                                                                                                                                                                                                                                                                                                                        |
+| `max_depth_delta`           | integer  | No                   | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `max_events`                | integer  | No                   | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                                                                                                                                                                                                                         |
+| `limit`                     | integer  | No                   | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -474,21 +463,19 @@ time and `O(1)` memory when the wire order is already canonical.
 
 <!-- markdownlint-disable MD013 -->
 
-| Field                                 | Type     | Required                | Description                                                                                                                                                                                                                                                     |
-| ------------------------------------- | -------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `missing_event_ids`                   | [string] | Yes                     | Event IDs that the responding server has but the requesting server does not. Returned IDs are exact in `sketch` mode when `sketch_status` is `decoded`, and in `extremity` mode when `truncated` is false; the list is complete only when `truncated` is false. |
-| `requester_only_short_ids`            | [string] | No                      | In `sketch` mode, decoded 8-byte `h_64` values that appear to be held only by the requester, encoded as unpadded base64url. This lets the requester verify and optionally push reverse repairs.                                                                 |
-| `expected_requester_side_accumulator` | string   | No                      | In `sketch` mode, `residual_digest XOR accumulator(responder_side)`, encoded as a 16-byte unpadded base64url value. The requester verifies this against the full event IDs it resolves from `requester_only_short_ids`.                                         |
-| `remote_known_event_count`            | integer  | Yes                     | The responding server's known-event count for the negotiated frame.                                                                                                                                                                                             |
-| `remote_extremity_event_ids`          | [string] | Yes                     | The responding server's current forward extremities.                                                                                                                                                                                                            |
-| `frame_id`                            | string   | Yes                     | The exact frame identifier used for the response.                                                                                                                                                                                                               |
-| `frame_status`                        | string   | If negotiation          | `common`, `none`, or `not_requested`. A `common` response selects `negotiated_frame_event_ids` for subsequent digest and diff operations.                                                                                                                       |
-| `negotiated_frame_event_ids`          | [string] | If frame_status=common  | The complete canonical frame anchor antichain selected by negotiation.                                                                                                                                                                                          |
-| `scope`                               | string   | Yes                     | The comparison scope used by the response: `event_set` or `resolved_state`.                                                                                                                                                                                     |
-| `state_at`                            | string   | If scope=resolved_state | The common DAG point used for local state resolution.                                                                                                                                                                                                           |
-| `inline_pdus`                         | [PDU]    | No                      | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
-| `sketch_status`                       | string   | No                      | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode. `capacity_exceeded` on a given `(depth, prefix)` node is the trigger for requesting its two children; see "Dynamic tree extraction," below.                                     |
-| `truncated`                           | bool     | Yes                     | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling truncation.                                                                                                               |
+| Field                                 | Type     | Required               | Description                                                                                                                                                                                                                                                     |
+| ------------------------------------- | -------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `missing_event_ids`                   | [string] | Yes                    | Event IDs that the responding server has but the requesting server does not. Returned IDs are exact in `sketch` mode when `sketch_status` is `decoded`, and in `extremity` mode when `truncated` is false; the list is complete only when `truncated` is false. |
+| `requester_only_short_ids`            | [string] | No                     | In `sketch` mode, decoded 8-byte `h_64` values that appear to be held only by the requester, encoded as unpadded base64url. This lets the requester verify and optionally push reverse repairs.                                                                 |
+| `expected_requester_side_accumulator` | string   | No                     | In `sketch` mode, `residual_digest XOR accumulator(responder_side)`, encoded as a 16-byte unpadded base64url value. The requester verifies this against the full event IDs it resolves from `requester_only_short_ids`.                                         |
+| `remote_known_event_count`            | integer  | Yes                    | The responding server's known-event count for the negotiated frame.                                                                                                                                                                                             |
+| `remote_extremity_event_ids`          | [string] | Yes                    | The responding server's current forward extremities.                                                                                                                                                                                                            |
+| `frame_id`                            | string   | Yes                    | The exact frame identifier used for the response.                                                                                                                                                                                                               |
+| `frame_status`                        | string   | If negotiation         | `common`, `none`, or `not_requested`. A `common` response selects `negotiated_frame_event_ids` for subsequent digest and diff operations.                                                                                                                       |
+| `negotiated_frame_event_ids`          | [string] | If frame_status=common | The complete canonical frame anchor antichain selected by negotiation.                                                                                                                                                                                          |
+| `inline_pdus`                         | [PDU]    | No                     | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
+| `sketch_status`                       | string   | No                     | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode. `capacity_exceeded` on a given `(depth, prefix)` node is the trigger for requesting its two children; see "Dynamic tree extraction," below.                                     |
+| `truncated`                           | bool     | Yes                    | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling truncation.                                                                                                               |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -513,7 +500,7 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   the repair frontier, but MUST treat `truncated: true` as non-repair progress
   until the walk reaches known ancestry.
 - Otherwise, or after frontier repair, use `sketch` mode, provisioning the
-  initial depth-0 request's `capacity` per the MSC0500 budget from the count
+  initial depth-0 request's `capacity` per the MSC4521 budget from the count
   residual `c = abs(local_known_event_count - remote_known_event_count)`.
 
 #### `extremity` mode
@@ -614,12 +601,12 @@ The responding server:
    each sketch is exactly `8 * capacity` bytes for its corresponding entry.
 5. For each entry in `requests`, produces a syndrome sketch over the subset of
    its own known-event set whose `h_64(e)` has `prefix` as its leading `depth`
-   bits, at that entry's `capacity`. Per MSC0500, this subset MUST be
+   bits, at that entry's `capacity`. Per MSC4521, this subset MUST be
    materialized via an `h_64`-sorted index (a range slice), not a
    full-population scan per request.
 6. Subtracts each of the requester's sketches from its corresponding
    responder-side sketch and decodes the symmetric difference as 64-bit short
-   identifiers, per MSC0500.
+   identifiers, per MSC4521.
 7. Partitions the decoded short identifiers into `responder_side` and
    `requester_side`. For `responder_side`, the responder resolves each short ID
    to a full event ID it holds and computes the 128-bit accumulator over those
@@ -643,7 +630,7 @@ itself overflows is split the same way, one depth deeper. Because each split
 strictly partitions its parent's population, recursion terminates: worst case at
 `depth = 32`, where the profile's depth cap is reached. No precondition beyond
 the usual frame agreement is required for this — every result is independently
-verified against the 128-bit accumulator per MSC0500, not inferred from graph
+verified against the 128-bit accumulator per MSC4521, not inferred from graph
 structure, so there is nothing analogous to a probabilistic fallback's
 extremity-convergence requirement.
 
@@ -679,17 +666,17 @@ decode throughput. This spec therefore does not define d̂-driven initial depth:
 the ~7-round saving it could offer is not worth the added spec surface against a
 floor it cannot move.
 
-**The floor implies a hard precondition, not just a documented cost.**
-`d̂ × per_node_cap` rounds are needed regardless of strategy, so a requester
-whose round budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that
-difference at all. Concretely: a requester MUST compare `d̂` (or the exact count
-residual `c`, if available) against `round_cap * 4096` — using this MSC's round
-cap of 20 (see "Amplification via oversized sketches," below), that ceiling is
-**~82,000 elements** — and MUST route to `extremity` mode, backfill, or frame
-extension instead of `sketch` mode when `d̂` exceeds it. This is the load-bearing
-check: it stops a peer from starting a round sequence it cannot finish, rather
-than letting it discover that dozens of rounds in. See "Scope" in MSC0500 for
-the corresponding profile-level guidance.
+**The floor implies a hard precondition, not just a documented cost.** roughly
+`d̂ / 4096` rounds are needed regardless of strategy, so a requester whose round
+budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that difference
+at all. Concretely: a requester MUST compare `d̂` (or the exact count residual
+`c`, if available) against `round_cap * 4096` — using this MSC's round cap of 20
+(see "Amplification via oversized sketches," below), that ceiling is **~82,000
+elements** — and MUST route to `extremity` mode, backfill, or frame extension
+instead of `sketch` mode when `d̂` exceeds it. This is the load-bearing check: it
+stops a peer from starting a round sequence it cannot finish, rather than
+letting it discover that dozens of rounds in. See "Scope" in MSC4521 for the
+corresponding profile-level guidance.
 
 #### Causal closure and truncation
 
@@ -964,7 +951,7 @@ force an unconditional digest comparison at least once every 16 consecutive
 ### Performance resilience
 
 - **Digest computation cost.** The accumulator and resident strata estimator are
-  maintained incrementally when events are persisted or purged, per MSC0500.
+  maintained incrementally when events are persisted or purged, per MSC4521.
   Dynamic-tree node sketches are computed on demand, not maintained resident.
   Implementations that do not maintain the resident structure may need to scan
   room history to answer `sketch` requests and SHOULD apply stricter rate
@@ -1038,15 +1025,14 @@ range, timestamp range, and forward extremities. This could be used to
 fingerprint implementations or estimate room activity. However, this information
 is already implicitly available through `/state_ids`, `/backfill`, and `/event`;
 access is restricted to room participants; and the accumulator does not reveal
-individual event IDs. Optional bucket summaries reveal only coarse bucket counts
-and accumulator differences.
+individual event IDs.
 
 ### Denial of service
 
 - **Rate limiting.** Servers MUST apply per-peer, per-room rate limiting to all
   three endpoints. Recommended: 1 request per 10 seconds per room per peer for
   `room_digest` and `room_diff`; 1 request per 30 seconds for `room_events`.
-- **Digest caching.** The accumulator and resident bucket summaries SHOULD be
+- **Digest caching.** The accumulator and resident strata estimator SHOULD be
   maintained incrementally. Implementations that compute sketches by scanning
   the event store SHOULD use stricter request budgets.
 - **Response caps.** The `limit` parameter on `room_diff` and the 500-event cap
@@ -1075,15 +1061,15 @@ capacity-32 node. Servers SHOULD reject requests whose `local_known_event_count`
 is grossly inconsistent with the supplied accumulator history or negotiated
 frame.
 
-Servers MUST also cap the number of `requests` entries per round and the
-cumulative per-peer count of tree-split rounds for a given reconciliation
-attempt at 20, so a peer cannot force unbounded recursive fan-out by repeatedly
-requesting refinement of nodes that do not actually overflow. This cap is not
-arbitrary: it is the same `round_cap * 4096 ≈ 82,000`-element ceiling that
-"sketch mode," above, derives from decode throughput, restated here as the
-enforcement side of that MUST NOT precondition. A well-behaved requester never
-reaches this cap, because it already refused to start past the same ceiling;
-this bound exists for peers that skip that check or misestimate `d̂`.
+Servers MUST also cap the number of `requests` entries per round at 128.
+Separately, they MUST cap the cumulative per-peer count of tree-split rounds for
+a given reconciliation attempt at 20, so a peer cannot force unbounded recursive
+fan-out by repeatedly requesting refinement of nodes that do not actually
+overflow. These caps are not arbitrary: the first matches the `4096 / 32 = 128`
+decode-throughput limit, and the second is the round-budget ceiling already
+described above. A well-behaved requester never reaches either cap, because it
+already refused to start past the same ceiling; these bounds exist for peers
+that skip that check or misestimate `d̂`.
 
 ### Depth manipulation
 
@@ -1094,7 +1080,7 @@ recomputed depth) rather than trusting the `depth` field of received events.
 
 ### Accumulator integrity
 
-XOR accumulators are fault-detecting, not authenticators; MSC0500 states the
+XOR accumulators are fault-detecting, not authenticators; MSC4521 states the
 linear-algebra limit precisely. Nothing in this MSC relies on the accumulator
 being binding against a malicious peer. It is an integrity anchor for accidental
 decode failure and benign desync, while returned PDUs still MUST be verified by
@@ -1115,9 +1101,9 @@ endpoints.
 
 | Proposed final identifier                     | Purpose         | Development identifier                                               |
 | --------------------------------------------- | --------------- | -------------------------------------------------------------------- |
-| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_digest/{roomId}` |
-| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_diff/{roomId}`   |
-| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_events/{roomId}` |
+| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}` |
+| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_diff/{roomId}`   |
+| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_events/{roomId}` |
 | `algebraic_v1`                                | digest type     | `algebraic_v1`                                                       |
 | `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                    |
 
@@ -1125,7 +1111,7 @@ endpoints.
 
 ## Dependencies
 
-This MSC depends on MSC0500 (`algebraic_v1` digest profile) for its digest
+This MSC depends on MSC4521 (`algebraic_v1` digest profile) for its digest
 construction. It has no hard dependencies on other unaccepted MSCs.
 
 It is designed to complement:
