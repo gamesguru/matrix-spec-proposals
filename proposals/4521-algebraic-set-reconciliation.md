@@ -39,8 +39,6 @@ that both sides digest the same population before comparing them.
 
 ## Element derivation
 
-<!-- Edit marker. [0ce42be35] -->
-
 The profile operates over a set `S` of opaque elements. Each consumer MUST map
 every element to a canonical 32-byte digest before applying this profile.
 Consumers define what the elements mean; the kernel treats them as an opaque set
@@ -94,7 +92,7 @@ implementation non-conforming, regardless of internal decode success.
 
 The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1]. The
 syndrome construction is PinSketch; the field and reduction polynomial follow
-`libminisketch`.[^7] Finite-field set reconciliation originates with Minsky,
+`libminisketch`. Finite-field set reconciliation originates with Minsky,
 Trachtenberg, and Zippel.[^2] The 128-bit accumulator layer is a bitwise XOR sum
 and operates independently of this field.
 
@@ -161,6 +159,8 @@ syndrome of their symmetric difference. This group-valued property allows an
 over-capacity exchange to be extended additively rather than restarted.
 
 ## Dynamic tree extraction
+
+<!-- Edit marker. [0ce42be35] -->
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
