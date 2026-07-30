@@ -132,6 +132,10 @@ The example above is the `/strata` form. If strata cannot be produced,
 responders MUST return HTTP 503 with a Matrix error body such as `M_UNKNOWN`
 rather than a strata-less `200`.
 
+On the `/strata` resource, `strata` is mandatory. A responder that cannot
+produce it MUST fail the request rather than returning a successful response
+without sketch-sizing data.
+
 **Fields:**
 
 <!-- markdownlint-disable MD013 -->
@@ -182,6 +186,11 @@ round-budget precondition. A requester MAY substitute the exact count residual
 otherwise `c` is not a safe replacement for `d̂`. Responders MAY reject a
 `sketch` request from a requester that has not performed this preflight.
 
+If the preflight estimate is the profile's saturated fallback value, the
+requester MUST treat it as unavailable for sketch sizing and MUST route to
+`extremity` mode, backfill, or frame extension instead of starting `sketch`
+mode. Saturation is distinct from a merely large measured difference.
+
 Requesters MUST retain the outstanding tree frontier across rounds as a pending
 queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
 canonical order until adding another node would exceed either 128 requests or
@@ -190,6 +199,9 @@ pushes its two children onto the back of the queue for a later round rather than
 into the current round. The exchange ends when the queue empties, the round
 counter reaches 20, or the requester must fall back to `extremity` mode,
 backfill, or frame extension.
+
+Implementations MUST carry that pending queue across rounds; they MUST NOT
+rebuild the next round solely from the immediately preceding failures.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
@@ -673,7 +685,8 @@ size the initial depth-0 request's _capacity_ (bounded by the per-entry cap of
 0 and splits one level at a time on `capacity_exceeded`. This is an efficiency
 choice, not a correctness one: an under-provisioned node produces
 `sketch_status: "capacity_exceeded"` for that node specifically, which is
-exactly the trigger for the next split, not a lost result.
+exactly the trigger for the next split, not a lost result. The frontier queue
+described above is what keeps those deferred children available across rounds.
 
 **This has a latency cost that is worth stating in concrete terms — and a
 per-branch depth count understates it.** Each round is capacity-bounded: the

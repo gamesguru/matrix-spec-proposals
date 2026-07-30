@@ -94,11 +94,11 @@ GET /_matrix/federation/v1/edu_digest
   "users": {
     "@alice:example.com": {
       "version": 1716000042,
-      "content_hash": "xxh3:a1b2c3d4"
+      "content_hash": "xxh3:a1b2c3d4e5f60718"
     },
     "@bob:example.com": {
       "version": 1716000099,
-      "content_hash": "xxh3:e5f6g7h8"
+      "content_hash": "xxh3:1a2b3c4d5e6f7089"
     }
   },
   "next_batch": "opaque_token_123",
@@ -277,8 +277,7 @@ nested structure:
 
 For receipts, `origin_server_ts` SHOULD be stored in the EDU content body for
 the referenced event, but reconciliation MUST use the monotonic `version`
-counter only. That keeps receipt ordering visible without reintroducing the
-clock-skew problem this MSC avoids elsewhere.
+counter only. `origin_server_ts` is presentation data, not a version signal.
 
 ### Reconciliation Protocol
 
@@ -346,7 +345,7 @@ as MSC0501:
 
 ```http
 GET /_matrix/federation/v1/edu_digest?edu_type=m.presence
-If-None-Match: "xxh3:deadbeef"
+If-None-Match: "xxh3:deadbeefcafebabe"
 ```
 
 The ETag SHOULD be computed as an order-independent accumulator over the
@@ -357,9 +356,10 @@ returned user tuples:
 Because the accumulator is order-independent, a server can update it in O(1)
 when a single user's state changes. Servers MAY combine that page digest with a
 fixed hash of `edu_type` and `next_batch` if they need page-specific validators,
-but they MUST NOT derive the ETag from a single maximum version counter.
-Conditional requests are therefore most useful on a stable first page; page-
-specific `since` requests should be treated as ordinary incremental fetches.
+but they MUST NOT derive the ETag from a single maximum version counter or
+from reserializing the full page on each update. Conditional requests are most
+useful on a stable first page; page-specific `since` requests should be treated
+as ordinary incremental fetches.
 
 ### Capability discovery
 
