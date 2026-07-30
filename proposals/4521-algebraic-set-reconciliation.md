@@ -19,7 +19,7 @@ to $10^7$, keeps the initial depth-0 sketch under 256 B, and keeps a fully
 saturated round at most 32 KiB of unencoded syndrome data (~43.7 KiB wire-
 encoded as base64url), excluding object payloads. Here $q = 2^{64}$ is the size
 of the finite field used by the syndrome coordinates, so $\log q = 64$. Decoding
-a capacity-`k` node costs $O(k^2 \log q)$. A difference of size $d$ spread over
+a capacity-$k$ node costs $O(k^2 \log q)$. A difference of size $d$ spread over
 $n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log q\right)$. Quadratic
 complexity means that invertible bloom filters will outscale this MSC
 asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
@@ -65,22 +65,22 @@ estimator.
 
 ## Element derivation
 
-The profile operates over a set `S` of opaque elements. Each consumer MUST map
+The profile operates over a set $S$ of opaque elements. Each consumer MUST map
 every element to a canonical 32-byte digest before applying this profile.
 Consumers define what the elements mean; the kernel treats them as an opaque set
 and does not interpret their content.
 
-Let `D(e)` be the consumer-defined 32-byte digest for element `e`.
+Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
 
 `libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
-Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from `D(e)` using network
+Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network
 byte order (big-endian):
 
-- **$h_{64}(e)$ (64-bit field element):** Scan `D(e)` in four 8-byte big-endian
+- **$h_{64}(e)$ (64-bit field element):** Scan $D(e)$ in four 8-byte big-endian
   chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
-  unsigned 64-bit integer, or `1` if all four chunks are zero.
+  unsigned 64-bit integer, or $1$ if all four chunks are zero.
 - **$h_{128}(e)$ (128-bit accumulator element):** Take the first 16 bytes of
-  `D(e)` as an unsigned 128-bit big-endian integer. Zero is permitted here; the
+  $D(e)$ as an unsigned 128-bit big-endian integer. Zero is permitted here; the
   accumulator is a plain XOR sum, so it does not need the $h_{64}$ non-zero
   fallback.
 
@@ -108,8 +108,8 @@ $$
 \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
-Bit `i` is the coefficient of $x^i$; bit `0` is the least-significant bit and
-bit `63` the most-significant bit.
+Bit $i$ is the coefficient of $x^i$; bit $0$ is the least-significant bit and
+bit $63$ the most-significant bit.
 
 Sketches MUST be byte-for-byte compatible with `libminisketch` at field size 64
 for identical input sets. This requirement covers coordinate ordering,
@@ -190,23 +190,22 @@ over-capacity exchange to be extended additively rather than restarted.
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
-is localized via bit-prefix trie routing over `h_64(e)` rather than RFC 6962
+is localized via bit-prefix trie routing over $h_64(e)$ rather than RFC 6962
 dyadic-interval splitting.
 
-`h_64(e)` determines an element's path down a binary tree: at depth `d`, an
-element belongs to node `prefix` if and only if the most-significant `d` bits of
-`h_64(e)` (bits `63` down to `64 - d`) equal `prefix`. Depth 0 has a single node
+$h_64(e)$ determines an element's path down a binary tree: at depth $d$, an
+element belongs to node `prefix` if and only if the most-significant $d$ bits of
+$h_64(e)$ (bits $63$ down to $64 - d$) equal `prefix`. Depth 0 has a single node
 (`prefix = 0`) covering every element — the same population a single flat sketch
 covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32 bits
 wide. If a node still overflows at its requested capacity, the peer that detects
-the failure requests two child sketches at `depth + 1`, for prefixes
-`2 * prefix` and `2 * prefix + 1`. A child that still overflows is split again.
-A node that still overflows at `depth = 32` MUST NOT be split further; the peer
-that detects the failure MUST report failure for that prefix and allow the
-consuming protocol to retry with a larger frame or a different reconciliation
-mechanism. The recursion terminates: each split reduces node population weakly,
-depth is bounded at 32, and a node still overflowing at the cap is reported
-rather than split further.
+the failure requests two child sketches at $d + 1$, for prefixes $2p$ and
+$2p + 1$. A child that still overflows is split again. A node that still
+overflows at $d = 32$ MUST NOT be split further; the peer that detects the
+failure MUST report failure for that prefix and allow the consuming protocol to
+retry with a larger frame or a different reconciliation mechanism. The recursion
+terminates: each split reduces node population weakly, depth is bounded at 32,
+and a node still overflowing at the cap is reported rather than split further.
 
 Implementations SHOULD retain the unexplored frontier across rounds as a pending
 queue of outstanding `(depth, prefix, capacity)` nodes, rather than discarding
@@ -252,17 +251,16 @@ request before performing sketch subtraction or field operations.
 
 Implementation note (non-normative): a receiver can validate a canonically
 ordered slice in place, without heap allocation, by checking each request
-against the previous request's `end` boundary. That yields `O(N)` time and
-`O(1)` memory. A binary prefix trie remains a valid alternative internal shape
+against the previous request's `end` boundary. That yields $O(N)$ time and
+$O(1)$ memory. A binary prefix trie remains a valid alternative internal shape
 for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
 requests, each a `(depth, prefix, capacity)` triple.
 
-- `depth <= 32` bounds trie depth.
-- `capacity <= 32` bounds a single node's PinSketch capacity.
-- `sum(capacity) <= 4096` bounds the total wire and decode budget across the
-  antichain array.
+- $depth \le 32$ bounds trie depth.
+- $capacity \le 32$ bounds a single node's PinSketch capacity.
+- $sum(capacity) \le 4096$ bounds total wire & decode budget over antichain.
 
 These are separate bounds for separate reasons: the per-entry cap bounds decode
 cost ($O(k^2 \log q)$ per node), while the aggregate cap bounds total wire size
@@ -270,14 +268,14 @@ and responder work across a whole exchange. A future profile MAY raise either
 cap; `algebraic_v1` MUST NOT.
 
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
-requires the subset of the population whose `h_64(e)` shares that `depth`-bit
+requires the subset of the population whose $h_64(e)$ shares that `depth`-bit
 prefix. A responder MUST NOT satisfy this by scanning its full population per
-request: since `h_64(e)` is a fixed 64-bit key per element, any
-`(depth, prefix)` subset is a contiguous range under `h_64`-sorted order.
+request: since $h_64(e)$ is a fixed 64-bit key per element, any
+`(depth, prefix)` subset is a contiguous range under $h_64$-sorted order.
 Implementations MUST maintain (or build and cache) an index of element
-identifiers ordered by `h_64`, so that a node's element subset is a range slice
+identifiers ordered by $h_64$, so that a node's element subset is a range slice
 — $O(\log n)$ to locate plus the slice size — not a full-population scan. This
-index holds only identifiers and `h_64` keys, not precomputed syndromes; it is
+index holds only identifiers and $h_64$ keys, not precomputed syndromes; it is
 far cheaper than the resident per-node syndrome structure a fixed partition
 would require (see "Resident structure") — and unlike that structure it serves
 every depth, not one fixed depth.
@@ -336,7 +334,7 @@ tree splitting.
 
 ## Decode and verification
 
-A decoder recovers up to $k$ elements from a capacity-`k` syndrome residual.
+A decoder recovers up to $k$ elements from a capacity-$k$ syndrome residual.
 Decode either succeeds with a set of $h_{64}$ values, or fails.
 
 Decode failure is loud, and this is the central operational property of the
@@ -344,8 +342,8 @@ profile: a failed decode is reported as failure, not as an empty difference.
 Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
 **Verification.** A decoded difference MUST be checked against the 128-bit
-accumulator before it is trusted. Let `E` be the expected remote digest, `R` the
-residual digest, `L` the local full identifiers, and $A(\cdot)$ the 128-bit
+accumulator before it is trusted. Let $E$ be the expected remote digest, $R$ the
+residual digest, $L$ the local full identifiers, and $A(\cdot)$ the 128-bit
 accumulator:
 
 $$
@@ -353,7 +351,7 @@ E = R \oplus A(L)
 $$
 
 The peer resolves the short IDs it holds, computes $A(L)$, and compares against
-`E`. A mismatch means the decode was wrong or the populations differed; the
+$E$. A mismatch means the decode was wrong or the populations differed; the
 result MUST be discarded. Implementations SHOULD enforce a computational work
 budget across polynomial root-finding during an exchange to prevent
 denial-of-service attacks from synthetic high-degree syndromes. Implementations
@@ -369,7 +367,7 @@ for adversarial limits.
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
 missing even syndromes are derived or implied. Implementations MAY use
 Berlekamp-Massey or an equivalent recurrence solver to derive a locator
-polynomial of degree at most `k`. If the observed syndromes are inconsistent
+polynomial of degree at most $k$. If the observed syndromes are inconsistent
 with any such polynomial, or if root searching fails to produce a consistent set
 of roots, decoding fails, and the caller MAY split the node and retry at a
 smaller prefix.
@@ -414,7 +412,7 @@ concurrently during the round trip.
 If the unclamped value exceeds 32, the profile uses tree extraction rather than
 a single depth-0 request.
 
-If decode fails at `k`, retry a larger `k` up to the cap, or split into
+If decode fails at $k$, retry a larger $k$ up to the cap, or split into
 dynamic-tree children to localize a two-sided difference. Because sketches
 subtract, a retry at higher capacity is a continuation of the same comparison,
 not a restart. Additive extension is valid only when the syndrome coordinates
@@ -438,7 +436,7 @@ The escalation sequence is:
 
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. A value of $d \approx 100,000$ forces very wide
-first-round fan-out under a `k = 32` node cap, which makes end-to-end extraction
+first-round fan-out under a $k = 32$ node cap, which makes end-to-end extraction
 expensive even though per-node decode remains fast. The point is not that
 reconciliation becomes mathematically impossible, but that the baseline ~82,000
 figure reflects the MSC’s default operating point (not a hard algorithmic
@@ -451,7 +449,7 @@ pre-split a first request into a wider antichain when it expects a large but
 still bounded difference. This trades fewer rounds for a larger first exchange,
 but the cap still applies, and node load remains probabilistic rather than
 uniform in the face of clustering or skew. For lower-allocation lookup, a peer
-can keep a sorted `h_64` index and use binary-search range slicing to locate a
+can keep a sorted $h_64$ index and use binary-search range slicing to locate a
 node in $O(\log N)$ plus slice size, instead of maintaining a persistent
 partition tree.
 
@@ -487,11 +485,11 @@ per-population structure:
 <!-- markdownlint-enable MD013 -->
 
 Fixed resident state is ~2 KiB per population, independent of population size.
-Node sketches are computed on demand from the `h_64`-sorted index
-([Dynamic tree extraction](#dynamic-tree-extraction)), which is `O(n)` in
+Node sketches are computed on demand from the $h_64$-sorted index
+([Dynamic tree extraction](#dynamic-tree-extraction)), which is $O(n)$ in
 identifiers and not part of the fixed state.
 
-**Update procedure.** On inserting or removing element `e`:
+**Update procedure.** On inserting or removing element $e$:
 
 1. Compute $y = h_{128}(e)$ and $x = h_{64}(e)$.
 2. XOR $y$ into the integrity accumulator. On insert, increment the count by 1;
@@ -571,7 +569,7 @@ extraction requests a node's sketch.
 
 **Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
 capacity up front, but they need their own wire format and a second decoder.
-Dynamic tree extraction reuses PinSketch's decoder and `D(e)` digest without a
+Dynamic tree extraction reuses PinSketch's decoder and $D(e)$ digest without a
 capacity guess.
 
 **LtHash / homomorphic hashing.** Provides binding accumulators at substantially
@@ -601,7 +599,7 @@ contracts, but these analogies may help understand the protocol.
 
 - **Dynamic tree extraction and antichain invariants:** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
-  `h_64(e)`, not RFC 6962-style largest-power-of-two interval splitting.
+  $h_64(e)$, not RFC 6962-style largest-power-of-two interval splitting.
   Termination follows from two constraints: requests MUST form an antichain,
   `depth` is capped at 32, and each node's `capacity` is capped at 32. Each
   split weakly reduces the population, so the search state space remains finite,
@@ -634,8 +632,9 @@ Exploratory exercises. Useful for testing the theory before implementation.
   Shared bit-prefix / range-bounding logic.
 - **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
   Berlekamp-Massey recurrence recovery.
-- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_. Adaptive
-  split-and-continue reconciliation when a fixed-capacity decode overflows.[^6]
+- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_[^6].
+  Adaptive split-and-continue reconciliation when a fixed-capacity decode
+  overflows.
 
 ## Test vectors
 
