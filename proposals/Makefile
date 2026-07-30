@@ -47,13 +47,13 @@ pdf:
 	  -V urlcolor=blue \
 	  -V linkcolor=blue \
 	  -V pagestyle=empty \
-	  -M title="$$title" \
 	  -M subject="Compiled by Shane [$(DATE)]" \
 	  -M keywords="commit $(GIT_COMMIT)"; \
 	"$(QPDF)" --qdf --object-streams=disable "$$raw_pdf" "$$qdf_pdf"; \
 	perl "$(QDF_NORMALIZER)" "$$qdf_pdf" "$$norm_pdf"; \
 	"$(QPDF)" --deterministic-id --linearize "$$norm_pdf" "$(f).pdf"; \
 	rm -f "$$raw_pdf" "$$qdf_pdf" "$$norm_pdf"
+#	  -M title="$$title" \
 
 .PHONY: sign
 sign:

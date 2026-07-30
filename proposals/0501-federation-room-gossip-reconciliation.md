@@ -997,9 +997,9 @@ response.
 The ETag is a cache-validation hint, not a synchronization guarantee: a `304`
 means only that the responder's view has not changed since the requester last
 observed it. It does not imply the two servers agree. This statement concerns
-accidental collisions only. The accumulator is not binding against a malicious
-peer, and reconciliation makes no adversarial guarantee about agreement; see
-Accumulator integrity, below, for what does bound a malicious peer's behavior.
+accidental collisions only. The accumulator can't stop a malicious peer from
+faking agreement, and reconciliation doesn't try to; see Accumulator integrity,
+below, for what actually protects against one.
 
 Requesting servers SHOULD cache the peer's ETag together with their own local
 accumulator at the time of caching. They MUST NOT send `If-None-Match` if their

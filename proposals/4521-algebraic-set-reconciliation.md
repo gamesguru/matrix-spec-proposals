@@ -30,8 +30,8 @@ restart it.
 These bounds are load-bearing protocol invariants, not tuning guidance: the
 $k \le 32$ per-node cap constrains single-node CPU cost, while the 4,096-element
 aggregate cap constrains per-exchange wire size and responder work. End-to-end
-performance is therefore bounded by the number of RTT-gated rounds required to
-walk the frontier, not just by the local decode cost.
+performance is therefore bounded by how many round trips it takes to walk the
+frontier, not just by the local decode cost.
 
 ## Scope
 
@@ -44,13 +44,12 @@ This profile does **not** define frames, negotiation, scheduling, endpoints, or
 authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
 
-The 128-bit accumulator is not a population-context commitment. Before
-subtracting strata or extraction sketches, a consuming protocol MUST bind both
-operands to the same consumer-defined population context, such as the same
-frame, snapshot, population kind, digest profile, and element canonicalization.
-If that context differs or cannot be established, the consumer MUST abort the
-algebraic comparison rather than relying on strata estimates, decoded roots, or
-the 128-bit accumulator to discover the mismatch.
+The 128-bit accumulator doesn't prove the two sides are even comparing the same
+thing. Before subtracting strata or extraction sketches, a consuming protocol
+MUST first check both sides agree on what's being compared — same frame,
+snapshot, population kind, digest profile, and element canonicalization. If that
+can't be established, abort the comparison; don't rely on strata estimates,
+decoded roots, or the accumulator to catch the mismatch for you.
 
 ## Summary of protocol bounds and recommendations
 
@@ -73,26 +72,25 @@ estimator.
 
 ### Terminology
 
-- **exchange** — one or more extraction requests sent together as an antichain
-  in a single HTTP request/response cycle; the unit the 4096 aggregate cap
-  applies to (see [Capacity bounds](#dynamic-tree-extraction)).
-- **extraction request** — a single `(depth, prefix, capacity)` triple asking
-  for one tree node's sketch. Distinct from an HTTP `Request:` (the whole wire
-  call): a `Request:` carries a `requests` array of one or more extraction
-  requests.
-- **round** — one RTT-gated request/response cycle. In this protocol one
-  exchange costs exactly one round; "round" is used where the RTT/latency cost
-  is the point, "exchange" where the capacity-bounded request batch is the
-  point.
-- **capacity** — the number of elements' worth of syndrome data a sketch can
+- **exchange:** one or more extraction requests sent together as an antichain in
+  a single HTTP request/response cycle; the unit the 4096 aggregate cap applies
+  to (see [Capacity bounds](#dynamic-tree-extraction)).
+- **extraction request:** a single `(depth, prefix, capacity)` triple asking for
+  one tree node's sketch. Not the same as an HTTP `Request` (the whole wire
+  call), which carries a `requests` array of these.
+- **round:** one request/response cycle, waiting on a network round trip. In
+  this protocol one exchange costs exactly one round; "round" is used where the
+  latency cost is the point, "exchange" where the capacity-bounded request batch
+  is the point.
+- **capacity:** the number of elements' worth of syndrome data a sketch can
   decode: per-node ($k \le 32$) and aggregate across an exchange ($\le 4096$).
-- **strata / stratum** — the 32-entry pre-decode estimator; each stratum groups
+- **strata / stratum:** the 32-entry pre-decode estimator; each stratum groups
   elements by trailing-zero count of $h_{64}(e)$ and is a 64-byte sketch (see
   [Strata estimator](#strata-estimator)).
-- **bucket** — informal name for a strata entry (a trailing-zero-count
-  grouping). It does not name a dynamic-tree node: there is no separate "bucket"
-  primitive in tree extraction, only `(depth, prefix)` nodes.
-- **extend / additive extension** — retrying decode at a higher capacity, or
+- **bucket:** informal name for a strata entry (a trailing-zero-count grouping).
+  It does not name a dynamic-tree node: there is no separate "bucket" primitive
+  in tree extraction, only `(depth, prefix)` nodes.
+- **extend / additive extension:** retrying decode at a higher capacity, or
   continuing an over-capacity comparison, by XOR-subtracting sketches instead of
   restarting; valid only when frame, hash mapping, field, and coordinate order
   are unchanged.
@@ -135,7 +133,7 @@ not use auxiliary hash functions (e.g., `XXH3`).
 
 ## Field
 
-The 64-bit Galois field is defined as:
+The 64-bit Galois field is defined with $q=2^{64}$,
 
 $$
 \mathbb{F}_{2^{64}} = \mathbb{F}_{q} \cong \mathbb{F}_{2}[x]
@@ -173,12 +171,17 @@ Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
 and update the count. Updates are order-independent and require no state
 rebuilds.
 
-The cardinality delta $c = \left\lvert|S_A| - |S_B|\right\rvert$ yields the
-exact symmetric difference size $d = |S_A \triangle S_B|$ during one-sided
-divergence (e.g., a lagging peer), and in that case $c = d$. Matching digests
-and counts are consistency and fault-detection signals, not an authoritative
-proof of equality; the decoder, frame checks, and population verification remain
-the source of truth.
+Two peers each hold their own population — $S_A$ and $S_B$, each an instance of
+$S$ above — so $|S_A|$ and $|S_B|$ are locally known via `count`, but
+$|S_A \cap S_B|$ and $|S_A \cup S_B|$ are not knowable to either side alone. The
+reconciliation target is the symmetric difference size
+$d = |S_A \triangle S_B| = |S_A| + |S_B| - 2|S_A \cap S_B|$. The cardinality
+delta $c = \left\lvert|S_A| - |S_B|\right\rvert$ equals $d$ only when divergence
+is one-sided (e.g., a lagging peer, where $S_A \subseteq S_B$ or vice versa); in
+the general two-sided case $c < d$, which is exactly why decoding — not just
+comparing counts — is necessary. Matching digests and counts are consistency and
+fault-detection signals, not an authoritative proof of equality; the decoder,
+frame checks, and population verification remain the source of truth.
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
@@ -196,7 +199,10 @@ wire:   AAAAAAAAAAAAAAAAAAAAAQ
 The extraction layer computes the odd-power syndrome map over $\mathbb{F}_{q}$:
 
 $$
-\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \dots, \sum h_{64}(e)^{2k-1}\right)
+\sigma_k(S) = \left(
+\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3, \dots,
+\sum_{e \in S} h_{64}(e)^{2k-1}
+\right)
 $$
 
 Even powers are omitted because $s_{2i} = s_i^2$ in characteristic 2 via the
@@ -208,7 +214,7 @@ substrate specialized by PinSketch.
 serialized in ascending odd-power order as unsigned 64-bit **little-endian**
 integers. The distinction between big-endian element parsing (following Matrix
 conventions) and little-endian coordinate serialization (following
-`libminisketch`)[^7] is normative and intentional.
+`libminisketch`) is normative and intentional.
 
 A sketch of capacity $k$ is exactly $8k$ bytes, wire-encoded as unpadded
 `base64url`.
@@ -412,13 +418,13 @@ Provision extraction capacity from the cardinality delta. In the common
 one-sided lag case, $c = \left\lvert|S_A| - |S_B|\right\rvert$ and
 $d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
 rate of newly arriving elements relevant to the comparison, and
-$\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds. The strata
+$\widehat{\mathrm{t_r}}$ is the estimated round-trip time in seconds. The strata
 estimate can guide first-round pre-splitting, but only within the same
 aggregate-capacity budget described in [Scalability](#scalability).
 
 $$
 k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +
-\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{RTT}} \right\rceil\right)
+\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{t_r}} \right\rceil\right)
 $$
 
 The three terms cover, respectively: measurement slack when divergence is not
@@ -560,18 +566,17 @@ encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. Among
 honest, randomly distributed inputs at the population sizes in scope, this is
-rare. It is not rare against a peer that deliberately searches for one: $h_{64}$
-is 64 bits, so a birthday-bound search costs on the order of $2^{32}$ trials,
-well within reach of a moderately resourced adversary — unlike $D(e)$ or the
-128-bit accumulator, neither of which is feasibly collided. Either way, the
-outcome is the same: a $h_{64}$ collision corrupts the syndrome for the
-colliding node, the 128-bit verification step catches the resulting bad decode,
-and decoding fails loudly rather than returning a wrong result. A found
-collision therefore degrades availability (forced retry or split), not
-correctness. Implementations MUST NOT interpret repeated verification failure at
-adequate capacity as evidence of peer misbehavior without further diagnosis,
-since a decode can also fail for reasons unrelated to capacity or to any
-collision.
+rare. It's not rare if a peer goes looking for one on purpose: $h_{64}$ is only
+64 bits, so finding two inputs that collide takes about $2^{32}$ tries — cheap
+for anyone who wants to bother, unlike colliding $D(e)$ or the 128-bit
+accumulator, which stay out of reach. Either way, the outcome is the same: a
+$h_{64}$ collision corrupts the syndrome for the colliding node, the 128-bit
+verification step catches the resulting bad decode, and decoding fails loudly
+rather than returning a wrong result. A found collision therefore degrades
+availability (forced retry or split), not correctness. Implementations MUST NOT
+interpret repeated verification failure at adequate capacity as evidence of peer
+misbehavior without further diagnosis, since a decode can also fail for reasons
+unrelated to capacity or to any collision.
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -608,7 +613,8 @@ contracts, but these analogies may help understand the protocol.
 
 - **Syndrome sketches and BCH-style power sums:** The extraction layer computes
   an odd-power syndrome map over $\mathbb{F}_{q}$:
-  $\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \ldots, \sum h_{64}(e)^{2k-1}\right)$.
+  $\sigma_k(S) = \left(\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3,
+  \ldots, \sum_{e \in S} h_{64}(e)^{2k-1}\right)$.
   Even powers are omitted because the Frobenius endomorphism makes them
   redundant in characteristic 2. Recovering the symmetric difference from these
   coordinates is the finite-field analogue of power-sum/root recovery in
@@ -648,8 +654,8 @@ Exploratory exercises. Useful for testing the theory before implementation.
   reduction.
 - **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
   Recover missing elements via aggregated sums and squares.
-- **Binary prefix routing:** _Codeforces 842D (Vitya and Strange Lesson)_[^14].
-  Recursive subdivision over a bit-prefix key space.
+- **Binary prefix routing:** _Codeforces 842D_[^14]. Recursive subdivision over
+  a bit-prefix key space.
 - **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
   Shared bit-prefix / range-bounding logic.
 - **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
