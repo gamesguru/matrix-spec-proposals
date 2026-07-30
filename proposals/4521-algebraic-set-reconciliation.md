@@ -14,13 +14,13 @@ encoding, and decoding contract instead of rebuilding them from scratch.
 `algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder.
 
-The profile targets differences up to 4,096 elements per round in populations up
-to $10^7$, keeps the initial depth-0 sketch under 256 B, and keeps a fully
-saturated round at most 32 KiB of unencoded syndrome data (~43.7 KiB wire-
-encoded as base64url), excluding object payloads. Here $q = 2^{64}$ is the size
-of the finite field used by the syndrome coordinates, so $\log q = 64$. Decoding
-a capacity-$k$ node costs $O(k^2 \log q)$. A difference of size $d$ spread over
-$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log q\right)$. Quadratic
+The profile targets differences up to 4,096 elements per exchange in populations
+up to $10^7$, keeps the initial depth-0 sketch at most 256 B, and caps a fully
+saturated exchange at 32 KiB of unencoded syndrome data (~42.7 KiB wire-encoded
+as base64url), excluding object payloads. Here $q = 2^{64}$ is the size of the
+finite field used by the syndrome coordinates, so $\log_2 q = 64$. Decoding a
+capacity-$k$ node costs $O(k^2 \log_2 q)$. A difference of size $d$ spread over
+$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log_2 q\right)$. Quadratic
 complexity means that invertible bloom filters will outscale this MSC
 asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
 cases). Larger differences are a frame problem, not a reconciliation problem
@@ -29,7 +29,7 @@ restart it.
 
 These bounds are load-bearing protocol invariants, not tuning guidance: the
 $k \le 32$ per-node cap constrains single-node CPU cost, while the 4,096-element
-aggregate cap constrains per-round wire size and responder work. End-to-end
+aggregate cap constrains per-exchange wire size and responder work. End-to-end
 performance is therefore bounded by the number of RTT-gated rounds required to
 walk the frontier, not just by the local decode cost.
 
@@ -118,7 +118,7 @@ implementation non-conforming, regardless of internal decode success.
 
 The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1]. The
 syndrome construction is PinSketch; the field and reduction polynomial follow
-`libminisketch`. Finite-field set reconciliation originates with Minsky,
+`libminisketch`.[^7] Finite-field set reconciliation originates with Minsky,
 Trachtenberg, and Zippel.[^2] The 128-bit accumulator layer is a bitwise XOR sum
 and operates independently of this field.
 
@@ -186,32 +186,23 @@ over-capacity exchange to be extended additively rather than restarted.
 
 ## Dynamic tree extraction
 
-<!-- Edit marker. [0ce42be35] -->
-
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
-is localized via bit-prefix trie routing over $h_64(e)$ rather than RFC 6962
-dyadic-interval splitting.
+is localized by recursive binary subdivision over the fixed key space.
 
-$h_64(e)$ determines an element's path down a binary tree: at depth $d$, an
+$h_{64}(e)$ determines an element's path down a binary tree: at depth $d$, an
 element belongs to node `prefix` if and only if the most-significant $d$ bits of
-$h_64(e)$ (bits $63$ down to $64 - d$) equal `prefix`. Depth 0 has a single node
-(`prefix = 0`) covering every element — the same population a single flat sketch
-covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32 bits
-wide. If a node still overflows at its requested capacity, the peer that detects
-the failure requests two child sketches at $d + 1$, for prefixes $2p$ and
-$2p + 1$. A child that still overflows is split again. A node that still
+$h_{64}(e)$ (bits $63$ down to $64 - d$) equal `prefix`. Depth 0 has a single
+node (`prefix = 0`) covering every element — the same population a single flat
+sketch covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32
+bits wide. If a node still overflows at its requested capacity, the peer that
+detects the failure requests two child sketches at $d + 1$, for prefixes $2p$
+and $2p + 1$. A child that still overflows is split again. A node that still
 overflows at $d = 32$ MUST NOT be split further; the peer that detects the
 failure MUST report failure for that prefix and allow the consuming protocol to
 retry with a larger frame or a different reconciliation mechanism. The recursion
 terminates: each split reduces node population weakly, depth is bounded at 32,
 and a node still overflowing at the cap is reported rather than split further.
-
-Implementations SHOULD retain the unexplored frontier across rounds as a pending
-queue of outstanding `(depth, prefix, capacity)` nodes, rather than discarding
-children after each response. That queue is the natural place to carry the round
-counter implied by the per-round 4096 cap and to ensure that `capacity_exceeded`
-nodes defer their children to later rounds instead of forcing a restart.
 
 Every node, at any depth, is decoded and verified exactly as in
 [Decode and verification](#decode-and-verification), below: it either decodes
@@ -256,29 +247,25 @@ $O(1)$ memory. A binary prefix trie remains a valid alternative internal shape
 for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
-requests, each a `(depth, prefix, capacity)` triple.
-
-- $depth \le 32$ bounds trie depth.
-- $capacity \le 32$ bounds a single node's PinSketch capacity.
-- $sum(capacity) \le 4096$ bounds total wire & decode budget over antichain.
-
-These are separate bounds for separate reasons: the per-entry cap bounds decode
-cost ($O(k^2 \log q)$ per node), while the aggregate cap bounds total wire size
-and responder work across a whole exchange. A future profile MAY raise either
-cap; `algebraic_v1` MUST NOT.
+requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
+MUST NOT exceed 32; the sum of `capacity` across all requests in a single
+exchange MUST NOT exceed 4096. These are separate bounds for separate reasons:
+the per-entry cap bounds decode cost ($O(k^2 \log_2 q)$ per node), while the
+aggregate cap bounds total wire size and responder work across a whole exchange.
+A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
 
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
-requires the subset of the population whose $h_64(e)$ shares that `depth`-bit
+requires the subset of the population whose $h_{64}(e)$ shares that `depth`-bit
 prefix. A responder MUST NOT satisfy this by scanning its full population per
-request: since $h_64(e)$ is a fixed 64-bit key per element, any
-`(depth, prefix)` subset is a contiguous range under $h_64$-sorted order.
+request: since $h_{64}(e)$ is a fixed 64-bit key per element, any
+`(depth, prefix)` subset is a contiguous range under $h_{64}$-sorted order.
 Implementations MUST maintain (or build and cache) an index of element
-identifiers ordered by $h_64$, so that a node's element subset is a range slice
-— $O(\log n)$ to locate plus the slice size — not a full-population scan. This
-index holds only identifiers and $h_64$ keys, not precomputed syndromes; it is
-far cheaper than the resident per-node syndrome structure a fixed partition
-would require (see "Resident structure") — and unlike that structure it serves
-every depth, not one fixed depth.
+identifiers ordered by $h_{64}$, so that a node's element subset is a range
+slice — $O(\log n)$ to locate plus the slice size — not a full-population scan.
+This index holds only identifiers and $h_{64}$ keys, not precomputed syndromes;
+it is far cheaper than the resident per-node syndrome structure a fixed
+partition would require (see "Resident structure") — and unlike that structure
+it serves every depth, not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
 architecture used by Erlay.[^4] Keep the field math fixed, size the exchange
@@ -287,16 +274,12 @@ before decoding, and split only when the current capacity is not enough.
 This split is a localization step, not a proof that the peer is wrong: it only
 narrows the candidate population to the prefix that still overflows.
 
-Non-normative baseline note: the reference sequence note uses a 20-round,
-4096-capacity baseline for sizing examples.
-
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
-difference sizing. MSC0501 requires all 32 entries when a requester fetches
-`/_matrix/federation/v1/room_digest/{roomId}/strata` for sketch sizing; other
-consumers MAY treat the estimator as a local recommendation if they expose it at
-all.
+difference sizing. MSC0501 requires all 32 entries on its sketch-sizing
+preflight; other consumers MAY treat the estimator as a local recommendation if
+they expose it at all.
 
 This is the strata-estimator construction from _What's the Difference?:
 Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
@@ -308,17 +291,17 @@ as an extraction sketch, but only for elements whose $h_{64}(e)$ has exactly $i$
 trailing zero bits. Stratum 31 also includes every value with 31 or more
 trailing zero bits. Each stratum is therefore a 64-byte sketch.
 
-Two peers XOR corresponding strata and inspect the highest nonempty residual
-stratum to estimate $d$ before choosing between a single depth-0 extraction,
-provisioning an initial dynamic-tree request, or abandoning the comparison.
+Two peers XOR corresponding strata to estimate $d$ before choosing between a
+single depth-0 extraction, provisioning an initial dynamic-tree request, or
+abandoning the comparison. Beginning at stratum 31 and proceeding downward,
+decode each residual stratum until one fails. Let $r$ be the lowest stratum that
+decoded and $T$ be the sum of decoded cardinalities over strata $r$ through 31.
+The estimate is $T \cdot 2^r$.
 
-If the residual strata decode successfully, let $r$ be the lowest decoded
-stratum and let $T$ be the total decoded tail cardinality across the decoded
-tail strata. The standard estimate is then $T \cdot 2^r$. If the highest
-nonempty residual stratum overflows, the standard fallback estimate is
-$8 \cdot 2^{31}$ for analytical sizing. Implementations MAY instead treat that
-complete overflow as advisory `None` and allow the consuming protocol to fall
-back directly to extremity-based frame diffing or graph alignment.
+If stratum 31 does not decode, or the decoded tail is empty with $r \ne 0$, the
+difference is not measurable by the estimator. The standard fallback value is
+$8 \cdot 2^{31}$; consumers MUST treat it as unmeasurable rather than as a
+literal count, and MUST NOT begin an extraction exchange on it.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit residual verification of a decoded
@@ -352,11 +335,9 @@ $$
 
 The peer resolves the short IDs it holds, computes $A(L)$, and compares against
 $E$. A mismatch means the decode was wrong or the populations differed; the
-result MUST be discarded. Implementations SHOULD enforce a computational work
-budget across polynomial root-finding during an exchange to prevent
-denial-of-service attacks from synthetic high-degree syndromes. Implementations
-SHOULD also re-encode the recovered roots into a temporary sketch and verify
-that it matches the residual sketch before returning elements.
+result MUST be discarded. Implementations SHOULD re-encode the recovered roots
+into a temporary sketch and verify that it matches the residual sketch before
+returning elements.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 Each side asymmetrically verifies the half it can resolve, the residual carrying
@@ -370,7 +351,9 @@ Berlekamp-Massey or an equivalent recurrence solver to derive a locator
 polynomial of degree at most $k$. If the observed syndromes are inconsistent
 with any such polynomial, or if root searching fails to produce a consistent set
 of roots, decoding fails, and the caller MAY split the node and retry at a
-smaller prefix.
+smaller prefix. Implementations SHOULD enforce a computational work budget
+across polynomial root-finding during an exchange to prevent denial-of-service
+attacks from many nodes each driving the maximum trial count.
 
 ## Security considerations
 
@@ -437,19 +420,16 @@ The escalation sequence is:
 Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
 arbitrary divergence. A value of $d \approx 100,000$ forces very wide
 first-round fan-out under a $k = 32$ node cap, which makes end-to-end extraction
-expensive even though per-node decode remains fast. The point is not that
-reconciliation becomes mathematically impossible, but that the baseline ~82,000
-figure reflects the MSC’s default operating point (not a hard algorithmic
-ceiling). Beyond that point, applications can still choose to spend more round
-budget or per-round capacity, while truly structural divergence should switch to
-frame/DAG alignment.
+expensive even though per-node decode remains fast. Beyond the aggregate cap,
+applications can still choose to spend more exchange budget, while truly
+structural divergence should switch to frame/DAG alignment.
 
 Non-normative implementation note: a peer can use the strata estimate to
 pre-split a first request into a wider antichain when it expects a large but
 still bounded difference. This trades fewer rounds for a larger first exchange,
 but the cap still applies, and node load remains probabilistic rather than
 uniform in the face of clustering or skew. For lower-allocation lookup, a peer
-can keep a sorted $h_64$ index and use binary-search range slicing to locate a
+can keep a sorted $h_{64}$ index and use binary-search range slicing to locate a
 node in $O(\log N)$ plus slice size, instead of maintaining a persistent
 partition tree.
 
@@ -485,7 +465,7 @@ per-population structure:
 <!-- markdownlint-enable MD013 -->
 
 Fixed resident state is ~2 KiB per population, independent of population size.
-Node sketches are computed on demand from the $h_64$-sorted index
+Node sketches are computed on demand from the $h_{64}$-sorted index
 ([Dynamic tree extraction](#dynamic-tree-extraction)), which is $O(n)$ in
 identifiers and not part of the fixed state.
 
@@ -510,9 +490,9 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization; MSC0501 requires it when a requester
-fetches `/_matrix/federation/v1/room_digest/{roomId}/strata` for sketch sizing,
-while other consumers MAY treat it as a local recommendation.
+The strata estimator is an optimization; MSC0501 requires all 32 entries on its
+sketch-sizing preflight, while other consumers MAY treat it as a local
+recommendation if they expose it at all.
 
 ## Advertisement
 
@@ -599,17 +579,18 @@ contracts, but these analogies may help understand the protocol.
 
 - **Dynamic tree extraction and antichain invariants:** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
-  $h_64(e)$, not RFC 6962-style largest-power-of-two interval splitting.
-  Termination follows from two constraints: requests MUST form an antichain,
-  `depth` is capped at 32, and each node's `capacity` is capped at 32. Each
-  split weakly reduces the population, so the search state space remains finite,
-  matching the termination pattern in Putnam 2008 A3.[^9]
+  $h_{64}(e)$, splitting the key space rather than a leaf sequence of arbitrary
+  length. Termination follows because each split weakly reduces node population,
+  `depth` is capped at 32, and a node still overflowing at the cap is reported
+  rather than split further. The request antichain invariant keeps each exchange
+  finite and non-overlapping. This matches the termination pattern in Putnam
+  2008 A3.[^9]
 
-- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log q)$,
-  where $q = 2^{64}$ and thus $\log q = 64$. With per-node capacity capped at
+- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log_2 q)$,
+  where $q = 2^{64}$ and thus $\log_2 q = 64$. With per-node capacity capped at
   $k \le 32$ and failures isolated independently, a difference of size $d$
   spread over $n$ nodes has total decode cost
-  $O\left(\frac{d^2}{n}\log q\right)$.
+  $O\left(\frac{d^2}{n}\log_2 q\right)$.
 
 - **Strata estimation and trailing-zero counts:** The pre-decode estimator
   groups elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
@@ -736,8 +717,6 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 - MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
-
-<!-- Reverse edit marker. [48004bade] -->
 
 <!-- ## References -->
 

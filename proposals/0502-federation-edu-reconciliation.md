@@ -356,10 +356,10 @@ returned user tuples:
 Because the accumulator is order-independent, a server can update it in O(1)
 when a single user's state changes. Servers MAY combine that page digest with a
 fixed hash of `edu_type` and `next_batch` if they need page-specific validators,
-but they MUST NOT derive the ETag from a single maximum version counter or
-from reserializing the full page on each update. Conditional requests are most
-useful on a stable first page; page-specific `since` requests should be treated
-as ordinary incremental fetches.
+but they MUST NOT derive the ETag from a single maximum version counter or from
+reserializing the full page on each update. Conditional requests are most useful
+on a stable first page; page-specific `since` requests should be treated as
+ordinary incremental fetches.
 
 ### Capability discovery
 

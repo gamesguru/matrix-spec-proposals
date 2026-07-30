@@ -169,8 +169,6 @@ $$
 In addition to the accepted and rejected event sets, soft-failed events are also
 in `K`; their soft-fail status specifically is not part of reconciliation.
 
-<!-- Edit marker. -->
-
 Given that population, `digest` and `known_event_count` are the level-0
 accumulator and count defined in MSC4521, and `strata` is that profile's strata
 estimator. MSC0501 requires the estimator on
