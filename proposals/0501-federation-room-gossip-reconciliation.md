@@ -153,10 +153,13 @@ rather than a strata-less `200`.
 #### The digested population
 
 The digest covers the known event identifier set reachable from the current
-frame anchor antichain. Frame anchor events themselves are not counted in `K`.
+frame anchor antichain. Frame anchor events themselves are not counted in `K`;
+by definition, `K` is the union of the accepted and rejected populations after
+excluding the anchor antichain itself, where `E_{\mathrm{anchor}}` is that
+anchor set.
 
 $$
-K = E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}.
+K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}) \setminus E_{\mathrm{anchor}}.
 $$
 
 In addition to the accepted and rejected event sets, soft-failed events are also

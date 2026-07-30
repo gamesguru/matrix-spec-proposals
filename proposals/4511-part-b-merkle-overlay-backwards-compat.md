@@ -196,9 +196,10 @@ The `leaf_paths` object maps each disclosed field name to the sibling hashes
 needed to rebuild the fixed-field Merkle root. The path length and sibling
 directions are fully determined by the field's bytewise rank within the fixed
 leaf set declared by `fields_version`; a verifier MUST reject a field proof
-whose shape does not match that derived structure. The sibling list is ordered
-from the leaf level upward to the root. `leaf_index` is the zero-based bytewise
-rank of the event ID in the signed response tree's event-ID ordering.
+whose path length or sibling directions do not match that derived structure. The
+sibling list is ordered from the leaf level upward to the root. `leaf_index` is
+the zero-based bytewise rank of the event ID in the signed response tree's
+event-ID ordering.
 
 Selective disclosure is meaningful only because the committed leaf set is fixed
 independently of the disclosed subset. For example, a responder can disclose and
