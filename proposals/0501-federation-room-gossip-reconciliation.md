@@ -176,13 +176,23 @@ estimator. MSC0501 requires the estimator on
 sketch sizing; other consumers of MSC4521 MAY use it only when their wire
 contract includes it. This MSC adds no arithmetic of its own.
 
+For MSC0501, `frame_id` and `frame_event_ids` are the population-context binding
+required by MSC4521. A requester MUST NOT compare digests, subtract strata, or
+open a `sketch` exchange unless both sides are using the same room,
+`digest_type`, frame anchor antichain, and known-event population `K` defined
+above. The 128-bit accumulator verifies decoded event-ID differences within that
+context; it does not replace the frame check. Resolved-state commitments such as
+MSC4500 LtHash digests are separate signals for state divergence and MUST NOT be
+mixed into this known-event-set algebraic comparison.
+
 Requesters that intend to open a `sketch` exchange for a given frame MUST first
 fetch a strata-bearing `/_matrix/federation/v1/room_digest/{roomId}/strata`
 response for that frame. A requester MUST use the resulting `d̂` for the
-round-budget precondition. A requester MAY substitute the exact count residual
-`c` only when it has independent evidence that the divergence is one-sided;
-otherwise `c` is not a safe replacement for `d̂`. Responders MAY reject a
-`sketch` request from a requester that has not performed this preflight.
+round-budget precondition. A requester MAY substitute the exact cardinality
+delta `c` only when it has independent evidence that the divergence is
+one-sided; otherwise `c` is not a safe replacement for `d̂`. Responders MAY
+reject a `sketch` request from a requester that has not performed this
+preflight.
 
 If the preflight estimate is the profile's saturated fallback value, the
 requester MUST treat it as unavailable for sketch sizing and MUST route to
@@ -543,8 +553,9 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   the repair frontier, but MUST treat `truncated: true` as non-repair progress
   until the walk reaches known ancestry.
 - Otherwise, or after frontier repair, use `sketch` mode, provisioning the
-  initial depth-0 request's `capacity` per the MSC4521 budget from the count
-  residual `c = abs(local_known_event_count - remote_known_event_count)`.
+  initial depth-0 request's `capacity` per the MSC4521 budget from the
+  cardinality delta
+  `c = abs(local_known_event_count - remote_known_event_count)`.
 
 #### `extremity` mode
 
@@ -986,8 +997,9 @@ response.
 The ETag is a cache-validation hint, not a synchronization guarantee: a `304`
 means only that the responder's view has not changed since the requester last
 observed it. It does not imply the two servers agree. This statement concerns
-accidental collisions only; malicious peers are covered under Accumulator
-integrity, below.
+accidental collisions only. The accumulator is not binding against a malicious
+peer, and reconciliation makes no adversarial guarantee about agreement; see
+Accumulator integrity, below, for what does bound a malicious peer's behavior.
 
 Requesting servers SHOULD cache the peer's ETag together with their own local
 accumulator at the time of caching. They MUST NOT send `If-None-Match` if their

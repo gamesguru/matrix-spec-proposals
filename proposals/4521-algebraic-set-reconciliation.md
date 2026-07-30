@@ -44,6 +44,14 @@ This profile does **not** define frames, negotiation, scheduling, endpoints, or
 authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
 
+The 128-bit accumulator is not a population-context commitment. Before
+subtracting strata or extraction sketches, a consuming protocol MUST bind both
+operands to the same consumer-defined population context, such as the same
+frame, snapshot, population kind, digest profile, and element canonicalization.
+If that context differs or cannot be established, the consumer MUST abort the
+algebraic comparison rather than relying on strata estimates, decoded roots, or
+the 128-bit accumulator to discover the mismatch.
+
 ## Summary of protocol bounds and recommendations
 
 The following summary consolidates the shared bounds used throughout this MSC.
@@ -63,18 +71,44 @@ The first three rows are hard protocol bounds. The strata entry count is
 advisory sizing guidance for implementations that expose the pre-decode
 estimator.
 
+### Terminology
+
+- **exchange** — one or more extraction requests sent together as an antichain
+  in a single HTTP request/response cycle; the unit the 4096 aggregate cap
+  applies to (see [Capacity bounds](#dynamic-tree-extraction)).
+- **extraction request** — a single `(depth, prefix, capacity)` triple asking
+  for one tree node's sketch. Distinct from an HTTP `Request:` (the whole wire
+  call): a `Request:` carries a `requests` array of one or more extraction
+  requests.
+- **round** — one RTT-gated request/response cycle. In this protocol one
+  exchange costs exactly one round; "round" is used where the RTT/latency cost
+  is the point, "exchange" where the capacity-bounded request batch is the
+  point.
+- **capacity** — the number of elements' worth of syndrome data a sketch can
+  decode: per-node ($k \le 32$) and aggregate across an exchange ($\le 4096$).
+- **strata / stratum** — the 32-entry pre-decode estimator; each stratum groups
+  elements by trailing-zero count of $h_{64}(e)$ and is a 64-byte sketch (see
+  [Strata estimator](#strata-estimator)).
+- **bucket** — informal name for a strata entry (a trailing-zero-count
+  grouping). It does not name a dynamic-tree node: there is no separate "bucket"
+  primitive in tree extraction, only `(depth, prefix)` nodes.
+- **extend / additive extension** — retrying decode at a higher capacity, or
+  continuing an over-capacity comparison, by XOR-subtracting sketches instead of
+  restarting; valid only when frame, hash mapping, field, and coordinate order
+  are unchanged.
+
 ## Element derivation
 
-The profile operates over a set $S$ of opaque elements. Each consumer MUST map
-every element to a canonical 32-byte digest before applying this profile.
-Consumers define what the elements mean; the kernel treats them as an opaque set
-and does not interpret their content.
+The profile operates over a set $S$ of opaque elements. Each element MUST be
+mapped via a uniformly distributed hashing function to a canonical 32-byte
+digest. Consumers define what the elements mean; the kernel treats them as an
+opaque set and does not interpret their content.
 
 Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
 
-`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
-Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network
-byte order (big-endian):
+`libminisketch` requires non-zero inputs over $\mathbb{F}_{q}$. Implementations
+derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network byte order
+(big-endian):
 
 - **$h_{64}(e)$ (64-bit field element):** Scan $D(e)$ in four 8-byte big-endian
   chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
@@ -104,7 +138,7 @@ not use auxiliary hash functions (e.g., `XXH3`).
 The 64-bit Galois field is defined as:
 
 $$
-\mathbb{F}_{2^{64}} \cong \mathbb{F}_{2}[x]
+\mathbb{F}_{2^{64}} = \mathbb{F}_{q} \cong \mathbb{F}_{2}[x]
 \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
@@ -139,12 +173,12 @@ Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
 and update the count. Updates are order-independent and require no state
 rebuilds.
 
-The count residual $c = \left\lvert|S_A| - |S_B|\right\rvert$ yields the exact
-symmetric difference size $d = |S_A \triangle S_B|$ during one-sided divergence
-(e.g., a lagging peer), and in that case $c = d$. Matching digests and counts
-are consistency and fault-detection signals, not an authoritative proof of
-equality; the decoder, frame checks, and population verification remain the
-source of truth.
+The cardinality delta $c = \left\lvert|S_A| - |S_B|\right\rvert$ yields the
+exact symmetric difference size $d = |S_A \triangle S_B|$ during one-sided
+divergence (e.g., a lagging peer), and in that case $c = d$. Matching digests
+and counts are consistency and fault-detection signals, not an authoritative
+proof of equality; the decoder, frame checks, and population verification remain
+the source of truth.
 
 The accumulator provides fault detection (integrity) between honest peers. See
 [Decode and verification](#decode-and-verification).
@@ -159,8 +193,7 @@ wire:   AAAAAAAAAAAAAAAAAAAAAQ
 
 ## Syndrome sketch
 
-The extraction layer computes the odd-power syndrome map over
-$\mathbb{F}_{2^{64}}$:
+The extraction layer computes the odd-power syndrome map over $\mathbb{F}_{q}$:
 
 $$
 \sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \dots, \sum h_{64}(e)^{2k-1}\right)
@@ -206,9 +239,9 @@ and a node still overflowing at the cap is reported rather than split further.
 
 Every node, at any depth, is decoded and verified exactly as in
 [Decode and verification](#decode-and-verification), below: it either decodes
-within its capacity and passes the 128-bit residual check, or it fails loudly
-and is split. There is no separate "bucket" primitive and no persistent per-node
-resident state — see [Resident structure](#resident-structure). A
+within its capacity and passes the 128-bit accumulator verification, or it fails
+loudly and is split. There is no separate "bucket" primitive and no persistent
+per-node resident state — see [Resident structure](#resident-structure). A
 `(depth, prefix)` pair is computed only when a peer actually requests it.
 
 ### Antichain invariant and wire ordering
@@ -304,12 +337,12 @@ $8 \cdot 2^{31}$; consumers MUST treat it as unmeasurable rather than as a
 literal count, and MUST NOT begin an extraction exchange on it.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
-and it MUST NOT substitute for 128-bit residual verification of a decoded
-difference. Strata summaries accurately estimate the residual only when both
-sides use the same validated frame, stratum assignment, hash mapping, and
-coordinate order. If any of those boundaries shift, the estimate is meaningless.
-A server MUST NOT estimate or subtract across differing frames; the estimator
-MUST NOT substitute for or override frame validation.
+and it MUST NOT substitute for 128-bit accumulator verification of a decoded
+difference. Strata summaries accurately estimate $d$ only when both sides use
+the same validated frame, stratum assignment, hash mapping, and coordinate
+order. If any of those boundaries shift, the estimate is meaningless. A server
+MUST NOT estimate or subtract across differing frames; the estimator MUST NOT
+substitute for or override frame validation.
 
 In other words, the estimator chooses a likely starting capacity; it does not
 determine whether the comparison is correct, nor does it replace decoding or
@@ -336,24 +369,24 @@ $$
 The peer resolves the short IDs it holds, computes $A(L)$, and compares against
 $E$. A mismatch means the decode was wrong or the populations differed; the
 result MUST be discarded. Implementations SHOULD re-encode the recovered roots
-into a temporary sketch and verify that it matches the residual sketch before
+into a temporary sketch and verify that it matches the residual syndrome before
 returning elements.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
-Each side asymmetrically verifies the half it can resolve, the residual carrying
-the other half. See [Security considerations](#security-considerations) below
-for adversarial limits.
+Each side asymmetrically verifies the half it can resolve, the residual digest
+carrying the other half. See [Security considerations](#security-considerations)
+below for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
-over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
-missing even syndromes are derived or implied. Implementations MAY use
-Berlekamp-Massey or an equivalent recurrence solver to derive a locator
-polynomial of degree at most $k$. If the observed syndromes are inconsistent
-with any such polynomial, or if root searching fails to produce a consistent set
-of roots, decoding fails, and the caller MAY split the node and retry at a
-smaller prefix. Implementations SHOULD enforce a computational work budget
-across polynomial root-finding during an exchange to prevent denial-of-service
-attacks from many nodes each driving the maximum trial count.
+over $\mathbb{F}_{q}$. The sketch exposes odd-power syndromes, and the missing
+even syndromes are derived or implied. Implementations MAY use Berlekamp-Massey
+or an equivalent recurrence solver to derive a locator polynomial of degree at
+most $k$. If the observed syndromes are inconsistent with any such polynomial,
+or if root searching fails to produce a consistent set of roots, decoding fails,
+and the caller MAY split the node and retry at a smaller prefix. Implementations
+SHOULD enforce a computational work budget across polynomial root-finding during
+an exchange to prevent denial-of-service attacks from many nodes each driving
+the maximum trial count.
 
 ## Security considerations
 
@@ -375,8 +408,8 @@ to `algebraic_v1`.
 
 ## Capacity provisioning
 
-Provision extraction capacity from the count residual. In the common one-sided
-lag case, $c = \left\lvert|S_A| - |S_B|\right\rvert$ and
+Provision extraction capacity from the cardinality delta. In the common
+one-sided lag case, $c = \left\lvert|S_A| - |S_B|\right\rvert$ and
 $d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
 rate of newly arriving elements relevant to the comparison, and
 $\widehat{\mathrm{RTT}}$ is the estimated round-trip time in seconds. The strata
@@ -487,7 +520,7 @@ sizing.
 
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
-the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
+the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{q}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
 The strata estimator is an optimization; MSC0501 requires all 32 entries on its
@@ -525,11 +558,20 @@ Populations with routinely large or heavy-tailed differences will hit the cap
 and trigger dynamic tree extraction more often than necessary. Unlike a rateless
 encoding, tree extraction requires no second decoder.
 
-**64-bit collisions.** Two distinct identifiers can share $h_{64}$. At the
-population sizes in scope, this is rare, and the 128-bit verification step
-catches the resulting bad decode, but a decode can fail for reasons unrelated to
-capacity. Implementations MUST NOT interpret repeated verification failure at
-adequate capacity as evidence of peer misbehavior without further diagnosis.
+**64-bit collisions.** Two distinct identifiers can share $h_{64}$. Among
+honest, randomly distributed inputs at the population sizes in scope, this is
+rare. It is not rare against a peer that deliberately searches for one: $h_{64}$
+is 64 bits, so a birthday-bound search costs on the order of $2^{32}$ trials,
+well within reach of a moderately resourced adversary — unlike $D(e)$ or the
+128-bit accumulator, neither of which is feasibly collided. Either way, the
+outcome is the same: a $h_{64}$ collision corrupts the syndrome for the
+colliding node, the 128-bit verification step catches the resulting bad decode,
+and decoding fails loudly rather than returning a wrong result. A found
+collision therefore degrades availability (forced retry or split), not
+correctness. Implementations MUST NOT interpret repeated verification failure at
+adequate capacity as evidence of peer misbehavior without further diagnosis,
+since a decode can also fail for reasons unrelated to capacity or to any
+collision.
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -565,7 +607,7 @@ combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
 - **Syndrome sketches and BCH-style power sums:** The extraction layer computes
-  an odd-power syndrome map over $\mathbb{F}_{2^{64}}$:
+  an odd-power syndrome map over $\mathbb{F}_{q}$:
   $\sigma_k(S) = \left(\sum h_{64}(e), \sum h_{64}(e)^3, \ldots, \sum h_{64}(e)^{2k-1}\right)$.
   Even powers are omitted because the Frobenius endomorphism makes them
   redundant in characteristic 2. Recovering the symmetric difference from these
@@ -606,9 +648,8 @@ Exploratory exercises. Useful for testing the theory before implementation.
   reduction.
 - **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
   Recover missing elements via aggregated sums and squares.
-- **Recursive partitioning:** _LeetCode 427 (Construct Quad Tree)_[^13] and
-  _Codeforces 842D (Vitya and Strange Lesson)_[^14]. Recursive subdivision and
-  dynamic prefix-trie routing.
+- **Binary prefix routing:** _Codeforces 842D (Vitya and Strange Lesson)_[^14].
+  Recursive subdivision over a bit-prefix key space.
 - **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
   Shared bit-prefix / range-bounding logic.
 - **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
@@ -764,8 +805,8 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
     Example Rust implementation with tests:
     [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b).
 
-    Non-optimized example implementation in Golang:
-    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/80fd84afc763f1812f548410a66511837bd84afc/reconcile/algebraic.go).
+    Non-optimized, prototype implementation in Golang:
+    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/cc5de74441100d21c74d930e60422d997451fa9f/reconcile/algebraic.go).
 
 [^11]:
     LeetCode 260, Medium, _Single Number III_:
@@ -774,10 +815,6 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 [^12]:
     LeetCode 2965, Easy, _Find Missing and Repeated Values_:
     <https://leetcode.com/problems/find-missing-and-repeated-values/>
-
-[^13]:
-    LeetCode 427, Medium, _Construct Quad Tree_:
-    <https://leetcode.com/problems/construct-quad-tree/>
 
 [^14]:
     Codeforces 842D, _Vitya and Strange Lesson_:
