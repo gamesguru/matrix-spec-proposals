@@ -605,6 +605,12 @@ transferable to a third party; unnecessary where, as here, transferred objects
 are independently verifiable by signature and hash. Left to a future
 `digest_type`.
 
+**Cuckoo filter reconciliation.** Fingerprint-based reconciliation via cuckoo
+filters[^17] shares the same drawback as fixed-capacity IBLT: fingerprint
+collisions require probabilistic tolerance or a secondary verification pass.
+`algebraic_v1`'s BCH-style decode is exact, and its 128-bit accumulator exists
+only for fault detection, not for element recovery.
+
 ## Theoretical models
 
 The reconciliation mechanisms in this MSC use standard algebraic and
@@ -833,3 +839,7 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 [^16]:
     Yosupo Library, _Find Linear Recurrence_:
     <https://judge.yosupo.jp/problem/find_linear_recurrence>
+
+[^17]:
+    _Set Reconciliation with Cuckoo Filters_ (Luo et al., 2019).
+    [doi:10.1145/3357384.3358065](https://doi.org/10.1145/3357384.3358065)
