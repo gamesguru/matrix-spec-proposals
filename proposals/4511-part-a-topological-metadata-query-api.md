@@ -1,4 +1,4 @@
-# MSC4511 Part I: Topological Metadata Query API
+# MSC4511 Matrix Query Language (MQL)
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know

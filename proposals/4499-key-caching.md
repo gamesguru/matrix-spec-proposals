@@ -28,6 +28,8 @@ verification behavior.
 
 ## Proposal
 
+<!-- TODO: indicate Synapse-derived subset of spec via comment fences. -->
+
 ### Relationship to existing specification
 
 This MSC strengthens and supersedes the existing key caching and verification

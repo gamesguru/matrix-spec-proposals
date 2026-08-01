@@ -120,6 +120,8 @@ derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network byte order
 
 For event sets, `D(e)` is derived based on the room version:
 
+<!-- TODO: how should we handle legacy event ID collisions? -->
+
 - **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
   digest of the UTF-8 event-ID string.
 - **Room version 3**: Strip the leading `$` byte and decode the remaining
@@ -312,6 +314,14 @@ before decoding, and split only when the current capacity is not enough.
 
 This split is a localization step, not a proof that the peer is wrong: it only
 narrows the candidate population to the prefix that still overflows.
+
+Dynamic tree extraction is itself an instance of partitioned set reconciliation
+(PSR): recursive splitting on overflow, same as here. Enhanced PSR[^18] reports
+roughly half the communication cost of plain PSR at the same time and round
+complexity, by carrying information from failed splits forward instead of
+discarding it, borrowing techniques from tree algorithms for random-access
+protocols. `algebraic_v1` does not adopt this refinement; it is a candidate for
+a future profile revision, not a change to this one.
 
 ## Strata estimator
 
@@ -843,3 +853,7 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 [^17]:
     _Set Reconciliation with Cuckoo Filters_ (Luo et al., 2019).
     [doi:10.1145/3357384.3358065](https://doi.org/10.1145/3357384.3358065)
+
+[^18]:
+    _Tree algorithms for set reconciliation_ (Lázaro & Stefanović, 2025).
+    <https://arxiv.org/html/2509.02373v1>
