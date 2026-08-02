@@ -16,7 +16,9 @@ https://github.com/matrix-org/matrix-spec.
 
 An MSC is meant to be a **technical document that unambiguously describes a
 change to the Matrix Spec**, while also justifying _why_ the change should be
-made.
+made. The MSC intro or summary should be understandable by a non-technical
+audience (e.g., account managers or stakeholders) and, to the extent possible,
+not "overly technical" — an effective elevator pitch.
 
 The document is used both to judge whether the change should be made as
 described *and* by developers to actually implement the changes. This is why
@@ -111,6 +113,19 @@ Some tips for MSC writing:
 * Take a look at the [MSC Checklist](MSC_CHECKLIST.md). When it comes time for
   the Spec Core Team to review your MSC for acceptance, they'll use the items
   on this checklist as a guide.
+
+Writer's philosophy and generative AI policy:
+
+* We encourage thorough research and exploring all possible tools & productivity
+  aids; however, with few exceptions, all written material must be the author's
+  own work, unless explicitly cited, quoted, or attributed. We do not require a
+  formal citation format (MLA or APA) but ask that references be clearly
+  attributed and organized. You are free to discuss or brainstorm ideas with
+  whomever you like (human or AI), but you must be responsible for 100% of your
+  final submission.
+* Output from generative AI models is not considered an authoritative source,
+  and generally should be neither cited nor included. It can be used to inform
+  your brainstorming process but should not be copied directly into an MSC.
 
 #### 2. Submitting a Pull Request
 
