@@ -33,6 +33,17 @@ aggregate cap constrains per-exchange wire size and responder work. End-to-end
 performance is therefore bounded by how many round trips it takes to walk the
 frontier, not just by the local decode cost.
 
+<!-- TODO: remove this before merge (it's a potentially stale PR summary).
+
+... initial commit showing simple implementation details
+_feat: room reconciliation surface by gamesguru · Pull Request #87 · gamesguru/continuwuity_
+https://github.com/gamesguru/continuwuity/pull/87/changes/f805b98ad2fbf2b39bc96428ecdcbe9fee6aedcf
+
+... suggested database map addition.
+_feat: room reconciliation surface by gamesguru · Pull Request #87 · gamesguru/continuwuity_
+https://github.com/gamesguru/continuwuity/pull/87/changes#diff-fbd4dc0340734edf39ca4d87bd94a8338df09926a85621b996ab653096f564f9
+-->
+
 ## Scope
 
 This profile defines identifier derivation, the 64-bit field and `libminisketch`
