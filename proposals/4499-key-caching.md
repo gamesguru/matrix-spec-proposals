@@ -28,8 +28,6 @@ verification behavior.
 
 ## Proposal
 
-<!-- TODO: indicate Synapse-derived subset of spec via comment fences. -->
-
 ### Relationship to existing specification
 
 This MSC strengthens and supersedes the existing key caching and verification
@@ -76,6 +74,9 @@ own probe. Without this per-interval limit, an attacker can relay junk
 purportedly signed by a dead server's name to induce one outbound probe per
 inbound request, defeating the backoff entirely.
 
+<!-- synapse-derived: passes against Synapse by default per complement
+TestMSC4499Key/FetchCoalescing -->
+
 **Fetch coalescing.** When multiple local codepaths concurrently need key
 material for the same remote server, implementations SHOULD coalesce them into a
 single active fetch attempt for that server: at any given time, there SHOULD be
@@ -86,6 +87,9 @@ failure) rather than each spawning its own retry sequence. Once that shared
 attempt completes, any later fetch is governed normally by the resulting cache
 state and backoff state; coalescing is only a duplicate-suppression rule for
 overlapping local demand, not a bypass around the negative-cache policy above.
+
+<!-- /synapse-derived -->
+
 If that fetch succeeds and the request authenticates, servers SHOULD clear the
 backoff state.
 
@@ -163,8 +167,15 @@ notary unavailability as a verification success. A provisional binding MUST NOT
 be overridden if its cached `valid_until_ts` has passed, or if it was learned
 from `old_verify_keys` with a past `expired_ts`.
 
+<!-- synapse-derived: core promotion behavior passes against Synapse by default
+per complement TestMSC4499Key/BindingPromotion; the remaining edge cases
+below this sentence aren't separately covered by that test -->
+
 **Binding promotion.** A provisional (notary-observed) binding becomes permanent
 the first time a direct fetch from the origin confirms the same key body.
+
+<!-- /synapse-derived -->
+
 Servers SHOULD attempt a prompt direct fetch after learning any binding via a
 notary, to promote the binding and close the provisional window. Once permanent,
 the binding is subject to the standard First Seen Wins rule: a later direct
@@ -224,13 +235,24 @@ key `A` is now associated with a different public key `B`, the receiving server:
    described above. See [Security considerations](#security-considerations) for
    the vulnerabilities and general annoyances this would introduce.
 
+<!-- synapse-derived: passes against Synapse by default per complement
+TestMSC4499Key/DuplicateJSONKeyRejection -->
+
 **Intra-payload rejection.** A single key response payload MUST NOT contain
 multiple different public key bodies for the same key ID (e.g., across
 `verify_keys` and `old_verify_keys`, or duplicated within the same dictionary).
+
+<!-- /synapse-derived -->
+<!-- synapse-derived: passes against Synapse by default per complement
+TestMSC4499Key/IdenticalCrossMapIsLegal -->
+
 The same key body appearing under one key ID in both `verify_keys` and
-`old_verify_keys` is legal. If a receiving server detects a key ID collision
-within a single HTTP response, the entire response MUST be rejected as
-malformed.
+`old_verify_keys` is legal.
+
+<!-- /synapse-derived -->
+
+If a receiving server detects a key ID collision within a single HTTP response,
+the entire response MUST be rejected as malformed.
 
 If a notary rejects an upstream key response as malformed, it MUST still return
 HTTP 200 for the enclosing `/_matrix/key/v2/query` response, omit that response
@@ -247,12 +269,17 @@ commonly silently-deduplicating) parser behavior. A duplicate key ID across
 is exactly this ambiguity, which is why it must be checked against the raw
 response rather than assumed already illegal by the wire format.
 
+<!-- synapse-derived: event-level enforcement passes against Synapse by default
+per complement TestMSC4499Key/FirstSeenWinsEventPath -->
+
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
 `(server_name, algorithm, key_id)` tuple (whether found in `verify_keys` or
 `old_verify_keys`) is the permanent binding. This rule becomes less relevant in
 the future, once key IDs are reduced to collision-resistant canonical checksums
 of the key body (rather than admin-supplied near arbitrary strings).
+
+<!-- /synapse-derived -->
 
 **Local impact.** The First Seen Wins rule causes a **localized DAG divergence**
 for the misconfigured server: peers that cached the original key will reject new
@@ -273,6 +300,9 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 
 ### Key rotation procedure
 
+<!-- synapse-derived: passes against Synapse by default per complement
+TestMSC4499Key/Rotation -->
+
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
@@ -283,6 +313,8 @@ When a server rotates its signing key, the administrator MUST:
    `expired_ts` timestamp.
 3. **Publish the new key.** The new key appears in `verify_keys` with the new
    key ID.
+
+<!-- /synapse-derived -->
 
 Reusing a key ID with a different key body is a **protocol violation**. This
 most commonly occurs when an administrator wipes a server's database,
@@ -344,10 +376,14 @@ unrecoverable database failure without backup):
    an explicit local operator action grounded in independently verified evidence
    — never by asking a notary to vouch for the retirement after the fact, which
    no implementation may treat as corroboration.
+   <!-- synapse-derived: passes against Synapse by default per complement
+   TestMSC4499Key/LostKeyPublicationHistoricalVerification/
+   FullyLostKeyRemainsUnverifiableToColdPeers -->
 3. **If the public key material is completely lost**, the administrator must
    accept that historical events signed by the lost key may fail verification on
    servers that never cached it. By design there is no protocol-level recovery
    for this scenario.
+   <!-- /synapse-derived -->
 
 The protocol does not provide an automated recovery mechanism for key ID
 collisions. Under the current constraints, it is best for the federation to
@@ -594,6 +630,9 @@ legitimate operation is itself the signal described as "unambiguously hostile"
 below, independent of whether any individual response stays under the 50-key
 cap.
 
+<!-- synapse-derived: tier definitions and retention-ordering pass against
+Synapse by default per complement TestMSC4499Key/CorroborationTierRetention -->
+
 **Corroboration tier.** This tier answers a narrower question than the
 provisional/permanent split above. It does not decide which key body is correct
 — First Seen Wins already settles that, permanently, regardless of
@@ -617,6 +656,8 @@ bindings into two tiers:
 - **Uncorroborated:** everything else — a retired-key entry that arrives
   already-retired, with no independent record anywhere that the key was ever
   genuinely active.
+
+<!-- /synapse-derived -->
 
 Corroboration MUST be grounded only in the receiver's own accumulated
 observation history or explicit operator action, never in a live attestation
