@@ -33,17 +33,6 @@ aggregate cap constrains per-exchange wire size and responder work. End-to-end
 performance is therefore bounded by how many round trips it takes to walk the
 frontier, not just by the local decode cost.
 
-<!-- TODO: remove this before merge (it's a potentially stale PR summary).
-
-... initial commit showing simple implementation details
-_feat: room reconciliation surface by gamesguru · Pull Request #87 · gamesguru/continuwuity_
-https://github.com/gamesguru/continuwuity/pull/87/changes/f805b98ad2fbf2b39bc96428ecdcbe9fee6aedcf
-
-... suggested database map addition.
-_feat: room reconciliation surface by gamesguru · Pull Request #87 · gamesguru/continuwuity_
-https://github.com/gamesguru/continuwuity/pull/87/changes#diff-fbd4dc0340734edf39ca4d87bd94a8338df09926a85621b996ab653096f564f9
--->
-
 ## Scope
 
 This profile defines identifier derivation, the 64-bit field and `libminisketch`
@@ -115,9 +104,9 @@ opaque set and does not interpret their content.
 
 Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
 
-`libminisketch` requires non-zero inputs over $\mathbb{F}_{q}$. Implementations
-derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network byte order
-(big-endian):
+`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
+Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network
+byte order (big-endian):
 
 - **$h_{64}(e)$ (64-bit field element):** Scan $D(e)$ in four 8-byte big-endian
   chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
@@ -209,7 +198,8 @@ wire:   AAAAAAAAAAAAAAAAAAAAAQ
 
 ## Syndrome sketch
 
-The extraction layer computes the odd-power syndrome map over $\mathbb{F}_{q}$:
+The extraction layer computes the odd-power syndrome map over
+$\mathbb{F}_{2^{64}}$:
 
 $$
 \sigma_k(S) = \left(
@@ -299,11 +289,14 @@ $O(1)$ memory. A binary prefix trie remains a valid alternative internal shape
 for implementations that want a different representation.
 
 **Capacity bounds.** A `sketch` exchange consists of one or more extraction
-requests, each a `(depth, prefix, capacity)` triple. A single entry's `capacity`
-MUST NOT exceed 32; the sum of `capacity` across all requests in a single
-exchange MUST NOT exceed 4096. These are separate bounds for separate reasons:
-the per-entry cap bounds decode cost ($O(k^2 \log_2 q)$ per node), while the
-aggregate cap bounds total wire size and responder work across a whole exchange.
+requests, each a `(depth, prefix, capacity)` triple. These bounds apply:
+
+- **Per-entry capacity cap**: A single entry's `capacity` MUST NOT exceed 32.
+  This bounds decode cost ($O(k^2 \log_2 q)$ per node).
+- **Aggregate exchange capacity**: The sum of `capacity` across all requests in
+  a single exchange MUST NOT exceed 4096. This bounds total wire size and
+  responder work across a whole exchange.
+
 A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
 
 **Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
@@ -359,9 +352,10 @@ decoded and $T$ be the sum of decoded cardinalities over strata $r$ through 31.
 The estimate is $T \cdot 2^r$.
 
 If stratum 31 does not decode, or the decoded tail is empty with $r \ne 0$, the
-difference is not measurable by the estimator. The standard fallback value is
-$8 \cdot 2^{31}$; consumers MUST treat it as unmeasurable rather than as a
-literal count, and MUST NOT begin an extraction exchange on it.
+difference is not measurable by the estimator. The estimator MUST return an
+out-of-band sentinel (such as `null` or a `saturated` flag); consumers MUST
+treat it as unmeasurable rather than as a literal count, and MUST NOT begin an
+extraction exchange on it.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit accumulator verification of a decoded
@@ -405,15 +399,15 @@ carrying the other half. See [Security considerations](#security-considerations)
 below for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
-over $\mathbb{F}_{q}$. The sketch exposes odd-power syndromes, and the missing
-even syndromes are derived or implied. Implementations MAY use Berlekamp-Massey
-or an equivalent recurrence solver to derive a locator polynomial of degree at
-most $k$. If the observed syndromes are inconsistent with any such polynomial,
-or if root searching fails to produce a consistent set of roots, decoding fails,
-and the caller MAY split the node and retry at a smaller prefix. Implementations
-SHOULD enforce a computational work budget across polynomial root-finding during
-an exchange to prevent denial-of-service attacks from many nodes each driving
-the maximum trial count.
+over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
+missing even syndromes are derived or implied. Implementations MAY use
+Berlekamp-Massey or an equivalent recurrence solver to derive a locator
+polynomial of degree at most $k$. If the observed syndromes are inconsistent
+with any such polynomial, or if root searching fails to produce a consistent set
+of roots, decoding fails, and the caller MAY split the node and retry at a
+smaller prefix. Implementations SHOULD enforce a computational work budget
+across polynomial root-finding during an exchange to prevent denial-of-service
+attacks from many nodes each driving the maximum trial count.
 
 ## Security considerations
 
@@ -547,7 +541,7 @@ sizing.
 
 **Measured cost.** The reference implementation measures about 618 ns per
 resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
-the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{q}$ multiply
+the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
 The strata estimator is an optimization; MSC0501 requires all 32 entries on its
@@ -587,17 +581,20 @@ encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. Among
 honest, randomly distributed inputs at the population sizes in scope, this is
-rare. It's not rare if a peer goes looking for one on purpose: $h_{64}$ is only
-64 bits, so finding two inputs that collide takes about $2^{32}$ tries — cheap
-for anyone who wants to bother, unlike colliding $D(e)$ or the 128-bit
-accumulator, which stay out of reach. Either way, the outcome is the same: a
-$h_{64}$ collision corrupts the syndrome for the colliding node, the 128-bit
-verification step catches the resulting bad decode, and decoding fails loudly
-rather than returning a wrong result. A found collision therefore degrades
-availability (forced retry or split), not correctness. Implementations MUST NOT
-interpret repeated verification failure at adequate capacity as evidence of peer
-misbehavior without further diagnosis, since a decode can also fail for reasons
-unrelated to capacity or to any collision.
+rare. However, an adversary can easily construct a collision: $h_{64}$ is only
+64 bits, so finding two inputs that collide requires approximately $2^{32}$
+evaluations. This is computationally trivial, unlike colliding $D(e)$ or the
+128-bit accumulator. Regardless of intent, the outcome is identical: an $h_{64}$
+collision corrupts the syndrome for the colliding node, the 128-bit verification
+step catches the resulting bad decode, and decoding fails cleanly rather than
+returning an incorrect result. Because colliding identifiers follow identical
+paths at every depth, splitting never separates them. Repeated residual-verified
+failure at depth 32 is a permanent ladder failure for that prefix;
+implementations MUST fall back to extremity or backfill for that prefix and MUST
+NOT re-enter the sketch ladder. Implementations MUST NOT interpret repeated
+verification failure at adequate capacity as evidence of peer misbehavior
+without further diagnosis, since a decode can also fail for reasons unrelated to
+capacity or to any collision.
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -639,7 +636,7 @@ combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
 - **Syndrome sketches and BCH-style power sums:** The extraction layer computes
-  an odd-power syndrome map over $\mathbb{F}_{q}$:
+  an odd-power syndrome map over $\\mathbb{F}_{2^{64}}$:
   $\sigma_k(S) = \left(\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3,
   \ldots, \sum_{e \in S} h_{64}(e)^{2k-1}\right)$.
   Even powers are omitted because the Frobenius endomorphism makes them

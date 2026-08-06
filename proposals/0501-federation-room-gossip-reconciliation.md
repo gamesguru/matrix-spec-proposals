@@ -163,7 +163,7 @@ excluding the anchor antichain itself, where `E_{\mathrm{anchor}}` is that
 anchor set.
 
 $$
-K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}}) \setminus E_{\mathrm{anchor}}.
+K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}} \cup E_{\mathrm{soft-failed}}) \setminus E_{\mathrm{anchor}}.
 $$
 
 In addition to the accepted and rejected event sets, soft-failed events are also
@@ -194,10 +194,10 @@ one-sided; otherwise `c` is not a safe replacement for `d̂`. Responders MAY
 reject a `sketch` request from a requester that has not performed this
 preflight.
 
-If the preflight estimate is the profile's saturated fallback value, the
-requester MUST treat it as unavailable for sketch sizing and MUST route to
-`extremity` mode, backfill, or frame extension instead of starting `sketch`
-mode. Saturation is distinct from a merely large measured difference.
+If the preflight estimate is unmeasurable (e.g., returns `null` or a saturated
+flag), the requester MUST treat it as unavailable for sketch sizing and MUST
+route to `extremity` mode, backfill, or frame extension instead of starting
+`sketch` mode. Saturation is distinct from a merely large measured difference.
 
 Requesters MUST retain the outstanding tree frontier across rounds as a pending
 queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
@@ -208,8 +208,8 @@ into the current round. The exchange ends when the queue empties, the round
 counter reaches 20, or the requester must fall back to `extremity` mode,
 backfill, or frame extension.
 
-Implementations MUST carry that pending queue across rounds; they MUST NOT
-rebuild the next round solely from the immediately preceding failures.
+Implementations MUST carry that pending queue across rounds; queued nodes that
+did not fit capacity MUST be preserved.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:

@@ -71,10 +71,20 @@ the backoff schedule already allows); all further demand arriving within that
 interval MUST fail fast against the negative cache rather than triggering its
 own probe. Without this per-interval limit, an attacker can relay junk
 purportedly signed by a dead server's name to induce one outbound probe per
-inbound request, defeating the backoff entirely. Implementations SHOULD coalesce
-concurrent outgoing key fetch requests for the same remote domain into a single
-active HTTP request to prevent network saturation. If that fetch succeeds and
-the request authenticates, servers SHOULD clear the backoff state.
+inbound request, defeating the backoff entirely.
+
+**Fetch coalescing.** When multiple local codepaths concurrently need key
+material for the same remote server, implementations SHOULD coalesce them into a
+single active fetch attempt for that server: at any given time, there SHOULD be
+at most one in-flight outbound key-fetch HTTP transaction per remote
+`server_name`, and all concurrent waiters for that same fetch SHOULD observe the
+same terminal result (success, malformed response rejection, or transport/notary
+failure) rather than each spawning its own retry sequence. Once that shared
+attempt completes, any later fetch is governed normally by the resulting cache
+state and backoff state; coalescing is only a duplicate-suppression rule for
+overlapping local demand, not a bypass around the negative-cache policy above.
+If that fetch succeeds and the request authenticates, servers SHOULD clear the
+backoff state.
 
 Implementations SHOULD allow the minimum backoff floor to be shortened or
 otherwise overridden (e.g. via a test-only configuration hook) in test
@@ -256,7 +266,7 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 When a server rotates its signing key, the administrator MUST:
 
 1. **Generate a new key with a new, unique key ID.** For example, rotating from
-   `ed25519:1` to `ed25519:2`, or from `pqc:old_key_id` to `pqc:new_key_id`.
+   `ed25519:1` to `ed25519:2`, or from `foobar:old_key_id` to `foobar:new_key_id`.
 2. **Retire the old key.** The old key MUST appear in the `old_verify_keys`
    section of the `/_matrix/key/v2/server` response with an appropriate
    `expired_ts` timestamp.
@@ -554,16 +564,7 @@ ignore new key IDs permanently. Instead, they MUST evict retired keys according
 to the deterministic ordering defined below — not by recency or
 least-recently-used heuristics, which would make eviction
 implementation-dependent rather than the deterministic behavior this MSC
-requires. When multiple local codepaths concurrently need key material for the
-same remote server, implementations SHOULD coalesce them into a single active
-fetch attempt for that server: at any given time, there SHOULD be at most one
-in-flight outbound key-fetch HTTP transaction per remote `server_name`, and all
-concurrent waiters for that same fetch SHOULD observe the same terminal result
-(success, malformed response rejection, or transport/notary failure) rather than
-each spawning its own retry sequence. Once that shared attempt completes, any
-later fetch is governed normally by the resulting cache state and backoff state;
-coalescing is only a duplicate-suppression rule for overlapping local demand,
-not a bypass around the negative-cache policy above. Keys currently published in
+requires. Keys currently published in
 the `verify_keys` section of a direct fetch MUST always be prioritized and
 exempt from eviction. This exemption is bounded by the 50-key active ceiling on
 any single response ([Key caching requirements](#key-caching-requirements)); it
@@ -645,7 +646,7 @@ recompute the full retained set by applying this ordering across the union of
 the previously retained retired keys and the newly learned candidate. If the new
 candidate sorts above the retention floor, it MUST be stored and whichever
 existing binding now falls below the floor MUST be evicted; if the new candidate
-sorts below the floor, the implementation MAY discard that new candidate
+sorts below the floor, the implementation MUST discard that new candidate
 instead. Hitting the storage ceiling therefore MUST degrade into this
 deterministic prune-and-retain behavior, not into fetch failure, not into
 dropping all newly learned historical bindings unconditionally, and not into
