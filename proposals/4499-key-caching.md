@@ -555,16 +555,25 @@ ignore new key IDs permanently. Instead, they MUST evict retired keys according
 to the deterministic ordering defined below — not by recency or
 least-recently-used heuristics, which would make eviction
 implementation-dependent rather than the deterministic behavior this MSC
-requires. Keys currently published in the `verify_keys` section of a direct
-fetch MUST always be prioritized and exempt from eviction. This exemption is
-bounded by the 50-key active ceiling on any single response
-([Key caching requirements](#key-caching-requirements)); it is not a license for
-a `verify_keys` set to grow without bound across many legitimate rotations over
-time. A remote server whose cumulative set of currently-active key IDs, observed
-across successive responses, grows far beyond the single-digit counts typical of
-legitimate operation is itself the signal described as "unambiguously hostile"
-below, independent of whether any individual response stays under the 50-key
-cap.
+requires. When multiple local codepaths concurrently need key material for the
+same remote server, implementations SHOULD coalesce them into a single active
+fetch attempt for that server: at any given time, there SHOULD be at most one
+in-flight outbound key-fetch HTTP transaction per remote `server_name`, and all
+concurrent waiters for that same fetch SHOULD observe the same terminal result
+(success, malformed response rejection, or transport/notary failure) rather than
+each spawning its own retry sequence. Once that shared attempt completes, any
+later fetch is governed normally by the resulting cache state and backoff state;
+coalescing is only a duplicate-suppression rule for overlapping local demand,
+not a bypass around the negative-cache policy above. Keys currently published in
+the `verify_keys` section of a direct fetch MUST always be prioritized and
+exempt from eviction. This exemption is bounded by the 50-key active ceiling on
+any single response ([Key caching requirements](#key-caching-requirements)); it
+is not a license for a `verify_keys` set to grow without bound across many
+legitimate rotations over time. A remote server whose cumulative set of
+currently-active key IDs, observed across successive responses, grows far beyond
+the single-digit counts typical of legitimate operation is itself the signal
+described as "unambiguously hostile" below, independent of whether any
+individual response stays under the 50-key cap.
 
 **Corroboration tier.** This tier answers a narrower question than the
 provisional/permanent split above. It does not decide which key body is correct
@@ -630,41 +639,51 @@ match the origin-signed `trusted_notary_keys` entry MUST be rejected.
 Implementations MUST apply this ceiling deterministically: always retain all
 current `verify_keys`; then retain corroborated retired keys in descending order
 of an _effective retirement timestamp_ (defined below); then, in whatever slots
-remain, retain uncorroborated retired keys under the same ordering.
-Uncorroborated bindings are therefore always evicted before any corroborated
-binding, regardless of their respective `expired_ts` values. For a key published
-in `old_verify_keys`, the effective retirement timestamp is its `expired_ts`.
-For a key that was previously observed active (in `verify_keys` or
-`old_verify_keys`) but has since disappeared from the origin's responses without
-ever being given an `expired_ts` (a lazy or misbehaving origin simply dropping
-it), the effective retirement timestamp is the local timestamp of the last
-observation in which the key was still present. This makes every
-retained-or-evictable binding sortable, including vanished keys that never
-received a formal retirement. Ties in the effective retirement timestamp are
-broken by bytewise lexicographic comparison of the full `algorithm:key_id`
-string as UTF-8, ascending; the lexicographically smaller identifier is retained
-first. Any keys ordered below the retention floor by this rule may be evicted.
-Eviction of a _corroborated_ binding SHOULD be logged at warning level: reaching
-the ceiling deeply enough to displace corroborated history is itself the anomaly
-signal for the flood scenario in [Other considerations](#other-considerations),
-and costs nothing beyond the logging this MSC already requires elsewhere for
-collisions. Because both the corroboration tier (which may rely on local
-observation history) and the effective retirement timestamp for vanished keys
-are local determinations rather than origin-asserted values, this part of the
-ordering is local to each implementation; this is consistent with, and does not
-strengthen, the cross-server convergence limits described below. When new valid
-historical key material is learned, notaries and receiving servers MAY
-re-evaluate the retained retired-key set — including re-evaluating corroboration
-as new observations arrive — but such re-evaluation MUST apply the same
-deterministic pruning rule over the full locally known candidate set. This
-improves eventual convergence after observation gaps or network partitions, but
-does not guarantee identical real-time results across notaries. Implementations
-MUST rely on existing federation rate-limiting to discard junk traffic before
-allocating database records. In practice, legitimate servers publish
-single-digit numbers of active keys at any given time; a server claiming tens of
-thousands of key IDs is unambiguously hostile. A future Proof-of-Work gated
-proposal may mitigate the spurious bulk generation of keys behind Equihash or
-Cuckoo Cycle.
+remain, retain uncorroborated retired keys under the same ordering. When a new
+valid retired-key binding is learned while the local retired-key set for that
+remote server is already at the 3,000-entry ceiling, implementations MUST
+recompute the full retained set by applying this ordering across the union of
+the previously retained retired keys and the newly learned candidate. If the new
+candidate sorts above the retention floor, it MUST be stored and whichever
+existing binding now falls below the floor MUST be evicted; if the new candidate
+sorts below the floor, the implementation MAY discard that new candidate
+instead. Hitting the storage ceiling therefore MUST degrade into this
+deterministic prune-and-retain behavior, not into fetch failure, not into
+dropping all newly learned historical bindings unconditionally, and not into
+eviction of currently-active `verify_keys`. Uncorroborated bindings are
+therefore always evicted before any corroborated binding, regardless of their
+respective `expired_ts` values. For a key published in `old_verify_keys`, the
+effective retirement timestamp is its `expired_ts`. For a key that was
+previously observed active (in `verify_keys` or `old_verify_keys`) but has since
+disappeared from the origin's responses without ever being given an `expired_ts`
+(a lazy or misbehaving origin simply dropping it), the effective retirement
+timestamp is the local timestamp of the last observation in which the key was
+still present. This makes every retained-or-evictable binding sortable,
+including vanished keys that never received a formal retirement. Ties in the
+effective retirement timestamp are broken by bytewise lexicographic comparison
+of the full `algorithm:key_id` string as UTF-8, ascending; the lexicographically
+smaller identifier is retained first. Any keys ordered below the retention floor
+by this rule may be evicted. Eviction of a _corroborated_ binding SHOULD be
+logged at warning level: reaching the ceiling deeply enough to displace
+corroborated history is itself the anomaly signal for the flood scenario in
+[Other considerations](#other-considerations), and costs nothing beyond the
+logging this MSC already requires elsewhere for collisions. Because both the
+corroboration tier (which may rely on local observation history) and the
+effective retirement timestamp for vanished keys are local determinations rather
+than origin-asserted values, this part of the ordering is local to each
+implementation; this is consistent with, and does not strengthen, the
+cross-server convergence limits described below. When new valid historical key
+material is learned, notaries and receiving servers MAY re-evaluate the retained
+retired-key set — including re-evaluating corroboration as new observations
+arrive — but such re-evaluation MUST apply the same deterministic pruning rule
+over the full locally known candidate set. This improves eventual convergence
+after observation gaps or network partitions, but does not guarantee identical
+real-time results across notaries. Implementations MUST rely on existing
+federation rate-limiting to discard junk traffic before allocating database
+records. In practice, legitimate servers publish single-digit numbers of active
+keys at any given time; a server claiming tens of thousands of key IDs is
+unambiguously hostile. A future Proof-of-Work gated proposal may mitigate the
+spurious bulk generation of keys behind Equihash or Cuckoo Cycle.
 
 ### Other considerations
 
