@@ -163,7 +163,8 @@ excluding the anchor antichain itself, where `E_{\mathrm{anchor}}` is that
 anchor set.
 
 $$
-K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}} \cup E_{\mathrm{soft-failed}}) \setminus E_{\mathrm{anchor}}.
+K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}} \cup E_{\mathrm{soft-failed}})
+\setminus E_{\mathrm{anchor}}.
 $$
 
 In addition to the accepted and rejected event sets, soft-failed events are also
