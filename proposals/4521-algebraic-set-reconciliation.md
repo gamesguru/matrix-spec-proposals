@@ -827,6 +827,9 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
     GitHub. <https://github.com/bitcoin-core/minisketch>
 
 [^8]:
+    Paraphrased: find all finite polynomials whose coefficients are all +1 or
+    -1, and whose roots are all real.
+
     Putnam Questionnaire. 1968 A6, solution archive:
     <https://prase.cz/kalva/putnam/psoln/psol686.html>
 
