@@ -1,9 +1,9 @@
-# MSC4511 Part III: Merkleized Metadata Room-Version Sketch
+# MSC4511 Part C: Merkleized Metadata Room-Version Sketch
 
-This companion to [Part I](4511-part-a-topological-metadata-query-api.md)
+This companion to [Part A](4511-part-a-topological-metadata-query-api.md)
 sketches how a future room version could make selected topology metadata
 independently provable by committing it into event identity. Current room
-versions should use Part I as hint-only; Part II provides responder-scoped
+versions should use Part A as hint-only; Part B provides responder-scoped
 attestations without a room-version change.
 
 ## Unstable prefix
@@ -47,7 +47,7 @@ differ in any signed field that contributes to event identity, including
 `sender_localpart` and `sender_domain` MUST be committed as two independent
 header leaves rather than one combined `sender` leaf, using the same
 first-`:`-boundary split defined in
-[Part I](4511-part-a-topological-metadata-query-api.md) for the hint-mode
+[Part A](4511-part-a-topological-metadata-query-api.md) for the hint-mode
 `sender_domain` field: the local part is everything between the leading `@` and
 the first `:`, and the domain is everything after it. A room version adopting
 this format MUST reject events whose `sender` does not parse under that grammar
@@ -340,7 +340,7 @@ redaction rules.
 ### Marginal value for gap repair
 
 Merkleized topology proofs verify the committed metadata they disclose, but they
-are not required for Part I's current gap-repair workflow. A requester must
+are not required for Part A's current gap-repair workflow. A requester must
 still fetch the full PDU before accepting an event, because it needs `content`,
 `auth_events`, event hashes, signatures, auth rules, and state-resolution
 inputs. A proof of `prev_events` therefore adds proof bytes and verification
@@ -423,15 +423,15 @@ repair path selection.
 
 ## Relationship to other proposals
 
-This room-version sketch is the native-verifiability counterpart to Part I's
+This room-version sketch is the native-verifiability counterpart to Part A's
 sparse query endpoint. It does not define push gossip, session state, set
 digests, or bulk event repair; it only defines how a future room version could
 make selected metadata independently provable once a query response chooses to
 carry proof material.
 
-Part II's signed overlay is the deployable, responder-scoped alternative for
-current room versions. This Part III sketch is stronger but requires a future
-room version because the metadata commitment must participate in event identity.
+Part B's signed overlay is the deployable, responder-scoped alternative for
+current room versions. This Part C sketch is stronger but requires a future room
+version because the metadata commitment must participate in event identity.
 
 [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
 changes the room model by adding state-DAG edges and authorization semantics in

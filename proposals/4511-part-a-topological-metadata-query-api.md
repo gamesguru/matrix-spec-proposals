@@ -1,4 +1,4 @@
-# MSC4511: Part A: Topological metadata query API
+# MSC4511 Part A: Topological Metadata Query API
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -64,10 +64,10 @@ implement the topology query at all.
 ```
 
 The `tk.nutra.msc4511.overlay_attestations` flag is advertised separately in
-Part II for overlay proofs. The `tk.nutra.msc4511.computed_graph_queries` flag
+Part B for overlay proofs. The `tk.nutra.msc4511.computed_graph_queries` flag
 advertises the optional `compute` extension in this part. Future room-version
-commitments described in Part III are gated by room-version negotiation instead
-of a federation capability flag.
+commitments described in Part C are gated by room-version negotiation instead of
+a federation capability flag.
 
 A server that does not advertise this flag SHOULD be treated as not supporting
 the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to
@@ -236,11 +236,11 @@ The initial sparse response fields returned as sidecar maps are:
 - `start_event_errors`: non-returned start events keyed by start event ID to
   reason code.
 - `proofs`: Merkle proof material, only for future room versions which opt into
-  split canonicalization as described in Part III. Requested via the `proof`
-  field name.
+  split canonicalization as described in Part C. Requested via the `proof` field
+  name.
 - `overlay_proofs`: signed responder attestations for room-version-agnostic
-  metadata commitments as described in Part II. Requested via the
-  `overlay_proof` field name and only available when the responder advertises
+  metadata commitments as described in Part B. Requested via the `overlay_proof`
+  field name and only available when the responder advertises
   `tk.nutra.msc4511.overlay_attestations` in `/_matrix/federation/v1/version`.
 
 Unrecognized `edge_types` entries cause the request to fail with
@@ -328,7 +328,7 @@ remain consistent: whenever both are returned for the same event,
 `sender_domain` MUST equal the domain component of `sender` under the splitting
 rule above. This split is purely a query-time convenience for current room
 versions; see
-[Part III: Split canonicalization and Merkleized metadata](4511-part-c-merkleized-room-version-upgrade.md)
+[Part C: Split canonicalization and Merkleized metadata](4511-part-c-merkleized-room-version-upgrade.md)
 for the independently provable analogue in a future room version.
 
 ### Traversal

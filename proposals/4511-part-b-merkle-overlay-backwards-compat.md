@@ -1,6 +1,6 @@
-# MSC4511 Part II: Signed Overlay Metadata Attestations
+# MSC4511 Part B: Signed Overlay Metadata Attestations
 
-This companion to [Part I](4511-part-a-topological-metadata-query-api.md)
+This companion to [Part A](4511-part-a-topological-metadata-query-api.md)
 defines a backwards-compatible signed attestation sidecar for sparse topology
 query responses. It does not change event IDs or room-version event hashing; it
 provides transferable evidence of what a responder asserted.
@@ -19,8 +19,8 @@ to know. The useful property is narrower: a requester can obtain a transferable
 statement that "server X asserts these topology values for event E", compare the
 same fixed commitment root across multiple responders, and later present a
 signed contradiction to other servers or operators. Native event authenticity
-requires the Part III split-canonicalization design, where the metadata
-commitment is part of event identity.
+requires the Part C split-canonicalization design, where the metadata commitment
+is part of event identity.
 
 ### Capability discovery
 
@@ -342,8 +342,8 @@ repair path selection.
 
 ## Relationship to other proposals
 
-The overlay profile is a backwards-compatible accountability layer for Part I's
-sparse query response. It does not replace Part III's native room-version
+The overlay profile is a backwards-compatible accountability layer for Part A's
+sparse query response. It does not replace Part C's native room-version
 commitment model: a signed overlay proves only that the responding server made a
 claim, while split canonicalization can make selected metadata part of event
 identity.

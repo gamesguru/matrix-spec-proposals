@@ -132,10 +132,6 @@ The example above is the `/strata` form. If strata cannot be produced,
 responders MUST return HTTP 503 with a Matrix error body such as `M_UNKNOWN`
 rather than a strata-less `200`.
 
-On the `/strata` resource, `strata` is mandatory. A responder that cannot
-produce it MUST fail the request rather than returning a successful response
-without sketch-sizing data.
-
 **Fields:**
 
 <!-- markdownlint-disable MD013 -->
@@ -158,9 +154,9 @@ without sketch-sizing data.
 
 The digest covers the known event identifier set reachable from the current
 frame anchor antichain. Frame anchor events themselves are not counted in `K`;
-by definition, `K` is the union of the accepted and rejected populations after
-excluding the anchor antichain itself, where `E_{\mathrm{anchor}}` is that
-anchor set.
+by definition, `K` is the union of the accepted, rejected, and soft-failed
+populations after excluding the anchor antichain itself, where
+`E_{\mathrm{anchor}}` is that anchor set.
 
 $$
 K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}} \cup E_{\mathrm{soft-failed}})
@@ -195,10 +191,29 @@ one-sided; otherwise `c` is not a safe replacement for `d̂`. Responders MAY
 reject a `sketch` request from a requester that has not performed this
 preflight.
 
-If the preflight estimate is unmeasurable (e.g., returns `null` or a saturated
-flag), the requester MUST treat it as unavailable for sketch sizing and MUST
-route to `extremity` mode, backfill, or frame extension instead of starting
-`sketch` mode. Saturation is distinct from a merely large measured difference.
+If the preflight estimate is unmeasurable, the estimator returns `null` in place
+of an integer `d̂`. This is a local return value from running MSC4521's strata
+estimator against the fetched `strata` array — `strata` itself is always present
+and mandatory on the wire (see above); it is the derived scalar estimate,
+computed independently by each side, that is either an integer or `null`.
+Implementations MUST NOT signal "unmeasurable" with an in-band integer such as
+`-1` or `0` instead of `null`. The requester MUST treat a `null` estimate as
+unavailable for sketch sizing and MUST route to `extremity` mode, backfill, or
+frame extension instead of starting `sketch` mode.
+
+A `null` (saturated) estimate is distinct from, and much rarer than, a merely
+large _measured_ difference — the strata estimator can and typically does return
+a large finite `d̂` (tens or hundreds of thousands) without saturating, and MAY
+do so as a low-confidence estimate (see MSC4521's strata estimator) without that
+alone being grounds to skip `sketch` mode. Either kind of finite `d̂` —
+low-confidence or not — is instead subject to the separate, and far more
+commonly triggered, round-budget precondition below: a requester MUST compare
+`d̂` against `round_cap * 4096` and route to `extremity` mode, backfill, or frame
+extension when `d̂` exceeds that budget (see "The floor implies a hard
+precondition," below, for the worked ~82,000-element threshold at this MSC's
+round cap of 20). Do not conflate the two: `null` means the estimator itself
+failed; a finite `d̂`, confident or not, means the estimator succeeded, and a
+large one may still fail the round-budget check separately.
 
 Requesters MUST retain the outstanding tree frontier across rounds as a pending
 queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
@@ -208,9 +223,6 @@ pushes its two children onto the back of the queue for a later round rather than
 into the current round. The exchange ends when the queue empties, the round
 counter reaches 20, or the requester must fall back to `extremity` mode,
 backfill, or frame extension.
-
-Implementations MUST carry that pending queue across rounds; queued nodes that
-did not fit capacity MUST be preserved.
 
 **Rejected event handling.** Servers MUST include locally rejected event IDs as
 tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
@@ -998,9 +1010,9 @@ response.
 The ETag is a cache-validation hint, not a synchronization guarantee: a `304`
 means only that the responder's view has not changed since the requester last
 observed it. It does not imply the two servers agree. This statement concerns
-accidental collisions only. The accumulator can't stop a malicious peer from
-faking agreement, and reconciliation doesn't try to; see Accumulator integrity,
-below, for what actually protects against one.
+accidental collisions only. The accumulator does not stop a malicious peer from
+faking agreement, and reconciliation does not rely on it to; see Accumulator
+integrity, below, for what actually protects against one.
 
 Requesting servers SHOULD cache the peer's ETag together with their own local
 accumulator at the time of caching. They MUST NOT send `If-None-Match` if their

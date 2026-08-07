@@ -137,11 +137,14 @@ Instead, the version acts as a per-user, per-EDU-type monotonic counter:
   presentation, but it MUST NOT drive version selection.
 
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation of
-the EDU content body. It is a consistency checksum, not a tie-breaker. If two
-servers have the same `version` for a user but different `content_hash` values,
-their responses are inconsistent. The requester MUST treat the returned
-authoritative value as replacing its cached copy, and MUST NOT use the
-lexicographically larger hash to choose a winner.
+the EDU content body, serialized as `xxh3:` followed by exactly 16 lowercase
+hexadecimal characters (the big-endian byte representation of the 64-bit
+digest). Implementations MUST reject a `content_hash` that does not match this
+shape rather than treating it as an opaque string. It is a consistency checksum,
+not a tie-breaker. If two servers have the same `version` for a user but
+different `content_hash` values, their responses are inconsistent. The requester
+MUST treat the returned authoritative value as replacing its cached copy, and
+MUST NOT use the lexicographically larger hash to choose a winner.
 
 **Scoping (Privacy):**
 
@@ -263,11 +266,11 @@ nested structure:
       "rooms": {
         "!room1:example.com": {
           "version": 1716000042,
-          "content_hash": "xxh3:a1b2c3d4"
+          "content_hash": "xxh3:a1b2c3d4e5f60718"
         },
         "!room2:example.com": {
           "version": 1716000050,
-          "content_hash": "xxh3:b2c3d4e5"
+          "content_hash": "xxh3:b2c3d4e5f6078192"
         }
       }
     }
@@ -355,11 +358,17 @@ returned user tuples:
 
 Because the accumulator is order-independent, a server can update it in O(1)
 when a single user's state changes. Servers MAY combine that page digest with a
-fixed hash of `edu_type` and `next_batch` if they need page-specific validators,
-but they should not derive the ETag from a single maximum version counter or
-from reserializing the full page on each update. Conditional requests are most
-useful on a stable first page; page-specific `since` requests should be treated
-as ordinary incremental fetches.
+fixed hash of `edu_type` and `next_batch` if they need page-specific validators.
+Servers MUST NOT derive the ETag from a single maximum version counter: unlike
+the order-independent accumulator, a max-version ETag does not advance on a
+tombstone or deletion, so a page can change without the ETag changing and a
+stale `304` results. Reserializing the full page on each update to compute the
+ETag is unsound for a different reason — it is merely wasted work, since the
+O(1) incremental accumulator above already gives the same validator for less
+cost — so implementations SHOULD avoid it, but doing so anyway does not itself
+produce an incorrect ETag. Conditional requests are most useful on a stable
+first page; page-specific `since` requests should be treated as ordinary
+incremental fetches.
 
 ### Capability discovery
 

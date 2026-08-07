@@ -98,9 +98,14 @@ estimator.
 ## Element derivation
 
 The profile operates over a set $S$ of opaque elements. Each element MUST be
-mapped via a uniformly distributed hashing function to a canonical 32-byte
-digest. Consumers define what the elements mean; the kernel treats them as an
-opaque set and does not interpret their content.
+mapped to a canonical 32-byte digest via a cryptographic hash, or a fixed-length
+prefix of one, applied over a canonical encoding of the element — this is what
+the trie balance (see [Dynamic tree extraction](#dynamic-tree-extraction)) and
+the strata estimator both assume when they treat $h_{64}(e)$ as effectively
+uniform. The room-version rules under
+[Matrix event-ID binding](#matrix-event-id-binding) satisfy this. Consumers
+define what the elements mean; the kernel treats them as an opaque set and does
+not interpret their content.
 
 Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
 
@@ -135,10 +140,10 @@ not use auxiliary hash functions (e.g., `XXH3`).
 
 ## Field
 
-The 64-bit Galois field is defined with $q=2^{64}$,
+The 64-bit Galois field is defined as
 
 $$
-\mathbb{F}_{2^{64}} = \mathbb{F}_{q} \cong \mathbb{F}_{2}[x]
+\mathbb{F}_{2^{64}} \cong \mathbb{F}_{2}[x]
 \big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
 $$
 
@@ -230,7 +235,10 @@ over-capacity exchange to be extended additively rather than restarted.
 
 A single sketch at `depth = 0` covers the whole population and is exact only
 while the true difference is within its capacity. When it is not, the population
-is localized by recursive binary subdivision over the fixed key space.
+is localized by recursive binary subdivision over the fixed key space. This is
+splitting over the $h_{64}$ key space itself, not RFC 6962-style dyadic
+splitting over a sequence of leaves in construction order — contrast with the
+Merkle tree overlay in MSC4511 Part B, which is RFC 6962-style.
 
 $h_{64}(e)$ determines an element's path down a binary tree: at depth $d$, an
 element belongs to node `prefix` if and only if the most-significant $d$ bits of
@@ -296,6 +304,8 @@ requests, each a `(depth, prefix, capacity)` triple. These bounds apply:
 - **Aggregate exchange capacity**: The sum of `capacity` across all requests in
   a single exchange MUST NOT exceed 4096. This bounds total wire size and
   responder work across a whole exchange.
+- **Depth cap**: A node MUST NOT split past depth 32. This bounds worst-case
+  tree depth given the 64-bit key space.
 
 A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
 
@@ -318,14 +328,6 @@ before decoding, and split only when the current capacity is not enough.
 
 This split is a localization step, not a proof that the peer is wrong: it only
 narrows the candidate population to the prefix that still overflows.
-
-Dynamic tree extraction is itself an instance of partitioned set reconciliation
-(PSR): recursive splitting on overflow, same as here. Enhanced PSR[^18] reports
-roughly half the communication cost of plain PSR at the same time and round
-complexity, by carrying information from failed splits forward instead of
-discarding it, borrowing techniques from tree algorithms for random-access
-protocols. `algebraic_v1` does not adopt this refinement; it is a candidate for
-a future profile revision, not a change to this one.
 
 ## Strata estimator
 
@@ -351,11 +353,40 @@ decode each residual stratum until one fails. Let $r$ be the lowest stratum that
 decoded and $T$ be the sum of decoded cardinalities over strata $r$ through 31.
 The estimate is $T \cdot 2^r$.
 
-If stratum 31 does not decode, or the decoded tail is empty with $r \ne 0$, the
-difference is not measurable by the estimator. The estimator MUST return an
-out-of-band sentinel (such as `null` or a `saturated` flag); consumers MUST
-treat it as unmeasurable rather than as a literal count, and MUST NOT begin an
-extraction exchange on it.
+These two failure shapes are not the same condition and MUST NOT be collapsed
+into one outcome:
+
+- **Stratum 31 fails to decode.** Stratum 31 is the catch-all for every element
+  with 31 or more trailing zero bits, so this only happens once
+  $d \gtrsim 9 \cdot 2^{31} \approx 1.9 \times 10^{10}$ — far past any
+  divergence this profile is meant to size. This is genuine saturation: the
+  estimator has no usable signal at all. The estimator MUST return `null` in
+  place of an integer estimate; consumers MUST treat `null` as unmeasurable,
+  never as a literal count, and MUST NOT begin an extraction exchange sized from
+  it.
+- **The decoded tail is empty with $r \ne 0$.** Because elements land in stratum
+  $i$ with probability $2^{-(i+1)}$, this is a low-probability statistical fluke
+  (on the order of $10^{-4}$ for a well-behaved population) that can occur at
+  _modest_ $d$, not only at extreme $d$. Treating it as full saturation would
+  force an unwarranted fallback to `extremity` mode or backfill for what may be
+  an ordinary difference of a few thousand elements. Note that $T$ is $0$ in
+  this branch by definition (the tail is empty), so $T \cdot 2^r$ is useless
+  here — a zero estimate would be worse than `null`, since it would pass a
+  consumer's budget precondition trivially while understating a difference that,
+  by the branch's own trigger condition, is already known to be nontrivial:
+  stratum $r - 1$ overflowed its capacity-8 decode, which requires
+  $|D_{r-1}| > 8$, i.e. $d \gtrsim 9 \cdot 2^r$. The estimator MUST instead
+  return that lower-bound estimate, $\hat d \approx 9 \cdot 2^r$, paired with an
+  explicit `low_confidence` indicator distinct from the `null` sentinel above
+  (for example, an `{estimate, low_confidence}` pair rather than a bare
+  integer). Consumers MAY use a low-confidence estimate to size an initial
+  extraction request the same as an ordinary estimate, or MAY instead provision
+  a smaller-than-indicated starting capacity and rely on `capacity_exceeded` to
+  trigger a split; consumers MUST NOT, on confidence grounds alone, treat a
+  low-confidence estimate as grounds to refuse a `sketch` exchange outright — a
+  consuming protocol's own budget precondition over the numeric estimate (e.g. a
+  round-budget check) still applies exactly as it would to an ordinary estimate
+  of the same value.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit accumulator verification of a decoded
@@ -590,16 +621,53 @@ step catches the resulting bad decode, and decoding fails cleanly rather than
 returning an incorrect result. Because colliding identifiers follow identical
 paths at every depth, splitting never separates them. Repeated residual-verified
 failure at depth 32 is a permanent ladder failure for that prefix;
-implementations MUST fall back to extremity or backfill for that prefix and MUST
-NOT re-enter the sketch ladder. Implementations MUST NOT interpret repeated
-verification failure at adequate capacity as evidence of peer misbehavior
-without further diagnosis, since a decode can also fail for reasons unrelated to
-capacity or to any collision.
+implementations MUST fall back to extremity or backfill for that prefix.
+Implementations MUST NOT interpret repeated verification failure at adequate
+capacity as evidence of peer misbehavior without further diagnosis, since a
+decode can also fail for reasons unrelated to capacity or to any collision.
+
+Because $h_{64}$ is deterministic from `D(e)` alone with no per-room or per-peer
+salt, a $\approx 2^{32}$-work collision found once against a given prefix is
+reusable against that same prefix on every server, for as long as it is
+remembered. An unscoped, permanent "MUST NOT re-enter the sketch ladder"
+therefore lets a single offline grind permanently disable $1/2^{32}$ of the key
+space for every peer, with no recovery path. To bound this, the fallback MUST be
+scoped and time-limited rather than permanent: implementations MUST cache a
+ladder-failed prefix keyed on `(room_id, frame_id)` with an
+implementation-defined TTL, and MUST re-probe (re-enter the sketch ladder for
+that prefix) on frame change or TTL expiry rather than treating the failure as
+permanent. This bounds a successful grind to one room and one frame at a time,
+at the cost of the peer potentially re-encountering the same failed decode after
+re-probing.
+
+This residual risk is a consequence of $D(e)$ (and therefore $h_{64}$) being
+computed with no room-scoped input, so the same grind against a prefix works
+identically in every room. Mixing `room_id` into $D(e)$, or into the
+$D(e) \to
+h_{64}$ derivation, would scope a grind to a single room and defeat
+precomputation against rooms that do not exist yet, at no cost to the comparison
+contract since both sides already agree on the room. This MSC does not adopt
+that change — see [Open questions](#open-questions).
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
 Implementations SHOULD still evict resident structures under an LRU or TTL
 policy and rebuild on demand.
+
+## Open questions
+
+- **Should `room_id` be mixed into `D(e)`, or into the `D(e) -> h_{64}`
+  derivation?** As noted under [Potential issues](#potential-issues), $h_{64}$
+  today is deterministic from the event ID alone, so a $\approx 2^{32}$-work
+  offline collision grind against one prefix is reusable against every room on
+  every peer. Mixing `room_id` in would scope any such grind to a single room
+  and defeat precomputation against rooms that do not yet exist, at no cost to
+  the comparison contract (both sides already agree on the room). This MSC does
+  not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
+  invalidating existing test vectors and the reference implementation without a
+  clear need beyond the bounded, TTL-scoped fallback already specified. A future
+  profile revision could adopt it if the bounded fallback proves insufficient in
+  practice.
 
 ## Alternatives
 
@@ -636,7 +704,7 @@ combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
 - **Syndrome sketches and BCH-style power sums:** The extraction layer computes
-  an odd-power syndrome map over $\\mathbb{F}_{2^{64}}$:
+  an odd-power syndrome map over $\mathbb{F}_{2^{64}}$:
   $\sigma_k(S) = \left(\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3,
   \ldots, \sum_{e \in S} h_{64}(e)^{2k-1}\right)$.
   Even powers are omitted because the Frobenius endomorphism makes them
@@ -656,7 +724,13 @@ contracts, but these analogies may help understand the protocol.
   `depth` is capped at 32, and a node still overflowing at the cap is reported
   rather than split further. The request antichain invariant keeps each exchange
   finite and non-overlapping. This matches the termination pattern in Putnam
-  2008 A3.[^9]
+  2008 A3.[^9] Dynamic tree extraction is itself an instance of partitioned set
+  reconciliation (PSR): recursive splitting on overflow, same as here. Enhanced
+  PSR[^18] reports nearly halving the communication cost of plain PSR at the
+  same time complexity, by carrying information from failed splits forward
+  instead of discarding it, borrowing techniques from tree algorithms for
+  random-access protocols. `algebraic_v1` does not adopt this refinement; it is
+  a candidate for a future profile revision, not a change to this one.
 
 - **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log_2 q)$,
   where $q = 2^{64}$ and thus $\log_2 q = 64$. With per-node capacity capped at
@@ -771,6 +845,35 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 
 <!-- markdownlint-enable MD013 -->
 
+### Strata estimator sentinel
+
+The two out-of-band estimator outcomes under
+[Strata estimator](#strata-estimator) are cheap to construct and MUST be covered
+by conformance tests, since a `MUST`-level out-of-band value with no test vector
+otherwise gets implemented three incompatible ways:
+
+- **Low-confidence estimate (`r != 0`, decoded tail empty).** Construct a
+  population of more than 8 elements whose $h_{64}(e)$ all have trailing-zero
+  count exactly `0` (i.e., all odd as 64-bit integers), and no other elements.
+  Stratum 0 then holds more than capacity-8 elements and fails to decode; strata
+  1 through 31 are all genuinely empty and decode trivially. Decoding downward
+  from 31, the lowest stratum that decoded is $r = 1$ (stratum 0 failed), and
+  the decoded tail (strata 1..31) sums to $T = 0$ — this is exactly the "decoded
+  tail is empty with $r \ne 0$" condition. This is reachable with 9 elements and
+  requires no search, unlike genuine saturation below. The estimator MUST return
+  `{estimate: 9 * 2^r, low_confidence: true}` —
+  `{estimate: 18, low_confidence: true}` for this 9-element construction
+  ($r = 1$) — not a literal $T \cdot 2^r = 0$, and not `null`. The true $d$ here
+  is exactly 9; the estimate is a deliberate, conservative over-estimate, which
+  is the safe direction for capacity sizing.
+- **Saturation (`null`).** Constructing a genuine stratum-31 decode failure
+  requires $d \gtrsim 9 \cdot 2^{31}$ elements sharing high-order structure,
+  which is impractical to embed literally in this document. Implementations
+  SHOULD instead test this path by injecting a synthetic stratum-31 sketch that
+  exceeds its capacity-8 decode budget directly (bypassing population
+  construction), and MUST verify the estimator returns `null` rather than a
+  fabricated `T * 2^31` estimate in that case.
+
 ## Unstable prefix
 
 <!-- markdownlint-disable MD013 -->
@@ -824,18 +927,22 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
     GitHub. <https://github.com/bitcoin-core/minisketch>
 
 [^8]:
-    Paraphrased: find all finite polynomials whose coefficients are all +1 or
-    -1, and whose roots are all real.
-
     Putnam Questionnaire. 1968 A6, solution archive:
     <https://prase.cz/kalva/putnam/psoln/psol686.html>
+
+    Paraphrased: find all polynomials of any degree whose coefficients are all
+    +1 or -1, and whose roots are all real.
 
 [^9]:
     Putnam Questionnaire. 2008 A3, archive PDF:
     <https://kskedlaya.org/putnam-archive/2008.pdf>
 
 [^10]:
-    Example Rust implementation with tests:
+    Historical snapshot of an example Rust implementation with tests, predating
+    this document's saturation sentinel, low-confidence estimator branch, and
+    64-bit collision fallback scoping — treat as illustrative of the base
+    decode/verify contract only, not as conformant to the current normative
+    text:
     [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b).
 
     Non-optimized, prototype implementation in Golang:
@@ -867,4 +974,4 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 
 [^18]:
     _Tree algorithms for set reconciliation_ (Lázaro & Stefanović, 2025).
-    <https://arxiv.org/html/2509.02373v1>
+    <https://arxiv.org/abs/2509.02373>
