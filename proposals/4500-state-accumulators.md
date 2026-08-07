@@ -557,6 +557,71 @@ top of it can go stale or silently report a wrong or non-existent answer:
   different components MUST return "unknown," not "no common ancestor," and fall
   back to network-based bisection.
 
+### Fast state-map delta isolation via Merkle-ized prefix trees (optional)
+
+The `LtHash16` accumulator proves _that_ two candidate state maps disagree; its
+one-way construction cannot name _which_ `(type, state_key)` tuples diverged.
+Implementations MAY back their live in-memory resolved state map with an
+immutable, structurally-shared 32-way prefix trie (a Merkle-ized Hash Array
+Mapped Trie, i.e. HAMT/CHAMP-style) to isolate a divergent tuple set $\Delta$
+between two locally-held state maps in time proportional to $\Delta$ rather than
+to total room size — without transmitting or comparing the trie itself over
+federation.
+
+This solves a different problem from
+[Fast local divergence lookup](#fast-local-divergence-lookup-optional) above,
+and implementations MAY use either, both, or neither:
+
+- **LCA forest search (binary lifting)** operates over the _delta-parent storage
+  forest_ (`state_group` parent pointers) to find, in $O(\log n)$ hops, the
+  historical group at which two DAG tips' delta chains diverged. It answers
+  "where in history did these two lineages split."
+- **State-map key diffing (Merkle-ized prefix trie)** operates over the _live
+  key-value state map_ itself (`(type, state_key) -> event_id`) to isolate, in
+  time proportional to the number of differing keys, exactly which tuples differ
+  between two resolved state maps regardless of their delta lineage. It answers
+  "which keys actually differ," and remains correct across the
+  disconnected-storage and fork-healing cases in which the LCA table above is
+  required to defer to bisection.
+
+**Node layout.** To avoid caching a 2048-byte `LtHash16` lattice at every
+internal node — which would multiply the accumulator's memory footprint by the
+trie's node count — only the room's current resolved state carries the full
+lattice, at the state-group root. Internal trie nodes carry a lightweight
+32-byte structural hash instead (e.g. a CHAMP-style dual-bitmap node hashed as
+`SHA256(datamap || nodemap || child_hashes)`), and leaves carry the
+`(type, state_key) -> event_id` tuple itself. The `LtHash16` lattice is the
+wire-facing equality commitment described in
+[Algorithm specification](#algorithm-specification); the trie's structural
+hashes are a purely local indexing aid and are never transmitted.
+
+**Diffing algorithm.** Given two candidate state maps represented as tries
+sharing a common ancestor by construction (e.g. two DAG branches both derived
+incrementally from a shared root via persistent structural sharing), a receiver
+walks both roots simultaneously: wherever two nodes at the same trie position
+carry equal structural hashes, the entire subtree beneath them is known
+identical by construction and is skipped without being read; only positions with
+differing hashes are recursed into, down to the differing leaves. Because state
+changes between two closely-related branches are typically a handful of tuples
+out of a much larger room, most of the trie prunes away at or near the top level
+in the common case — the exact fraction depends on how the changed keys' hashes
+happen to distribute across the trie and is not a fixed bound. This technique
+assumes the two tries were built via incremental, structurally shared updates
+from a common lineage (as is naturally the case for a server's own state-group
+history); comparing two independently-constructed tries with no shared structure
+degrades to a full walk.
+
+**Handoff.** The isolated tuple set $\Delta$ feeds directly into local state
+resolution (skipping the full state-map materialization that would otherwise be
+needed to build a conflict set) or, for federation repair, seeds the divergent
+event IDs into an `algebraic_v1` exchange under
+[MSC4521](https://github.com/matrix-org/matrix-spec-proposals/pull/4521) to
+reconcile the remaining event-ID sets over the network in `O(d)` bandwidth. The
+trie itself is strictly a local indexing structure: `LtHash16` remains the sole
+cross-server equality commitment, and MSC4521's PinSketch remains the sole
+cross-server reconciliation mechanism — nothing about this trie is part of the
+wire contract.
+
 ### State identifiers and local storage optimizations
 
 While this proposal primarily addresses federation, the adoption of a
