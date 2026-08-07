@@ -7,6 +7,25 @@ state verification or re-alignment; servers often only learn of
 de-synchronization once they disagree on a much later authorization failure
 (e.g., another user's join is incorrectly rejected).
 
+The absence of early detection is not merely a theoretical nuisance. A gap or
+omission in a server's `/get_missing_events` response — one that leaves a remote
+peer's DAG still dangling after the intended single-round-trip healing path —
+pushes that peer into progressively heavier fallback behavior: piecemeal
+`/state_ids` and per-event `/event/{eventId}` polling in place of one batched
+fetch. Because that stuck event blocks anything built on top of it, each
+subsequent event referencing it can independently trigger its own fallback
+cascade, and the resulting request volume lands back on the originating server
+as self-inflicted load, not merely on the requester. This proposal does not
+repair a broken `/get_missing_events` implementation, and a receiver mid-gap
+that cannot yet resolve state at the relevant DAG point correctly defers hash
+validation entirely (see [Receiver contract](#receiver-contract)) rather than
+treat an unresolved gap as a signal either way. What it changes is the case that
+actually motivated this proposal: once a receiver's view is resolvable, a
+genuine split-brain is caught on the very next transaction via a cheap digest
+comparison, instead of surfacing much later as a confusing downstream
+authorization failure that then triggers exactly the kind of heavy,
+ambiguity-driven fallback traffic described above.
+
 I present an "early-warning system" which rapidly confirms incremental state
 consensus, or signals that divergence exists, so servers know they share the
 exact same view of a room at a given point in the DAG.
