@@ -197,8 +197,13 @@ log which events (or at minimum which rooms/time window) were verified under the
 displaced binding, and MAY re-verify recent events. Bindings observed directly
 from the origin server are **permanent** (see below). Servers MUST NOT treat
 notary unavailability as a verification success. A provisional binding MUST NOT
-be overridden if its cached `valid_until_ts` has passed, or if it was learned
-from `old_verify_keys` with a past `expired_ts`.
+be overridden once that same provisional observation is no longer live for
+promotion purposes on the receiving server, or if it was learned from
+`old_verify_keys` with a past `expired_ts`. This liveness check is about the
+provisional observation itself, not about any unrelated origin-wide cache
+metadata: implementations that bound the promotion window MUST track that bound
+per provisional binding, so that refreshing one key does not silently extend or
+shorten another key's override window.
 
 <!-- synapse-derived: complement coverage currently exercises the core
 promotion path against Synapse in TestMSC4499Key/BindingPromotion; the
@@ -953,16 +958,17 @@ existing record.
   to individual implementations to apply at their own discretion.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
-  provisional binding that has expired or been retired MUST NOT be overridden by
-  a later direct fetch (see Notary fallback). This is intentional: a direct
-  fetch cannot attest anything about a key the origin no longer serves, and
-  allowing post-expiry rewrites would let an attacker rewrite historical
-  verification after the fact. The consequence is that a notary-poisoned binding
-  that expires or is retired before any direct confirmation is frozen in that
-  poisoned state permanently, recoverable only through the manual eviction
-  mechanism described under [Recovery from key loss](#recovery-from-key-loss).
-  This MSC accepts that trade — auditability of historical verification over
-  automated self-healing — as the safer default.
+  provisional binding that has retired, or whose own local promotion window has
+  elapsed, MUST NOT be overridden by a later direct fetch (see Notary fallback).
+  This is intentional: a direct fetch cannot attest anything about a key the
+  origin no longer serves, and allowing post-liveness rewrites would let an
+  attacker rewrite historical verification after the fact. The consequence is
+  that a notary-poisoned binding that retires or otherwise ages out before any
+  direct confirmation is frozen in that poisoned state permanently, recoverable
+  only through the manual eviction mechanism described under
+  [Recovery from key loss](#recovery-from-key-loss). This MSC accepts that trade
+  — auditability of historical verification over automated self-healing — as the
+  safer default.
 
 ## Implementation and rollout notes
 
