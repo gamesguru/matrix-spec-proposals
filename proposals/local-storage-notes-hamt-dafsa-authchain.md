@@ -104,15 +104,18 @@ nothing in that in-process case. The hash earns its cost in two other
 situations: comparing two tries that are not sharing the same process heap (e.g.
 persisted to disk and reloaded across a restart, or held by two separate worker
 processes), where pointer identity does not survive; and as a defensive check
-against a subtly corrupted subtree that would otherwise be indistinguish- able
+against a subtly corrupted subtree that would otherwise be indistinguishable
 from a shared one by pointer alone. Implementations that only ever compare
 in-process, structurally-shared tries can walk by pointer identity and skip the
 structural hash entirely; implementations that need cross-process or
 cross-restart comparison need the hash, and a non-cryptographic 64-bit hash is
 enough for that purely local indexing role — there is no adversary to resist
-here, `LtHash16` already carries the wire-facing security property, and a 64-bit
-hash asks for roughly `2^32` work to force a collision at this layer, which is
-an acceptable local-index deployment risk rather than a wire security parameter.
+here, `LtHash16` already carries the wire-facing security property, and the
+honest-failure question is accidental collision probability over the number of
+nodes actually compared, not an active collision-forcing game. At $10^6$
+compared nodes, the birthday-bound collision probability for a 64-bit local
+index is still only on the order of $10^{-8}$, which is an acceptable deployment
+risk for this purely local role rather than a wire security parameter.
 Regardless of which comparison mode is in use: wherever two nodes at the same
 trie position are known identical (by pointer or by matching structural hash),
 the entire subtree beneath them is skipped without being read; only positions
@@ -209,9 +212,11 @@ authoritative ordering state resolution v2 actually uses is the **reverse
 topological power ordering**: a Kahn-style topological sort over the
 auth-difference subgraph, with ties broken by
 `(power level of the sender in that event's auth state, origin_server_ts, event_id)`;
-the iterative auth-checking pass that follows walks this ordering against the
-room's power-levels mainline. Neither `ShortEventId` nor `depth` is a safe
-stand-in for that ordering, however tempting the free integer comparison looks.
+the iterative auth-checking pass over conflicted control events uses that
+ordering. The power-levels mainline ordering is a separate later phase applied
+to the remaining conflicted events, not part of the same ordering rule. Neither
+`ShortEventId` nor `depth` is a safe stand-in for either phase, however tempting
+the free integer comparison looks.
 
 ### Why an `O(A)` linear scan over ~100 integers can beat a "better" `O(1)` structure
 

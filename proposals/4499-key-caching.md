@@ -79,8 +79,8 @@ own probe. Without this per-interval limit, an attacker can relay junk
 purportedly signed by a dead server's name to induce one outbound probe per
 inbound request, defeating the backoff entirely.
 
-<!-- synapse-derived: passes against Synapse by default per complement
-TestMSC4499Key/FetchCoalescing -->
+<!-- synapse-derived: complement coverage currently exercises this behavior
+against Synapse in TestMSC4499Key/FetchCoalescing -->
 
 **Fetch coalescing.** When multiple local codepaths concurrently need key
 material for the same remote server, implementations SHOULD coalesce them into a
@@ -189,9 +189,10 @@ notary unavailability as a verification success. A provisional binding MUST NOT
 be overridden if its cached `valid_until_ts` has passed, or if it was learned
 from `old_verify_keys` with a past `expired_ts`.
 
-<!-- synapse-derived: core promotion behavior passes against Synapse by default
-per complement TestMSC4499Key/BindingPromotion; the remaining edge cases
-below this sentence aren't separately covered by that test -->
+<!-- synapse-derived: complement coverage currently exercises the core
+promotion path against Synapse in TestMSC4499Key/BindingPromotion; the
+remaining edge cases below this sentence aren't separately covered by that
+test -->
 
 **Binding promotion.** A provisional (notary-observed) binding becomes permanent
 the first time a direct fetch from the origin confirms the same key body.
@@ -257,16 +258,16 @@ key `A` is now associated with a different public key `B`, the receiving server:
    described above. See [Security considerations](#security-considerations) for
    the vulnerabilities and general annoyances this would introduce.
 
-<!-- synapse-derived: passes against Synapse by default per complement
-TestMSC4499Key/DuplicateJSONKeyRejection -->
+<!-- synapse-derived: complement coverage currently exercises this behavior
+against Synapse in TestMSC4499Key/DuplicateJSONKeyRejection -->
 
 **Intra-payload rejection.** A single key response payload MUST NOT contain
 multiple different public key bodies for the same key ID (e.g., across
 `verify_keys` and `old_verify_keys`, or duplicated within the same dictionary).
 
 <!-- /synapse-derived -->
-<!-- synapse-derived: passes against Synapse by default per complement
-TestMSC4499Key/IdenticalCrossMapIsLegal -->
+<!-- synapse-derived: complement coverage currently exercises this behavior
+against Synapse in TestMSC4499Key/IdenticalCrossMapIsLegal -->
 
 The same key body appearing under one key ID in both `verify_keys` and
 `old_verify_keys` is legal.
@@ -280,17 +281,16 @@ If a notary rejects an upstream key response as malformed, it MUST still return
 HTTP 200 for the enclosing `/_matrix/key/v2/query` response, omit that response
 from the `server_keys` array, and MAY continue serving other valid entries in
 the batch. Consequently, an empty `server_keys` array in an otherwise-successful
-`200` response is not authoritative absence — it does not mean the queried
-server has no keys, only that the notary has nothing valid to serve for it right
-now. A requester MUST distinguish two things that are easy to conflate here:
-this outcome MUST be cached and fed into the negative-caching and backoff rule
-above the same as any other failed resolution, since a notary with nothing to
-serve for an origin is itself a failed resolution and needs to feed backoff or
-the fetch-storm protection above has a hole in it; but it MUST NOT be cached or
-treated by the requester as a **negative binding assertion** — i.e. it MUST NOT
-be recorded as, or treated as equivalent to, a definitive statement that the
-server has no signing keys, since that absence claim is never authoritative from
-a notary. Furthermore, implementations MUST reject key response payloads
+`200` response is not authoritative absence: it does not mean the queried server
+has no keys, only that the notary has nothing valid to serve for it right now. A
+requester MUST cache this outcome and feed it into the negative-caching and
+backoff rule above the same as any other failed resolution, since a notary with
+nothing to serve for an origin is itself a failed resolution and otherwise the
+fetch-storm protection above has a hole in it. A requester MUST NOT cache or
+treat the same outcome as a **negative binding assertion** — i.e. it MUST NOT be
+recorded as, or treated as equivalent to, a definitive statement that the server
+has no signing keys, since that absence claim is never authoritative from a
+notary. Furthermore, implementations MUST reject key response payloads
 containing duplicate keys within a single JSON object, at any depth, anywhere in
 the response document (not only within `verify_keys` or `old_verify_keys`). This
 rejection applies to the raw received bytes before any canonicalization: the
@@ -302,8 +302,8 @@ commonly silently-deduplicating) parser behavior. A duplicate key ID across
 is exactly this ambiguity, which is why it must be checked against the raw
 response rather than assumed already illegal by the wire format.
 
-<!-- synapse-derived: event-level enforcement passes against Synapse by default
-per complement TestMSC4499Key/FirstSeenWinsEventPath -->
+<!-- synapse-derived: complement coverage currently exercises event-level
+enforcement against Synapse in TestMSC4499Key/FirstSeenWinsEventPath -->
 
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
@@ -335,8 +335,8 @@ mandating Content-Addressed Key IDs, which is deferred to a future MSC (see
 
 ### Key rotation procedure
 
-<!-- synapse-derived: passes against Synapse by default per complement
-TestMSC4499Key/Rotation -->
+<!-- synapse-derived: complement coverage currently exercises this behavior
+against Synapse in TestMSC4499Key/Rotation -->
 
 When a server rotates its signing key, the administrator MUST:
 
@@ -420,14 +420,15 @@ unrecoverable database failure without backup):
    an explicit local operator action grounded in independently verified evidence
    — never by asking a notary to vouch for the retirement after the fact, which
    no implementation may treat as corroboration.
+   <!-- synapse-derived: complement coverage currently exercises this
+   behavior against Synapse in
+   TestMSC4499Key/LostKeyPublicationHistoricalVerification/
+   FullyLostKeyRemainsUnverifiableToColdPeers -->
+   <!-- /synapse-derived -->
 3. **If the public key material is completely lost**, the administrator must
    accept that historical events signed by the lost key may fail verification on
    servers that never cached it. By design there is no protocol-level recovery
    for this scenario.
-   <!-- synapse-derived: passes against Synapse by default per complement
-   TestMSC4499Key/LostKeyPublicationHistoricalVerification/
-   FullyLostKeyRemainsUnverifiableToColdPeers -->
-   <!-- /synapse-derived -->
 
 The protocol does not provide an automated recovery mechanism for key ID
 collisions. Under the current constraints, it is best for the federation to
@@ -499,26 +500,26 @@ replace the first-observed value, for eviction ordering or for any future
 verification. Earlier values would retroactively fail already-accepted PDUs,
 forcing a state reset over pure metadata with no dispute about the event or the
 key's ownership; later values would widen the window a holder of that
-compromised retired key can backdate forgeries into (see
-[Stolen retired keys and backdated forgeries](#security-considerations)), so
-neither direction is benign. A deliberate consequence of this rule is that there
-is no early-revocation path for `expired_ts`: an origin cannot shorten a retired
-key's validity window after the fact, even to respond to a compromise discovered
-after the first `expired_ts` was recorded. That gap is intentional, not an
-oversight — widening the window is the more dangerous failure mode of the two —
-and the only recourse for a compromised retired key is the operator's
-[manual cache eviction](#recovery-from-key-loss) mechanism, not a self-service
-`expired_ts` update. This is distinct from the provisional-binding override
-above, where a direct fetch replacing a _conflicting key body_ MAY prompt
-re-verification of recent events — that path corrects which key was ever
-legitimate; this rule instead governs metadata churn on a key body that was
-never in question, and requires no per-PDU reliance bookkeeping beyond simply
-never re-verifying an already-accepted PDU against a later-observed
-`expired_ts`. Because this binding is per-receiver and local, a peer that first
-observes the changed `expired_ts` (e.g., one joining or refreshing after the
-change) may still reach a different verdict than one that locked in the original
-value earlier — the same cross-peer divergence already accepted for key-body
-First Seen Wins (see
+compromised retired key can backdate forgeries into (see the discussion under
+[Security considerations](#security-considerations)), so neither direction is
+benign. A deliberate consequence of this rule is that there is no
+early-revocation path for `expired_ts`: an origin cannot shorten a retired key's
+validity window after the fact, even to respond to a compromise discovered after
+the first `expired_ts` was recorded. That gap is intentional, not an oversight —
+widening the window is the more dangerous failure mode of the two — and the only
+recourse for a compromised retired key is out-of-band manual operator action on
+each affected peer; this MSC does not specify a protocol-level peer-side
+cache-eviction mechanism, and `expired_ts` updates are not one. This is distinct
+from the provisional-binding override above, where a direct fetch replacing a
+_conflicting key body_ MAY prompt re-verification of recent events — that path
+corrects which key was ever legitimate; this rule instead governs metadata churn
+on a key body that was never in question, and requires no per-PDU reliance
+bookkeeping beyond simply never re-verifying an already-accepted PDU against a
+later-observed `expired_ts`. Because this binding is per-receiver and local, a
+peer that first observes the changed `expired_ts` (e.g., one joining or
+refreshing after the change) may still reach a different verdict than one that
+locked in the original value earlier — the same cross-peer divergence already
+accepted for key-body First Seen Wins (see
 [Localized DAG divergence is unavoidable](#potential-issues)), just triggered by
 validity-window metadata instead of key-body identity.
 
@@ -627,10 +628,10 @@ believe they were following the room version.
   that opposite failure mode (see
   [Negative caching and backoff](#key-caching-requirements)). An operator who
   learns of a compromise out-of-band before the 7-day window naturally lapses
-  can use the operator-gated [manual cache eviction](#recovery-from-key-loss)
-  mechanism to clear the stale binding immediately; the next signature check
-  against that key_id then triggers a fresh fetch, rather than the eviction
-  itself reaching out to the origin.
+  can use out-of-band operator action to clear the stale binding immediately;
+  this MSC does not standardize that peer-local mechanism. The next signature
+  check against that `key_id` then triggers a fresh fetch, rather than the
+  operator action itself reaching out to the origin.
 
 - **Origin spoofing.** While allowing direct fetches to override provisional
   notary-learned keys prevents notary-enforced lock-in, it temporarily exposes
@@ -876,12 +877,19 @@ claiming to speak for it is. To prevent this, implementations MUST maintain the
 cap independently per `(remote server name, source category)`, where source
 category is direct-fetch or notary-observed: a notary-sourced flood against one
 origin exhausts only that origin's notary-sourced budget and MUST NOT consume or
-block that origin's direct-fetch budget, or vice versa. When a provisional
-(notary-observed) binding is promoted to permanent (see Binding promotion, under
+block that origin's direct-fetch budget, or vice versa. This source split
+applies only to cap accounting; the binding namespace is global per
+`(server_name, algorithm, key_id)` tuple, so collision detection and lookup MUST
+consider every binding for that tuple regardless of which source budget it was
+counted against. When a provisional (notary-observed) binding is promoted to
+permanent (see Binding promotion, under
 [Key caching requirements](#key-caching-requirements)), its digest-binding
 record MUST thereafter count against the direct-fetch budget for that origin
 rather than the notary-sourced one, since promotion requires the same direct
-confirmation a direct-fetch binding would have.
+confirmation a direct-fetch binding would have. Because promotion does not add a
+new binding namespace entry, it MUST NOT fail solely because the direct-fetch
+budget is already at cap; implementations MUST transfer the accounting of the
+existing record.
 
 ### Other considerations
 

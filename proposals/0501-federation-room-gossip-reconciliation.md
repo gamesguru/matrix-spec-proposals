@@ -756,14 +756,13 @@ and the per-node floor are accounted for, not 32; and per-round throughput is
 further reduced because prefix occupancy across nodes is probabilistic rather
 than uniform (see MSC4521's
 [Capacity provisioning](4521-algebraic-set-reconciliation.md#capacity-provisioning)
-and
-[Resident structure](4521-algebraic-set-reconciliation.md#resident-structure)),
-so some nodes overflow and split while others stay underfull within the same
-round. A `d̂` that passes this precondition by a small margin can still exhaust
-the round budget in practice before draining the queue. Implementations SHOULD
-apply a margin below the nominal `round_cap * 4096` ceiling when deciding
-whether to attempt `sketch` mode, rather than treating ~82,000 as a realistic
-per-round throughput target.
+and [Scalability](4521-algebraic-set-reconciliation.md#scalability)), so some
+nodes overflow and split while others stay underfull within the same round. A
+`d̂` that passes this precondition by a small margin can still exhaust the round
+budget in practice before draining the queue. Implementations SHOULD apply a
+margin below the nominal `round_cap * 4096` ceiling when deciding whether to
+attempt `sketch` mode, rather than treating ~82,000 as a realistic per-round
+throughput target.
 
 #### Causal closure and truncation
 

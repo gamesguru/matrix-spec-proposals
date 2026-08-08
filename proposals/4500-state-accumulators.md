@@ -584,10 +584,11 @@ top of it can go stale or silently report a wrong or non-existent answer:
 A related local-only technique — isolating _which_ `(type, state_key)` tuples
 diverged between two locally-held state maps, in time proportional to the
 divergence rather than to room size, using a Merkle-ized prefix trie — is purely
-a storage-engine indexing choice with no wire-visible effect, and is documented
-separately in
-[Local storage architecture notes](local-storage-notes-hamt-dafsa-authchain.md)
-rather than here, alongside this MSC's other non-normative implementation leads.
+a storage-engine indexing choice with no wire-visible effect. In brief: the
+local index stores structurally-shared trie nodes so identical subtrees can be
+skipped wholesale and only differing prefixes are recursed into. It is kept out
+of this MSC because it is a fork-local implementation note, not part of the wire
+contract.
 
 ### State identifiers and local storage optimizations
 

@@ -15,10 +15,14 @@ encoding, and decoding contract instead of rebuilding them from scratch.
 accumulator into one ladder.
 
 It collapses 256-bit integers (ID values) over the 64-bit Galois field, encodes
-them near the information-theoretic Shannon limit for set reconciliation, and
-performs a "syndrome" decoding on the receiver side (unpacking any missing IDs).
-Correctly implemented, the decoding cannot produce false positives nor
-negatives. While strictly superior in bandwidth
+them into a syndrome of about $d \cdot \log_2 q$ bits for a size-$d$ difference,
+which is order-optimal for set reconciliation over a field of size $q = 2^{64}$,
+and performs syndrome decoding on the receiver side to recover candidate missing
+IDs. The decode result is not self-authenticating: an over-capacity decode can
+spuriously return the wrong set, so every successful decode MUST be checked
+against the accompanying 128-bit accumulator before it is trusted. With that
+verification step, the profile recovers the exact symmetric difference whenever
+it reports success.
 
 The profile targets differences up to 4,096 elements per exchange in populations
 up to $10^7$, keeps the initial depth-0 sketch at most 256 B, and caps a fully
@@ -842,10 +846,10 @@ FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0
 
 ### Strata estimator sentinel
 
-The two out-of-band estimator outcomes under
-[Strata estimator](#strata-estimator) are cheap to construct and MUST be covered
-by conformance tests, since a `MUST`-level out-of-band value with no test vector
-otherwise gets implemented three incompatible ways:
+The two special estimator outcomes under [Strata estimator](#strata-estimator)
+are cheap to construct and MUST be covered by conformance tests, since a
+`MUST`-level non-integer return path with no test vector otherwise gets
+implemented three incompatible ways:
 
 - **Low-confidence estimate (`r != 0`, $T \le k$).** Let $S_A$ be the following
   nine 64-bit values, standing in directly for $h_{64}(e)$ (i.e. treat these as
@@ -853,17 +857,19 @@ otherwise gets implemented three incompatible ways:
   so the residual difference is exactly $S_A$ and the true $d = 9$:
 
   ```text
-  0x0000000000000001  0x0000000000000003  0x0000000000000005
-  0x0000000000000007  0x0000000000000009  0x000000000000000B
-  0x000000000000000D  0x000000000000000F  0x0000000000000011
+  0x0000000000000003  0x0000000000000005  0x0000000000000007
+  0x0000000000000009  0x000000000000000B  0x000000000000000D
+  0x000000000000000F  0x0000000000000011  0x0000000000000013
   ```
 
   Each value is odd, i.e. has trailing-zero count exactly `0`, so all nine land
   in stratum 0, which exceeds its capacity-8 decode and fails; strata 1 through
   31 are genuinely empty (no element of $S_A$ or $S_B$ lands there) and decode
-  trivially to empty. Decoding downward from 31, the lowest stratum that decoded
-  is $r = 1$ (stratum 0 failed), and the decoded tail (strata 1..31) sums to
-  $T = 0 \le k = 8$. The estimator MUST return
+  trivially to empty. A conformance test for this vector MUST assert that the
+  stratum-0 capacity-8 decode fails rather than spuriously returning a
+  size-9-or-smaller candidate set. Decoding downward from 31, the lowest stratum
+  that decoded is $r = 1$ (stratum 0 failed), and the decoded tail (strata
+  1..31) sums to $T = 0 \le k = 8$. The estimator MUST return
   `{estimate: 18, low_confidence: true}` — i.e.
   $\max(T, k+1) \cdot 2^r =
   \max(0, 9) \cdot 2^1 = 18$ — not a literal
@@ -889,10 +895,9 @@ otherwise gets implemented three incompatible ways:
   and defeat precomputation against rooms that do not yet exist, at no cost to
   the comparison contract (both sides already agree on the room). This MSC does
   not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
-  invalidating existing test vectors and the reference implementation without a
-  clear need beyond the bounded, TTL-scoped fallback already specified. A future
-  profile revision could adopt it if the bounded fallback proves insufficient in
-  practice.
+  invalidating existing test vectors without a clear need beyond the bounded,
+  TTL-scoped fallback already specified. A future profile revision could adopt
+  it if the bounded fallback proves insufficient in practice.
 
 ## Unstable prefix
 
