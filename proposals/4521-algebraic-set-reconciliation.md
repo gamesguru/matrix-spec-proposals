@@ -408,9 +408,11 @@ order. If any of those boundaries shift, the estimate is meaningless. A server
 MUST NOT estimate or subtract across differing frames; the estimator MUST NOT
 substitute for or override frame validation.
 
-In other words, the estimator chooses a likely starting capacity; it does not
-determine whether the comparison is correct, nor does it replace decoding or
-tree splitting.
+In other words, the estimator emits a cardinality estimate for the symmetric
+difference; it does not itself emit a sketch capacity. The requester then
+applies this profile's provisioning rule to that estimate when choosing an
+initial root-sketch capacity. The estimator does not determine whether the
+comparison is correct, nor does it replace decoding or tree splitting.
 
 ## Decode and verification
 
@@ -472,13 +474,17 @@ to `algebraic_v1`.
 
 ## Capacity provisioning
 
-Provision extraction capacity from the cardinality delta. In the common
-one-sided lag case, $c = \left\lvert|S_A| - |S_B|\right\rvert$ and
-$d = |S_A \triangle S_B|$ are equal. Here $r_{\mathrm{obs}}$ is the observed
-rate of newly arriving elements relevant to the comparison, and
-$\widehat{\mathrm{t_r}}$ is the estimated round-trip time in seconds. The strata
-estimate can guide first-round pre-splitting, but only within the same
-aggregate-capacity budget described in [Scalability](#scalability).
+The requester provisions extraction capacity from the estimated cardinality
+delta. In the common one-sided lag case,
+$c = \left\lvert|S_A| - |S_B|\right\rvert$ and $d = |S_A \triangle S_B|$ are
+equal. Here $r_{\mathrm{obs}}$ is the observed rate of newly arriving elements
+relevant to the comparison, and $\widehat{\mathrm{t_r}}$ is the estimated
+round-trip time in seconds. The strata estimate guides this requester-side
+provisioning step, but only within the same aggregate-capacity budget described
+in [Scalability](#scalability). The estimator returns a cardinality estimate
+$\hat d$ (or `null` on saturation); the requester applies the rule below to
+$\hat d$, or to an exact one-sided cardinality delta when that is known
+independently.
 
 $$
 k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +

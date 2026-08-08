@@ -565,10 +565,10 @@ Servers SHOULD select the diff mode based on the `room_digest` comparison:
   server does not recognize, the requester MAY use `extremity` mode to discover
   the repair frontier, but MUST treat `truncated: true` as non-repair progress
   until the walk reaches known ancestry.
-- Otherwise, or after frontier repair, use `sketch` mode, provisioning the
-  initial depth-0 request's `capacity` per the MSC4521 budget from the
-  cardinality delta
-  `c = abs(local_known_event_count - remote_known_event_count)`.
+- Otherwise, or after frontier repair, use `sketch` mode. The requester
+  provisions the initial depth-0 request's `capacity` per the MSC4521 budget
+  from the cardinality estimate, or in the one-sided case from
+  `c = abs(local_known_event_count - remote_known_event_count)` directly.
 
 #### `extremity` mode
 

@@ -115,6 +115,17 @@ state as if N separate fetch attempts had failed.
 If that fetch succeeds and the request authenticates, servers SHOULD clear the
 backoff state.
 
+This direct-over-notary preference complements earlier federation transport and
+discovery work such as
+[MSC1711: X.509 certificate verification for federation connections](https://github.com/matrix-org/matrix-spec-proposals/pull/1711),
+[MSC1708: `.well-known` support for server name resolution](https://github.com/matrix-org/matrix-spec-proposals/pull/1708),
+and
+[MSC1831: SRV lookups after `.well-known`](https://github.com/matrix-org/matrix-spec-proposals/pull/1831).
+Those proposals aim to make direct origin-domain verification over TLS more
+robust and deployable. This MSC does not require them to merge, but it
+intentionally assigns higher evidentiary weight to a direct origin fetch over
+validated TLS than to a relayed notary response.
+
 Implementations SHOULD allow the minimum backoff floor to be shortened or
 otherwise overridden (e.g. via a test-only configuration hook) in test
 configurations, so conformance tests do not need to sleep for a full minute in
@@ -592,6 +603,17 @@ believe they were following the room version.
   explicitly avoids. Notary servers may themselves have stale caches,
   complicating efforts at gossip or consensus.
 
+- **Bind federation more tightly to WebPKI-validated origin domains.** This is
+  directionally attractive, and has prior art in
+  [MSC1711](https://github.com/matrix-org/matrix-spec-proposals/pull/1711),
+  [MSC1708](https://github.com/matrix-org/matrix-spec-proposals/pull/1708),
+  [MSC1831](https://github.com/matrix-org/matrix-spec-proposals/pull/1831), and
+  [MSC4045](https://github.com/matrix-org/matrix-spec-proposals/pull/4045).
+  However, this MSC is intentionally narrower: it standardizes cache semantics
+  and collision handling for the protocol as deployed today, without making
+  X.509 trust or room-version-gated server-name restrictions a precondition for
+  safer key handling.
+
 ## Security considerations
 
 - **CPU-exhaustion.** The strict "1:1 key ID to key body mapping" eliminates the
@@ -961,10 +983,33 @@ requirements that can be readily adopted. No API endpoints substantially change.
 
 ## Dependencies
 
-- None. This MSC is independent of other proposals. It applies to `ed25519` keys
-  today. It will apply equally to future server-signing algorithms if accepted
-  into the spec and if this document is not superseded by a refined or more
-  encompassing MSC.
+- This MSC is intentionally deployable on its own. It does not require wire
+  changes, room-version changes, or the acceptance of other MSCs in order to
+  improve safety for current federation key handling.
+
+- This MSC complements
+  [MSC4029: Fixing `X-Matrix` request authentication](https://github.com/matrix-org/matrix-spec-proposals/pull/4029),
+  which clarifies current practice around direct key retrieval for federation
+  request verification, and
+  [MSC3383: Include destination in `X-Matrix` Auth Header](https://github.com/matrix-org/matrix-spec-proposals/pull/3383),
+  which makes the intended destination server name explicit during federation
+  authentication. Those proposals strengthen the broader "verify the named
+  origin directly when possible" posture which this MSC relies upon, but are not
+  prerequisites for the cache and collision rules here.
+
+- This MSC also aligns with earlier federation discovery and transport work:
+  [MSC1711](https://github.com/matrix-org/matrix-spec-proposals/pull/1711),
+  [MSC1708](https://github.com/matrix-org/matrix-spec-proposals/pull/1708),
+  [MSC1831](https://github.com/matrix-org/matrix-spec-proposals/pull/1831), and
+  [MSC4045](https://github.com/matrix-org/matrix-spec-proposals/pull/4045).
+  Those proposals are about making origin-domain verification over TLS more
+  robust and deployable; this MSC complements that line by defining how key
+  observations should be cached and how conflicts should be handled once
+  observed.
+
+- It applies to `ed25519` keys today. It will apply equally to future
+  server-signing algorithms if accepted into the spec and if this document is
+  not superseded by a refined or more encompassing MSC.
 
 ## Open questions
 
@@ -1013,6 +1058,10 @@ legacy key formats thoroughly entrenched in the wild, it requires a new room
 version and is deferred to a future MSC. Until then, protection must remain
 strictly at the local server caching layer as outlined in this proposal.
 
+This is one of several adjacent proposal lines which address the deeper problem
+that Matrix currently uses mutable, domain-scoped server signing keys as both a
+transport identity and an input to room-event verification.
+
 ### Member Keys [MSC4430]
 
 The Member Keys proposal caps these concerns to a future room version by moving
@@ -1020,3 +1069,33 @@ the key body in-band (and reducing the complications inherent in today's
 out-of-band notary model, while freeing up notary capacity to serve future
 functions such as aiding in EDU reconciliation or corroborating correct room
 state accumulation for a given epoch).
+
+### Stable identifiers [MSC4428]
+
+[MSC4428](https://github.com/matrix-org/matrix-spec-proposals/pull/4428)
+provides client-server plumbing for room-member identities that are no longer
+rigidly expressed as `@localpart:domain`. It complements the same longer-term
+direction as MSC4430 by weakening the protocol's present dependence on
+domain-scoped identifiers as the only stable identity primitive.
+
+### Server key identity and room membership [MSC4345]
+
+[MSC4345](https://github.com/matrix-org/matrix-spec-proposals/pull/4345) goes
+further by making the server's room-level identity a long-lived public key
+recorded in the DAG, with domain ownership treated as a separate, subjective
+verification step rather than the primary cryptographic identity. That is not a
+substitute for this MSC in current room versions, but it is a plausible
+long-term way to reduce or eliminate the protocol's present dependence on
+out-of-band server-key discovery and notary-assisted historical verification.
+
+### Other adjacent work
+
+- [MSC4100: Scoped signing keys](https://github.com/matrix-org/matrix-spec-proposals/pull/4100)
+  narrows which server keys may sign events versus federation requests. This is
+  valuable defense-in-depth, but it does not itself bind a signing key to the
+  alleged origin domain.
+
+- [MSC2961: External Signatures](https://github.com/matrix-org/matrix-spec-proposals/pull/2961)
+  provides a generic mechanism for attaching non-Matrix signature material. In
+  principle that could carry external attestations in the future, but by itself
+  it does not solve federation-domain binding for server signing keys.
