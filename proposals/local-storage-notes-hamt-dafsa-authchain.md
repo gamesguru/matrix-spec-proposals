@@ -7,15 +7,17 @@ accumulator digests) and [MSC4521](4521-algebraic-set-reconciliation.md)
 (algebraic set reconciliation). Nothing described here is part of, or implied
 by, either MSC's normative text; it exists so the local engineering rationale
 behind those proposals' "Implementation notes" sections is written down
-somewhere, rather than living only in exploratory chat transcripts
-(`docs/Gemini-_02.md`, gitignored/untracked).
+somewhere, rather than living only in exploratory research notes.
 
-Two lower-priority leads from that research, kept out of MSC4500 itself because
-both are internal storage-engine decisions, not wire contract:
+Three lower-priority leads, kept out of MSC4500 and MSC4521 themselves because
+all three are internal storage-engine decisions, not wire contract:
 
 1. Where a HAMT belongs versus where a DAFSA belongs, for a homeserver's local
    state and policy data.
-2. Why an auth-chain transitive closure (Conduit/conduwuit-style) and a
+2. How a Merkle-ized prefix trie can isolate _which_ `(type, state_key)` tuples
+   diverged between two locally-held state maps, once MSC4500's accumulator has
+   already told a server _that_ they diverge.
+3. Why an auth-chain transitive closure (Conduit/conduwuit-style) and a
    chain-cover reachability index (Synapse-style) are two engine-appropriate
    answers to the same question, not a superiority ranking, and what is and
    isn't safe to assume about `ShortEventId` ordering along the way.
@@ -35,9 +37,9 @@ which invariant the underlying data actually has:
 - **A (Merkle-ized) Hash Array Mapped Trie / CHAMP-style trie** is built for
   exactly the opposite case: a _live, mutating_ key-value map that needs cheap
   `O(log₃₂ N)` incremental updates with structural sharing across concurrently
-  held versions (see the HAMT subtree-caching subsection already added to
-  MSC4500's Implementation notes), plus cheap structural equality between two
-  versions.
+  held versions (see
+  [§2](#2-fast-state-map-delta-isolation-via-merkle-ized-prefix-tries) below),
+  plus cheap structural equality between two versions.
 
 Concretely, for a homeserver:
 
@@ -56,45 +58,133 @@ shared prefixes or suffixes to exploit, so a DAFSA gains nothing from them while
 still paying its batch-rebuild cost on every mutation — it is a bad fit in both
 directions at once for that particular key shape.
 
-## 2. Auth-chain storage: transitive closure vs. chain cover
+## 2. Fast state-map delta isolation via Merkle-ized prefix tries
+
+MSC4500's `LtHash16` accumulator proves _that_ two candidate state maps
+disagree; its one-way construction cannot name _which_ `(type, state_key)`
+tuples diverged. Implementations MAY back their live in-memory resolved state
+map with an immutable, structurally-shared 32-way prefix trie (a Merkle-ized
+Hash Array Mapped Trie, i.e. HAMT/CHAMP-style) to isolate a divergent tuple set
+$\Delta$ between two locally-held state maps in time proportional to
+$|\Delta| \cdot \log_{32} N$ — paying trie depth per differing key, not the
+total room size $N$ — without transmitting or comparing the trie itself over
+federation.
+
+This solves a different problem from MSC4500's
+[Fast local divergence lookup](4500-state-accumulators.md#fast-local-divergence-lookup-optional):
+
+- **LCA forest search (binary lifting)**, described there, operates over the
+  _delta-parent storage forest_ (`state_group` parent pointers) to find, in
+  $O(\log n)$ hops, the historical group at which two DAG tips' delta chains
+  diverged. It answers "where in history did these two lineages split."
+- **State-map key diffing (Merkle-ized prefix trie)**, described here, operates
+  over the _live key-value state map_ itself (`(type, state_key) -> event_id`)
+  to isolate exactly which tuples differ between two resolved state maps
+  regardless of their delta lineage. It answers "which keys actually differ,"
+  and remains correct across the disconnected-storage and fork-healing cases in
+  which the LCA table is required to defer to bisection.
+
+**Node layout.** To avoid caching a 2048-byte `LtHash16` lattice at every
+internal node — which would multiply the accumulator's memory footprint by the
+trie's node count — only the room's current resolved state carries the full
+lattice, at the state-group root. Internal trie nodes carry a lightweight
+32-byte structural hash instead (e.g. a CHAMP-style dual-bitmap node hashed as
+`SHA256(datamap || nodemap || child_hashes)`), and leaves carry the
+`(type, state_key) -> event_id` tuple itself. The `LtHash16` lattice remains the
+wire-facing equality commitment defined by MSC4500; the trie's structural hashes
+are a purely local indexing aid and are never transmitted.
+
+**Diffing algorithm, and what the structural hash actually buys.** Given two
+candidate state maps represented as tries sharing a common ancestor by
+construction (e.g. two DAG branches both derived incrementally from a shared
+root via persistent structural sharing), the two subtree roots at any position
+that haven't changed are the _same node in memory_ — comparing them is a free,
+exact `O(1)` pointer-equality check, and the 32-byte structural hash adds
+nothing in that in-process case. The hash earns its cost in two other
+situations: comparing two tries that are not sharing the same process heap (e.g.
+persisted to disk and reloaded across a restart, or held by two separate worker
+processes), where pointer identity does not survive; and as a defensive check
+against a subtly corrupted subtree that would otherwise be indistinguish- able
+from a shared one by pointer alone. Implementations that only ever compare
+in-process, structurally-shared tries can walk by pointer identity and skip the
+structural hash entirely; implementations that need cross-process or
+cross-restart comparison need the hash, and a non-cryptographic 64-bit hash is
+enough for that purely local indexing role — there is no adversary to resist
+here, `LtHash16` already carries the wire-facing security property, and a 64-bit
+hash asks for roughly `2^32` work to force a collision at this layer, which is
+an acceptable local-index deployment risk rather than a wire security parameter.
+Regardless of which comparison mode is in use: wherever two nodes at the same
+trie position are known identical (by pointer or by matching structural hash),
+the entire subtree beneath them is skipped without being read; only positions
+that differ are recursed into, down to the differing leaves. Because state
+changes between two closely-related branches are typically a handful of tuples
+out of a much larger room, most of the trie prunes away at or near the top level
+in the common case — the exact fraction depends on how the changed keys' hashes
+happen to distribute across the trie and is not a fixed bound. This technique
+assumes the two tries were built via incremental, structurally shared updates
+from a common lineage (as is naturally the case for a server's own state-group
+history); comparing two independently-constructed tries with no shared structure
+and no persisted structural hashes degrades to a full walk.
+
+**Handoff.** The isolated tuple set $\Delta$ feeds directly into local state
+resolution (skipping the full state-map materialization that would otherwise be
+needed to build a conflict set) or, for federation repair, seeds the divergent
+event IDs into an `algebraic_v1` exchange under
+[MSC4521](4521-algebraic-set-reconciliation.md) to reconcile the remaining
+event-ID sets over the network in `O(d)` bandwidth. The trie itself is strictly
+a local indexing structure: `LtHash16` remains the sole cross-server equality
+commitment, and MSC4521's PinSketch remains the sole cross-server reconciliation
+mechanism — nothing about this trie is part of the wire contract.
+
+## 3. Auth-chain storage: transitive closure vs. chain cover
 
 Two engines exist in the wild, and they made different but locally appropriate
 choices given different underlying storage engines — this is not a case where
-one implementation is doing it "wrong":
+one implementation is doing it "wrong," and the two approaches are not only a
+relational-versus-LSM story:
 
 - **Chain-cover reachability index (Synapse / relational storage).** Instead of
   storing a state event's full ancestor set, the engine partitions the
   authorization DAG into linear, non-overlapping chains and records only the
   furthest point reached on each chain. Ancestry becomes one integer comparison
-  per chain instead of a full set membership test. This exists specifically
-  because storing a large per-row array of ancestor IDs in a relational table
-  causes real table bloat and join cost at scale — the chain cover is Synapse's
-  way of avoiding duplicating a large, heavily-overlapping set across many rows
-  without a native "this set equals that set plus one element" primitive in SQL.
+  per chain instead of a full set membership test. The storage-bloat pressure
+  that motivated this is specific to relational storage — a large per-row array
+  of ancestor IDs causes real table bloat and join cost at scale — but the chain
+  cover also changes the _algorithmic_ cost of computing an auth-difference
+  between two conflicting state sets: intersecting two large sorted ancestor
+  arrays is `O(|closure|)` comparisons, while the chain cover reduces that same
+  query to `O(#chains)` integer comparisons, a benefit that isn't specific to
+  relational storage and matters more as the closure grows.
 - **Transitive closure (Conduit/conduwuit lineage / RocksDB or other LSM-backed
   storage).** The engine instead stores, per state event, the full compressed
   set of ancestor `ShortEventId`s directly as a sorted integer array
   (delta-varint or Roaring-bitmap compressed). This is viable specifically
   because an LSM-tree key-value store does not incur the relational row-bloat
-  problem the chain cover exists to solve — persisting a compact sorted-integer
+  problem that motivates the chain cover — persisting a compact sorted-integer
   blob per state event costs a few hundred bytes there, not a multi-row
-  relational fan-out.
+  relational fan-out — and a linear merge scan over two sorted arrays is cheap
+  while the closures stay small.
 
-The right takeaway is architectural fit, not a general recommendation: **chain
-covers exist to solve a problem specific to relational storage; an LSM-backed
-engine that never has that problem doesn't need the chain-cover machinery to get
-the same ancestry queries.**
+The right takeaway is architectural fit, not a general recommendation: the
+storage-bloat problem the chain cover exists to solve is specific to relational
+storage, so an LSM-backed engine that never has that problem doesn't need the
+chain-cover machinery to get _storage_ relief — but if auth-chain closures grow
+large (tens of thousands of ancestors), the chain cover's algorithmic advantage
+for computing auth differences (a handful of integer comparisons instead of a
+full sorted-array intersection) applies regardless of storage engine, and an
+LSM-backed implementation may still want equivalent machinery once closures are
+large enough for that cost to dominate.
 
 **A caution on the numbers actually seen in the research thread:** the same
 conversation used "typically fewer than 50–100 ancestor events" in one place and
 a "20,000+ ancestors" illustration in another, for the same kind of room. The
-larger figure was used to illustrate _why_ naive per-row relational storage
-degrades badly, not as a claim about typical auth-chain size in a real room —
-real auth-chain size depends heavily on room age and history and needs to be
-measured against actual room data before it's used to size any cache or storage
-decision. This is the same category of open empirical question as the
-state-group convergence telemetry noted elsewhere; don't carry either number
-into a design decision as though it were measured.
+larger figure was used to illustrate _why_ naive per-row relational storage (and
+a naive sorted-array intersection) degrades badly, not as a claim about typical
+auth-chain size in a real room — real auth-chain size depends heavily on room
+age and history and needs to be measured against actual room data before it's
+used to size any cache or storage decision. This is the same category of open
+empirical question as the state-group convergence telemetry noted elsewhere;
+don't carry either number into a design decision as though it were measured.
 
 ### `ShortEventId` ordering: what it buys you, and the one thing it must never be used for
 
@@ -112,10 +202,16 @@ gives:
 **What it must never be used for:** inferring chronological or topological event
 order. Backfilled history is ingested "now," so old events can receive _larger_
 `ShortEventId` values than events ingested earlier; concurrent federation
-workers can interleave ID assignment further. The only authoritative topological
-ordering during state resolution v2 is the event's own DAG `depth` plus sender
-power level — `ShortEventId` comparison must not be substituted for that,
-however tempting the free ordering looks.
+workers can interleave ID assignment further. `ShortEventId` is not an input to
+state resolution v2's ordering at all, and the event's own `depth` field is
+sender-asserted and unvalidated, so it is not a safe substitute either. The
+authoritative ordering state resolution v2 actually uses is the **reverse
+topological power ordering**: a Kahn-style topological sort over the
+auth-difference subgraph, with ties broken by
+`(power level of the sender in that event's auth state, origin_server_ts, event_id)`;
+the iterative auth-checking pass that follows walks this ordering against the
+room's power-levels mainline. Neither `ShortEventId` nor `depth` is a safe
+stand-in for that ordering, however tempting the free integer comparison looks.
 
 ### Why an `O(A)` linear scan over ~100 integers can beat a "better" `O(1)` structure
 
@@ -138,9 +234,10 @@ measuring it is very likely wasted engineering effort.
 
 ## Where this fits relative to the MSCs
 
-None of the structures described here (HAMT, DAFSA, transitive-closure auth
-chains, chain covers, `ShortEventId` interning) appear on the wire. They are
-local indexing and storage choices that sit entirely behind:
+None of the structures described here (HAMT, DAFSA, Merkle-ized prefix tries,
+transitive-closure auth chains, chain covers, `ShortEventId` interning) appear
+on the wire. They are local indexing and storage choices that sit entirely
+behind:
 
 - MSC4500's `LtHash16` accumulator digest, which is the sole cross-server
   equality commitment for room state.

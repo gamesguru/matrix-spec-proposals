@@ -15,11 +15,7 @@ pushes that peer into progressively heavier fallback behavior: piecemeal
 fetch. Because that stuck event blocks anything built on top of it, each
 subsequent event referencing it can independently trigger its own fallback
 cascade, and the resulting request volume lands back on the originating server
-as self-inflicted load, not merely on the requester. This proposal does not
-repair a broken `/get_missing_events` implementation, and a receiver mid-gap
-that cannot yet resolve state at the relevant DAG point correctly defers hash
-validation entirely (see [Receiver contract](#receiver-contract)) rather than
-treat an unresolved gap as a signal either way. What it changes is the case that
+as self-inflicted load, not merely on the requester. This is the case that
 actually motivated this proposal: once a receiver's view is resolvable, a
 genuine split-brain is caught on the very next transaction via a cheap digest
 comparison, instead of surfacing much later as a confusing downstream
@@ -345,7 +341,16 @@ bisection (until the room state is fully synchronized).
 
 The emphasis here is on agility: if a receiver cannot validate the `before` and
 `after` hashes readily (e.g., from an in-memory LRU cache or a point database
-lookup), they MUST defer the verification pipeline.
+lookup), they MUST defer the verification pipeline. This same deferral applies
+whenever a receiver cannot yet resolve state at the relevant DAG point at all —
+for example, while it is still mid-gap behind a `/get_missing_events` shortfall
+(see the motivating case in the introduction): an unresolved gap MUST be
+silently deferred like any other not-yet-resolvable point, never treated as a
+positive signal either way. This proposal accordingly does not repair a broken
+`/get_missing_events` implementation; what it changes is only the case where a
+receiver's view _is_ resolvable, by catching a genuine split-brain on the very
+next transaction instead of letting it surface later as a confusing downstream
+authorization failure.
 
 A mismatched or deferred hash does not block the PDU; it is still processed
 under standard rules. Whether homeservers implements an automated healing
@@ -576,70 +581,13 @@ top of it can go stale or silently report a wrong or non-existent answer:
   different components MUST return "unknown," not "no common ancestor," and fall
   back to network-based bisection.
 
-### Fast state-map delta isolation via Merkle-ized prefix trees (optional)
-
-The `LtHash16` accumulator proves _that_ two candidate state maps disagree; its
-one-way construction cannot name _which_ `(type, state_key)` tuples diverged.
-Implementations MAY back their live in-memory resolved state map with an
-immutable, structurally-shared 32-way prefix trie (a Merkle-ized Hash Array
-Mapped Trie, i.e. HAMT/CHAMP-style) to isolate a divergent tuple set $\Delta$
-between two locally-held state maps in time proportional to $\Delta$ rather than
-to total room size — without transmitting or comparing the trie itself over
-federation.
-
-This solves a different problem from
-[Fast local divergence lookup](#fast-local-divergence-lookup-optional) above,
-and implementations MAY use either, both, or neither:
-
-- **LCA forest search (binary lifting)** operates over the _delta-parent storage
-  forest_ (`state_group` parent pointers) to find, in $O(\log n)$ hops, the
-  historical group at which two DAG tips' delta chains diverged. It answers
-  "where in history did these two lineages split."
-- **State-map key diffing (Merkle-ized prefix trie)** operates over the _live
-  key-value state map_ itself (`(type, state_key) -> event_id`) to isolate, in
-  time proportional to the number of differing keys, exactly which tuples differ
-  between two resolved state maps regardless of their delta lineage. It answers
-  "which keys actually differ," and remains correct across the
-  disconnected-storage and fork-healing cases in which the LCA table above is
-  required to defer to bisection.
-
-**Node layout.** To avoid caching a 2048-byte `LtHash16` lattice at every
-internal node — which would multiply the accumulator's memory footprint by the
-trie's node count — only the room's current resolved state carries the full
-lattice, at the state-group root. Internal trie nodes carry a lightweight
-32-byte structural hash instead (e.g. a CHAMP-style dual-bitmap node hashed as
-`SHA256(datamap || nodemap || child_hashes)`), and leaves carry the
-`(type, state_key) -> event_id` tuple itself. The `LtHash16` lattice is the
-wire-facing equality commitment described in
-[Algorithm specification](#algorithm-specification); the trie's structural
-hashes are a purely local indexing aid and are never transmitted.
-
-**Diffing algorithm.** Given two candidate state maps represented as tries
-sharing a common ancestor by construction (e.g. two DAG branches both derived
-incrementally from a shared root via persistent structural sharing), a receiver
-walks both roots simultaneously: wherever two nodes at the same trie position
-carry equal structural hashes, the entire subtree beneath them is known
-identical by construction and is skipped without being read; only positions with
-differing hashes are recursed into, down to the differing leaves. Because state
-changes between two closely-related branches are typically a handful of tuples
-out of a much larger room, most of the trie prunes away at or near the top level
-in the common case — the exact fraction depends on how the changed keys' hashes
-happen to distribute across the trie and is not a fixed bound. This technique
-assumes the two tries were built via incremental, structurally shared updates
-from a common lineage (as is naturally the case for a server's own state-group
-history); comparing two independently-constructed tries with no shared structure
-degrades to a full walk.
-
-**Handoff.** The isolated tuple set $\Delta$ feeds directly into local state
-resolution (skipping the full state-map materialization that would otherwise be
-needed to build a conflict set) or, for federation repair, seeds the divergent
-event IDs into an `algebraic_v1` exchange under
-[MSC4521](https://github.com/matrix-org/matrix-spec-proposals/pull/4521) to
-reconcile the remaining event-ID sets over the network in `O(d)` bandwidth. The
-trie itself is strictly a local indexing structure: `LtHash16` remains the sole
-cross-server equality commitment, and MSC4521's PinSketch remains the sole
-cross-server reconciliation mechanism — nothing about this trie is part of the
-wire contract.
+A related local-only technique — isolating _which_ `(type, state_key)` tuples
+diverged between two locally-held state maps, in time proportional to the
+divergence rather than to room size, using a Merkle-ized prefix trie — is purely
+a storage-engine indexing choice with no wire-visible effect, and is documented
+separately in
+[Local storage architecture notes](local-storage-notes-hamt-dafsa-authchain.md)
+rather than here, alongside this MSC's other non-normative implementation leads.
 
 ### State identifiers and local storage optimizations
 

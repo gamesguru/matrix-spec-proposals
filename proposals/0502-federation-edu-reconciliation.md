@@ -139,12 +139,15 @@ Instead, the version acts as a per-user, per-EDU-type monotonic counter:
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation of
 the EDU content body, serialized as `xxh3:` followed by exactly 16 lowercase
 hexadecimal characters (the big-endian byte representation of the 64-bit
-digest). Implementations MUST reject a `content_hash` that does not match this
-shape rather than treating it as an opaque string. It is a consistency checksum,
-not a tie-breaker. If two servers have the same `version` for a user but
-different `content_hash` values, their responses are inconsistent. The requester
-MUST treat the returned authoritative value as replacing its cached copy, and
-MUST NOT use the lexicographically larger hash to choose a winner.
+digest). Implementations MUST treat a `content_hash` entry that does not match
+this shape as a mismatch for that user tuple specifically (the same handling as
+a genuine `content_hash` disagreement below), rather than treating it as an
+opaque string that happens not to match. This is a per-entry check: it does not
+invalidate the rest of the response. It is a consistency checksum, not a
+tie-breaker. If two servers have the same `version` for a user but different
+`content_hash` values, their responses are inconsistent. The requester MUST
+treat the returned authoritative value as replacing its cached copy, and MUST
+NOT use the lexicographically larger hash to choose a winner.
 
 **Scoping (Privacy):**
 
@@ -363,7 +366,7 @@ Servers MUST NOT derive the ETag from a single maximum version counter: unlike
 the order-independent accumulator, a max-version ETag does not advance on a
 tombstone or deletion, so a page can change without the ETag changing and a
 stale `304` results. Reserializing the full page on each update to compute the
-ETag is unsound for a different reason — it is merely wasted work, since the
+ETag is undesirable for a different reason — it is merely wasted work, since the
 O(1) incremental accumulator above already gives the same validator for less
 cost — so implementations SHOULD avoid it, but doing so anyway does not itself
 produce an incorrect ETag. Conditional requests are most useful on a stable

@@ -195,11 +195,13 @@ If the preflight estimate is unmeasurable, the estimator returns `null` in place
 of an integer `d̂`. This is a local return value from running MSC4521's strata
 estimator against the fetched `strata` array — `strata` itself is always present
 and mandatory on the wire (see above); it is the derived scalar estimate,
-computed independently by each side, that is either an integer or `null`.
-Implementations MUST NOT signal "unmeasurable" with an in-band integer such as
-`-1` or `0` instead of `null`. The requester MUST treat a `null` estimate as
-unavailable for sketch sizing and MUST route to `extremity` mode, backfill, or
-frame extension instead of starting `sketch` mode.
+computed independently by each side, that takes one of the three shapes MSC4521
+defines: a confident integer, a `{estimate, low_confidence}` pair, or `null`. A
+measured estimate of `0` (equal populations) is a meaningful result and MUST NOT
+be conflated with `null`, which means the estimator itself could not produce a
+usable value at all. The requester MUST treat a `null` estimate as unavailable
+for sketch sizing and MUST route to `extremity` mode, backfill, or frame
+extension instead of starting `sketch` mode.
 
 A `null` (saturated) estimate is distinct from, and much rarer than, a merely
 large _measured_ difference — the strata estimator can and typically does return
@@ -208,12 +210,10 @@ do so as a low-confidence estimate (see MSC4521's strata estimator) without that
 alone being grounds to skip `sketch` mode. Either kind of finite `d̂` —
 low-confidence or not — is instead subject to the separate, and far more
 commonly triggered, round-budget precondition below: a requester MUST compare
-`d̂` against `round_cap * 4096` and route to `extremity` mode, backfill, or frame
-extension when `d̂` exceeds that budget (see "The floor implies a hard
-precondition," below, for the worked ~82,000-element threshold at this MSC's
-round cap of 20). Do not conflate the two: `null` means the estimator itself
-failed; a finite `d̂`, confident or not, means the estimator succeeded, and a
-large one may still fail the round-budget check separately.
+`d̂` against `round_cap * 4096`, where `round_cap` is this MSC's fixed limit of
+20 on the per-exchange round counter (see below), and route to `extremity` mode,
+backfill, or frame extension when `d̂` exceeds that budget (see "The floor
+implies a hard precondition," below, for the worked ~82,000-element threshold).
 
 Requesters MUST retain the outstanding tree frontier across rounds as a pending
 queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
@@ -747,6 +747,23 @@ evidence that the divergence is one-sided; otherwise `c` is not a safe
 replacement. This is the load-bearing check: it stops a peer from starting a
 round sequence it cannot finish, rather than letting it discover that dozens of
 rounds in. See "Scope" in MSC4521 for the corresponding profile-level guidance.
+
+**~82,000 is a strict ceiling on capacity units, not a realizable
+elements-per-round throughput figure.** MSC4521's capacity provisioning formula
+(`k = min(32, ⌈1.5c⌉ + 4 + ...)`) means a fully-provisioned node's 32 units of
+capacity carry roughly 18 elements of actual difference once measurement slack
+and the per-node floor are accounted for, not 32; and per-round throughput is
+further reduced because prefix occupancy across nodes is probabilistic rather
+than uniform (see MSC4521's
+[Capacity provisioning](4521-algebraic-set-reconciliation.md#capacity-provisioning)
+and
+[Resident structure](4521-algebraic-set-reconciliation.md#resident-structure)),
+so some nodes overflow and split while others stay underfull within the same
+round. A `d̂` that passes this precondition by a small margin can still exhaust
+the round budget in practice before draining the queue. Implementations SHOULD
+apply a margin below the nominal `round_cap * 4096` ceiling when deciding
+whether to attempt `sketch` mode, rather than treating ~82,000 as a realistic
+per-round throughput target.
 
 #### Causal closure and truncation
 

@@ -99,9 +99,9 @@ The coalescing key above is per target `server_name`, but that does not compose
 cleanly with notary batching: a single `/_matrix/key/v2/query` transaction can
 cover many target server names at once, so "one in-flight fetch per
 `server_name`" and "one in-flight notary transaction" are different units when a
-notary is involved. Implementations MUST treat the coalescing key as the pair
-(target `server_name`, whether resolution is proceeding via direct fetch or via
-a specific notary), so that a single outstanding notary batch transaction
+notary is involved. Implementations that coalesce MUST key on the pair (target
+`server_name`, whether resolution is proceeding via direct fetch or via a
+specific notary), so that a single outstanding notary batch transaction
 satisfies the coalescing rule for every server name it covers, rather than being
 bypassed by concurrent per-name coalescing keyed on direct fetch alone.
 
@@ -282,19 +282,25 @@ from the `server_keys` array, and MAY continue serving other valid entries in
 the batch. Consequently, an empty `server_keys` array in an otherwise-successful
 `200` response is not authoritative absence — it does not mean the queried
 server has no keys, only that the notary has nothing valid to serve for it right
-now — and MUST NOT be cached or treated by the requester as a definitive
-statement that the server has no signing keys. Furthermore, implementations MUST
-reject key response payloads containing duplicate keys within a single JSON
-object, at any depth, anywhere in the response document (not only within
-`verify_keys` or `old_verify_keys`). This rejection applies to the raw received
-bytes before any canonicalization: the Matrix specification's Canonical JSON
-appendix defines canonical form for JSON a server itself produces, but per RFC
-8259, JSON documents received over the wire may legally contain duplicate object
-members with implementation-defined (and commonly silently-deduplicating) parser
-behavior. A duplicate key ID across `verify_keys` and `old_verify_keys` — or
-duplicated within the same dictionary — is exactly this ambiguity, which is why
-it must be checked against the raw response rather than assumed already illegal
-by the wire format.
+now. A requester MUST distinguish two things that are easy to conflate here:
+this outcome MUST be cached and fed into the negative-caching and backoff rule
+above the same as any other failed resolution, since a notary with nothing to
+serve for an origin is itself a failed resolution and needs to feed backoff or
+the fetch-storm protection above has a hole in it; but it MUST NOT be cached or
+treated by the requester as a **negative binding assertion** — i.e. it MUST NOT
+be recorded as, or treated as equivalent to, a definitive statement that the
+server has no signing keys, since that absence claim is never authoritative from
+a notary. Furthermore, implementations MUST reject key response payloads
+containing duplicate keys within a single JSON object, at any depth, anywhere in
+the response document (not only within `verify_keys` or `old_verify_keys`). This
+rejection applies to the raw received bytes before any canonicalization: the
+Matrix specification's Canonical JSON appendix defines canonical form for JSON a
+server itself produces, but per RFC 8259, JSON documents received over the wire
+may legally contain duplicate object members with implementation-defined (and
+commonly silently-deduplicating) parser behavior. A duplicate key ID across
+`verify_keys` and `old_verify_keys` — or duplicated within the same dictionary —
+is exactly this ambiguity, which is why it must be checked against the raw
+response rather than assumed already illegal by the wire format.
 
 <!-- synapse-derived: event-level enforcement passes against Synapse by default
 per complement TestMSC4499Key/FirstSeenWinsEventPath -->
@@ -302,11 +308,13 @@ per complement TestMSC4499Key/FirstSeenWinsEventPath -->
 **First Seen Wins.** The collision detection rule follows a strict **First Seen
 Wins** policy. The first public key body observed for a given
 `(server_name, algorithm, key_id)` tuple (whether found in `verify_keys` or
-`old_verify_keys`) is the permanent binding. This rule becomes less relevant in
-the future, once key IDs are reduced to collision-resistant canonical checksums
-of the key body (rather than admin-supplied near arbitrary strings).
+`old_verify_keys`) is the permanent binding.
 
 <!-- /synapse-derived -->
+
+This rule becomes less relevant in the future, once key IDs are reduced to
+collision-resistant canonical checksums of the key body (rather than
+admin-supplied near arbitrary strings).
 
 **Local impact.** The First Seen Wins rule causes a **localized DAG divergence**
 for the misconfigured server: peers that cached the original key will reject new
@@ -412,13 +420,13 @@ unrecoverable database failure without backup):
    an explicit local operator action grounded in independently verified evidence
    — never by asking a notary to vouch for the retirement after the fact, which
    no implementation may treat as corroboration.
-   <!-- synapse-derived: passes against Synapse by default per complement
-   TestMSC4499Key/LostKeyPublicationHistoricalVerification/
-   FullyLostKeyRemainsUnverifiableToColdPeers -->
 3. **If the public key material is completely lost**, the administrator must
    accept that historical events signed by the lost key may fail verification on
    servers that never cached it. By design there is no protocol-level recovery
    for this scenario.
+   <!-- synapse-derived: passes against Synapse by default per complement
+   TestMSC4499Key/LostKeyPublicationHistoricalVerification/
+   FullyLostKeyRemainsUnverifiableToColdPeers -->
    <!-- /synapse-derived -->
 
 The protocol does not provide an automated recovery mechanism for key ID
@@ -469,7 +477,14 @@ Servers MUST sanity-check `expired_ts` values in `old_verify_keys`. A future
 `expired_ts` (beyond a 5-minute clock-skew allowance) MUST be treated as
 malformed for that specific key entry, but MUST NOT poison the rest of the
 response payload. This should be uncommon, but servers must not use the key in
-this case.
+this case. An `expired_ts` rejected as malformed under this check MUST NOT
+consume the first-assignment-wins slot described below: it is treated as if no
+`expired_ts` had been observed for that key ID yet, so a later, sanity-passing
+value from the same or a different response is free to become the first accepted
+assignment. Without this, an origin with a persistently bad clock would submit
+an invalid value first, permanently poison that key ID's `expired_ts` binding
+against every subsequent (valid) republication, and retirement metadata for that
+key could never be recorded at all.
 
 **`expired_ts` is first-assignment-wins, like the key body it retires.** A key
 observed active with no `expired_ts` yet, later republished in `old_verify_keys`
@@ -486,9 +501,16 @@ forcing a state reset over pure metadata with no dispute about the event or the
 key's ownership; later values would widen the window a holder of that
 compromised retired key can backdate forgeries into (see
 [Stolen retired keys and backdated forgeries](#security-considerations)), so
-neither direction is benign. This is distinct from the provisional-binding
-override above, where a direct fetch replacing a _conflicting key body_ MAY
-prompt re-verification of recent events — that path corrects which key was ever
+neither direction is benign. A deliberate consequence of this rule is that there
+is no early-revocation path for `expired_ts`: an origin cannot shorten a retired
+key's validity window after the fact, even to respond to a compromise discovered
+after the first `expired_ts` was recorded. That gap is intentional, not an
+oversight — widening the window is the more dangerous failure mode of the two —
+and the only recourse for a compromised retired key is the operator's
+[manual cache eviction](#recovery-from-key-loss) mechanism, not a self-service
+`expired_ts` update. This is distinct from the provisional-binding override
+above, where a direct fetch replacing a _conflicting key body_ MAY prompt
+re-verification of recent events — that path corrects which key was ever
 legitimate; this rule instead governs metadata churn on a key body that was
 never in question, and requires no per-PDU reliance bookkeeping beyond simply
 never re-verifying an already-accepted PDU against a later-observed
@@ -793,39 +815,73 @@ Cuckoo Cycle.
 ### Digest-binding cap
 
 The digest binding described above is deliberately minimal: `key_id`, a 32-byte
-`SHA-256` digest of the key body, and a `first_seen` timestamp — on the order of
-60–80 bytes per record, far smaller than a retained verification entry. It
-exists to survive eviction of retired-key verification material so a future body
-reusing an evicted key ID is still checked against what was first seen, closing
-the collision-blind window that motivates permanent retention in the first
-place. Because that guarantee depends on the binding never being evicted for a
-genuinely-seen key ID, it MUST NOT be pruned the way retired-key verification
-material is — evicting a digest binding to make room for a new one reopens
-exactly the TOFU window this record exists to close.
+`SHA-256` digest of the key body, and a `first_seen` timestamp recording when
+the receiver itself established the binding — kept for operator forensics (e.g.
+diagnosing a collision report or a cap-related rejection against local
+observation history) and for a future proposal to build eviction or
+corroboration policy on top of without a schema change; this MSC's own rules do
+not read it — on the order of 60–80 bytes per record, far smaller than a
+retained verification entry. It exists to survive eviction of retired-key
+verification material so a future body reusing an evicted key ID is still
+checked against what was first seen, closing the collision-blind window that
+motivates permanent retention in the first place. Because that guarantee depends
+on the binding never being evicted for a genuinely-seen key ID, it MUST NOT be
+pruned the way retired-key verification material is — evicting a digest binding
+to make room for a new one reopens exactly the TOFU window this record exists to
+close.
 
 That means the digest-binding set cannot be bounded by eviction; it MUST instead
 be bounded by refusing new entries once a per-origin cap is reached.
-Implementations MUST enforce a maximum of 30,000 digest-binding records per
-remote server name — an order of magnitude above the 3,000-entry retired-key
-ceiling, since digest bindings accumulate for the full lifetime of a key ID even
-after its verification material is pruned, but still small and fixed (at ~70
-bytes/record, roughly 2 MiB per origin at the cap). A key ID observed for the
-first time by a given origin after that origin's digest-binding set is already
-at the cap MUST be rejected and logged at warning level; the response containing
-it MUST otherwise still be processed normally (this is a per-key-ID rejection,
-not a payload-level one). Key IDs already bound before the cap was reached
-continue to be checked and enforced as normal. This cap is sized to accommodate
-legitimate bulk first contact — a peer joining federation late and backfilling a
-full 3,000-entry retired-key response in one exchange (see
+Implementations MUST enforce a maximum on digest-binding records per remote
+server name, RECOMMENDED at 30,000 — an order of magnitude above the 3,000-entry
+retired-key ceiling, since digest bindings accumulate for the full lifetime of a
+key ID even after its verification material is pruned, but still small and fixed
+(at ~70 bytes/record, roughly 2 MiB per origin at the recommended cap). A
+different fixed value has no wire-visible effect as long as it is enforced
+deterministically and consistently by a given implementation; the requirement
+that matters for interoperability is that reaching _some_ fixed per-origin
+ceiling is itself the anomaly signal described below, not the exact number. A
+key ID observed for the first time by a given origin after that origin's
+digest-binding set is already at the cap MUST be rejected: no digest-binding
+record is created for it, and the key body it names MUST NOT be used to verify
+signatures, since without a recorded digest binding there is nothing to protect
+a later, colliding body for the same key ID from being silently accepted. This
+MUST be logged at warning level; the response containing it MUST otherwise still
+be processed normally (this is a per-key-ID rejection, not a payload-level one)
+— other key IDs in the same response that are still under the cap are bound and
+usable as normal. Key IDs already bound before the cap was reached continue to
+be checked and enforced as normal. This cap is sized to accommodate legitimate
+bulk first contact — a peer joining federation late and backfilling a full
+3,000-entry retired-key response in one exchange (see
 [Storage considerations](#storage-considerations) above, and the
 uncorroborated-binding case under
 [Recovery from key loss](#recovery-from-key-loss)) still lands an order of
 magnitude below the cap — so it does not need a companion rate limit on ordinary
-operation to be effective; reaching 30,000 distinct key IDs for one origin at
-all is itself the anomaly signal described elsewhere in this section
-("unambiguously hostile"), consistent with this MSC's existing choice to leave
-rate-limiting of novel key-ID discovery to individual implementations rather
-than mandating one (see [Other considerations](#other-considerations)).
+operation to be effective; reaching the cap for one origin at all is itself the
+anomaly signal described elsewhere in this section ("unambiguously hostile"),
+consistent with this MSC's existing choice to leave rate-limiting of novel
+key-ID discovery to individual implementations rather than mandating one (see
+[Other considerations](#other-considerations)).
+
+**Cap accounting MUST be segregated by source.** A digest binding for origin `X`
+can be learned two ways: a direct fetch from `X`, or a notary response _about_
+`X`. If both sources drew from the same per-origin budget, a malicious or
+compromised notary could serve enough synthetic key IDs attributed to a victim
+origin it does not control to exhaust that victim's cap on every peer that
+queries through it, and cause the victim's own subsequent genuine key IDs —
+learned later via direct fetch — to be rejected under the cap even though the
+victim never misbehaved. This inverts the anomaly signal above: reaching the cap
+would no longer mean the origin in question is hostile, only that something
+claiming to speak for it is. To prevent this, implementations MUST maintain the
+cap independently per `(remote server name, source category)`, where source
+category is direct-fetch or notary-observed: a notary-sourced flood against one
+origin exhausts only that origin's notary-sourced budget and MUST NOT consume or
+block that origin's direct-fetch budget, or vice versa. When a provisional
+(notary-observed) binding is promoted to permanent (see Binding promotion, under
+[Key caching requirements](#key-caching-requirements)), its digest-binding
+record MUST thereafter count against the direct-fetch budget for that origin
+rather than the notary-sourced one, since promotion requires the same direct
+confirmation a direct-fetch binding would have.
 
 ### Other considerations
 

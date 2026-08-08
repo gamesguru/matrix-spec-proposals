@@ -14,6 +14,12 @@ encoding, and decoding contract instead of rebuilding them from scratch.
 `algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
 accumulator into one ladder.
 
+It collapses 256-bit integers (ID values) over the 64-bit Galois field, encodes
+them near the information-theoretic Shannon limit for set reconciliation, and
+performs a "syndrome" decoding on the receiver side (unpacking any missing IDs).
+Correctly implemented, the decoding cannot produce false positives nor
+negatives. While strictly superior in bandwidth
+
 The profile targets differences up to 4,096 elements per exchange in populations
 up to $10^7$, keeps the initial depth-0 sketch at most 256 B, and caps a fully
 saturated exchange at 32 KiB of unencoded syndrome data (~42.7 KiB wire-encoded
@@ -351,42 +357,44 @@ single depth-0 extraction, provisioning an initial dynamic-tree request, or
 abandoning the comparison. Beginning at stratum 31 and proceeding downward,
 decode each residual stratum until one fails. Let $r$ be the lowest stratum that
 decoded and $T$ be the sum of decoded cardinalities over strata $r$ through 31.
-The estimate is $T \cdot 2^r$.
+Let $k = 8$ be the per-stratum decode capacity used throughout this section.
 
-These two failure shapes are not the same condition and MUST NOT be collapsed
-into one outcome:
+When $r = 0$, every stratum decoded and no capacity was ever exceeded, so the
+estimate is simply $\hat d = T$.
 
-- **Stratum 31 fails to decode.** Stratum 31 is the catch-all for every element
-  with 31 or more trailing zero bits, so this only happens once
-  $d \gtrsim 9 \cdot 2^{31} \approx 1.9 \times 10^{10}$ — far past any
-  divergence this profile is meant to size. This is genuine saturation: the
-  estimator has no usable signal at all. The estimator MUST return `null` in
-  place of an integer estimate; consumers MUST treat `null` as unmeasurable,
-  never as a literal count, and MUST NOT begin an extraction exchange sized from
-  it.
-- **The decoded tail is empty with $r \ne 0$.** Because elements land in stratum
-  $i$ with probability $2^{-(i+1)}$, this is a low-probability statistical fluke
-  (on the order of $10^{-4}$ for a well-behaved population) that can occur at
-  _modest_ $d$, not only at extreme $d$. Treating it as full saturation would
-  force an unwarranted fallback to `extremity` mode or backfill for what may be
-  an ordinary difference of a few thousand elements. Note that $T$ is $0$ in
-  this branch by definition (the tail is empty), so $T \cdot 2^r$ is useless
-  here — a zero estimate would be worse than `null`, since it would pass a
-  consumer's budget precondition trivially while understating a difference that,
-  by the branch's own trigger condition, is already known to be nontrivial:
-  stratum $r - 1$ overflowed its capacity-8 decode, which requires
-  $|D_{r-1}| > 8$, i.e. $d \gtrsim 9 \cdot 2^r$. The estimator MUST instead
-  return that lower-bound estimate, $\hat d \approx 9 \cdot 2^r$, paired with an
-  explicit `low_confidence` indicator distinct from the `null` sentinel above
-  (for example, an `{estimate, low_confidence}` pair rather than a bare
-  integer). Consumers MAY use a low-confidence estimate to size an initial
-  extraction request the same as an ordinary estimate, or MAY instead provision
-  a smaller-than-indicated starting capacity and rely on `capacity_exceeded` to
-  trigger a split; consumers MUST NOT, on confidence grounds alone, treat a
-  low-confidence estimate as grounds to refuse a `sketch` exchange outright — a
-  consuming protocol's own budget precondition over the numeric estimate (e.g. a
-  round-budget check) still applies exactly as it would to an ordinary estimate
-  of the same value.
+When $r \ne 0$, stratum $r - 1$ overflowed its capacity-$k$ decode — that is the
+reason decoding stopped at $r$ — which by construction requires $|D_{r-1}| > k$,
+i.e. $d \gtrsim (k+1) \cdot 2^r$. This lower bound holds regardless of what $T$
+turns out to be, and MUST NOT be discarded just because $T$ itself is small: a
+raw $T \cdot 2^r$ estimate silently understates $d$ whenever $T \le k$, not only
+in the $T = 0$ case, since the failed stratum below already proves a materially
+larger difference than $T$ alone suggests. The estimator MUST instead compute
+
+$$\hat d = \max(T,\ k + 1) \cdot 2^r$$
+
+and MUST pair the result with an explicit `low_confidence` indicator whenever
+the $\max$ clamps (i.e. whenever $T \le k$) — precisely the cases where the
+estimate is driven by the capacity-overflow bound rather than by the decoded
+measurement itself, and is therefore a deliberate, conservative lower bound
+rather than a point estimate. Consumers MAY use a low-confidence estimate to
+size an initial extraction request the same as an ordinary estimate, or MAY
+instead provision a smaller-than-indicated starting capacity and rely on
+`capacity_exceeded` to trigger a split; consumers MUST NOT, on confidence
+grounds alone, treat a low-confidence estimate as grounds to refuse a `sketch`
+exchange outright — a consuming protocol's own budget precondition over the
+numeric estimate (e.g. a round-budget check) still applies exactly as it would
+to an ordinary estimate of the same value.
+
+Stratum 31 failing to decode is a distinct, more severe condition and MUST NOT
+be collapsed into the $\max(T, k+1) \cdot 2^r$ case above: stratum 31 is the
+catch-all for every element with 31 or more trailing zero bits, so its own
+decode failure only happens once
+$d \gtrsim (k+1) \cdot 2^{31} \approx 1.9 \times 10^{10}$ — far past any
+divergence this profile is meant to size, and past the point where a lower-bound
+estimate at that magnitude is useful to a consumer. This is genuine saturation:
+the estimator has no usable signal at all. The estimator MUST return `null` in
+place of an integer estimate; consumers MUST treat `null` as unmeasurable, never
+as a literal count, and MUST NOT begin an extraction exchange sized from it.
 
 The estimator is advisory. It MUST NOT override a consumer's population check,
 and it MUST NOT substitute for 128-bit accumulator verification of a decoded
@@ -633,18 +641,20 @@ remembered. An unscoped, permanent "MUST NOT re-enter the sketch ladder"
 therefore lets a single offline grind permanently disable $1/2^{32}$ of the key
 space for every peer, with no recovery path. To bound this, the fallback MUST be
 scoped and time-limited rather than permanent: implementations MUST cache a
-ladder-failed prefix keyed on `(room_id, frame_id)` with an
-implementation-defined TTL, and MUST re-probe (re-enter the sketch ladder for
-that prefix) on frame change or TTL expiry rather than treating the failure as
-permanent. This bounds a successful grind to one room and one frame at a time,
-at the cost of the peer potentially re-encountering the same failed decode after
-re-probing.
+ladder-failed prefix keyed on the consuming protocol's population-context
+identity (this profile does not itself define frames or rooms; under MSC0501
+that identity is the `(room_id, frame_id)` pair) with a bounded TTL, RECOMMENDED
+to be no longer than the consuming protocol's own state/frame lifetime and in
+any case not persisted indefinitely, and MUST re-probe (re-enter the sketch
+ladder for that prefix) on population-context change or TTL expiry rather than
+treating the failure as permanent. This bounds a successful grind to one
+population and one context lifetime at a time, at the cost of the peer
+potentially re-encountering the same failed decode after re-probing.
 
 This residual risk is a consequence of $D(e)$ (and therefore $h_{64}$) being
 computed with no room-scoped input, so the same grind against a prefix works
 identically in every room. Mixing `room_id` into $D(e)$, or into the
-$D(e) \to
-h_{64}$ derivation, would scope a grind to a single room and defeat
+$D(e) \to h_{64}$ derivation, would scope a grind to a single room and defeat
 precomputation against rooms that do not exist yet, at no cost to the comparison
 contract since both sides already agree on the room. This MSC does not adopt
 that change — see [Open questions](#open-questions).
@@ -653,21 +663,6 @@ that change — see [Open questions](#open-questions).
 in aggregate for a server participating in very many mostly-idle rooms.
 Implementations SHOULD still evict resident structures under an LRU or TTL
 policy and rebuild on demand.
-
-## Open questions
-
-- **Should `room_id` be mixed into `D(e)`, or into the `D(e) -> h_{64}`
-  derivation?** As noted under [Potential issues](#potential-issues), $h_{64}$
-  today is deterministic from the event ID alone, so a $\approx 2^{32}$-work
-  offline collision grind against one prefix is reusable against every room on
-  every peer. Mixing `room_id` in would scope any such grind to a single room
-  and defeat precomputation against rooms that do not yet exist, at no cost to
-  the comparison contract (both sides already agree on the room). This MSC does
-  not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
-  invalidating existing test vectors and the reference implementation without a
-  clear need beyond the bounded, TTL-scoped fallback already specified. A future
-  profile revision could adopt it if the bounded fallback proves insufficient in
-  practice.
 
 ## Alternatives
 
@@ -852,27 +847,52 @@ The two out-of-band estimator outcomes under
 by conformance tests, since a `MUST`-level out-of-band value with no test vector
 otherwise gets implemented three incompatible ways:
 
-- **Low-confidence estimate (`r != 0`, decoded tail empty).** Construct a
-  population of more than 8 elements whose $h_{64}(e)$ all have trailing-zero
-  count exactly `0` (i.e., all odd as 64-bit integers), and no other elements.
-  Stratum 0 then holds more than capacity-8 elements and fails to decode; strata
-  1 through 31 are all genuinely empty and decode trivially. Decoding downward
-  from 31, the lowest stratum that decoded is $r = 1$ (stratum 0 failed), and
-  the decoded tail (strata 1..31) sums to $T = 0$ — this is exactly the "decoded
-  tail is empty with $r \ne 0$" condition. This is reachable with 9 elements and
-  requires no search, unlike genuine saturation below. The estimator MUST return
-  `{estimate: 9 * 2^r, low_confidence: true}` —
-  `{estimate: 18, low_confidence: true}` for this 9-element construction
-  ($r = 1$) — not a literal $T \cdot 2^r = 0$, and not `null`. The true $d$ here
-  is exactly 9; the estimate is a deliberate, conservative over-estimate, which
-  is the safe direction for capacity sizing.
+- **Low-confidence estimate (`r != 0`, $T \le k$).** Let $S_A$ be the following
+  nine 64-bit values, standing in directly for $h_{64}(e)$ (i.e. treat these as
+  the hash outputs, not as event IDs to be hashed), and let $S_B = \emptyset$,
+  so the residual difference is exactly $S_A$ and the true $d = 9$:
+
+  ```text
+  0x0000000000000001  0x0000000000000003  0x0000000000000005
+  0x0000000000000007  0x0000000000000009  0x000000000000000B
+  0x000000000000000D  0x000000000000000F  0x0000000000000011
+  ```
+
+  Each value is odd, i.e. has trailing-zero count exactly `0`, so all nine land
+  in stratum 0, which exceeds its capacity-8 decode and fails; strata 1 through
+  31 are genuinely empty (no element of $S_A$ or $S_B$ lands there) and decode
+  trivially to empty. Decoding downward from 31, the lowest stratum that decoded
+  is $r = 1$ (stratum 0 failed), and the decoded tail (strata 1..31) sums to
+  $T = 0 \le k = 8$. The estimator MUST return
+  `{estimate: 18, low_confidence: true}` — i.e.
+  $\max(T, k+1) \cdot 2^r =
+  \max(0, 9) \cdot 2^1 = 18$ — not a literal
+  $T \cdot 2^r = 0$, and not `null`. The true $d$ here is exactly 9; the
+  estimate is a deliberate, conservative over-estimate, which is the safe
+  direction for capacity sizing.
+
 - **Saturation (`null`).** Constructing a genuine stratum-31 decode failure
   requires $d \gtrsim 9 \cdot 2^{31}$ elements sharing high-order structure,
-  which is impractical to embed literally in this document. Implementations
-  SHOULD instead test this path by injecting a synthetic stratum-31 sketch that
-  exceeds its capacity-8 decode budget directly (bypassing population
-  construction), and MUST verify the estimator returns `null` rather than a
-  fabricated `T * 2^31` estimate in that case.
+  which is impractical to embed literally in this document. Implementations MUST
+  instead test this path by injecting a synthetic stratum-31 sketch that exceeds
+  its capacity-8 decode budget directly (bypassing population construction), and
+  MUST verify the estimator returns `null` rather than a fabricated `T * 2^31`
+  estimate in that case.
+
+## Open questions
+
+- **Should `room_id` be mixed into $D(e)$, or into the $D(e) \to h_{64}$
+  derivation?** As noted under [Potential issues](#potential-issues), $h_{64}$
+  today is deterministic from the event ID alone, so a $\approx 2^{32}$-work
+  offline collision grind against one prefix is reusable against every room on
+  every peer. Mixing `room_id` in would scope any such grind to a single room
+  and defeat precomputation against rooms that do not yet exist, at no cost to
+  the comparison contract (both sides already agree on the room). This MSC does
+  not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
+  invalidating existing test vectors and the reference implementation without a
+  clear need beyond the bounded, TTL-scoped fallback already specified. A future
+  profile revision could adopt it if the bounded fallback proves insufficient in
+  practice.
 
 ## Unstable prefix
 
