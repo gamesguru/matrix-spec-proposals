@@ -215,14 +215,20 @@ the first time a direct fetch from the origin confirms the same key body.
 
 <!-- /synapse-derived -->
 
-Servers SHOULD attempt a prompt direct fetch after learning any binding via a
-notary, to promote the binding and close the provisional window. Once permanent,
-the binding is subject to the standard First Seen Wins rule: a later direct
-fetch presenting a different key body for the same key ID is a collision and
-MUST be rejected and logged. Direct-versus-direct conflicts are always resolved
-by First Seen Wins; the two-tier rule applies only to the notary-versus-direct
-case. Notary-versus-notary conflicts (or the same notary at two different times)
-are also resolved by First Seen Wins among provisional observations. A
+Servers SHOULD attempt a direct fetch after learning any binding via a notary,
+to promote the binding and close the provisional window. This MSC does not
+require a specific latency budget or that the current request path block on that
+fetch: implementations MAY start it immediately, enqueue it on a short retry
+queue, or otherwise trigger it soon after the notary-backed verification
+succeeds. The interoperability requirement is only that implementations SHOULD
+not leave provisional bindings unpromoted indefinitely merely because no later
+demand happens to ask for that exact key ID again. Once permanent, the binding
+is subject to the standard First Seen Wins rule: a later direct fetch presenting
+a different key body for the same key ID is a collision and MUST be rejected and
+logged. Direct-versus-direct conflicts are always resolved by First Seen Wins;
+the two-tier rule applies only to the notary-versus-direct case.
+Notary-versus-notary conflicts (or the same notary at two different times) are
+also resolved by First Seen Wins among provisional observations. A
 freshness-driven re-fetch MUST NOT become a side channel for overriding First
 Seen Wins: if a server queries a notary with `minimum_valid_until_ts` to force
 an upstream refresh and the notary's re-fetch of the origin yields key material
@@ -772,6 +778,24 @@ uncorroborated binding is accepted the same way, stored the same way, and blocks
 a later conflicting key body under First Seen Wins exactly as permanently as a
 corroborated one does.
 
+The retirement source and the ceiling accounting are separate questions and
+implementations MUST treat them separately:
+
+- **Explicit retirement:** if a key is present in `old_verify_keys`, it is a
+  retired binding with an effective retirement timestamp equal to its
+  `expired_ts` (subject to the malformed-future check below).
+- **Inferred retirement:** if a key was previously observed active but later
+  disappears from the origin's responses without ever appearing in
+  `old_verify_keys`, the receiver still treats it as retired verification
+  material for local retention purposes, with an effective retirement timestamp
+  equal to the receiver's last observation time at which the key was still
+  present.
+- **Ceiling accounting:** both categories above count against the same local
+  3,000-entry retired-key retention ceiling, because both represent retired
+  verification material the receiver may need to keep for historical
+  verification and eviction ordering. Current `verify_keys` do not count toward
+  that 3,000-entry retired-key ceiling.
+
 If MSC00E4 `trusted_notary_keys` is present, a listed full content-addressed key
 identifier permits a notary to return the corresponding retained historical key
 body without the origin embedding that body in `old_verify_keys`. This does not
@@ -811,6 +835,24 @@ received a formal retirement. Ties in the effective retirement timestamp are
 broken by bytewise lexicographic comparison of the full `algorithm:key_id`
 string as UTF-8, ascending; the lexicographically smaller identifier is retained
 first. Any keys ordered below the retention floor by this rule may be evicted.
+Equivalent pseudocode:
+
+```text
+retain all current verify_keys
+
+retired_candidates :=
+  all retired bindings already retained locally
+  union all newly learned retired bindings from this fetch
+
+sort retired_candidates by:
+  1. corroborated before uncorroborated
+  2. effective retirement timestamp descending
+  3. full algorithm:key_id lexicographically ascending
+
+retain the first 3000 retired_candidates
+evict every retired candidate below that cut line
+```
+
 Eviction of a _corroborated_ binding SHOULD be logged at warning level: reaching
 the ceiling deeply enough to displace corroborated history is itself the anomaly
 signal for the flood scenario in [Other considerations](#other-considerations),
