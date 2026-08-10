@@ -439,6 +439,12 @@ a new room version. A room version adopting this sketch would need to define
 whether state-DAG edges are additional independently provable metadata leaves,
 and how they interact with state resolution.
 
+[MSC0F04](00B1-mandatory-lexicographic-production-room-semver-format.md)
+mandates a `vMMMM.NNNN.PPPP` identifier format for future stable room versions.
+The `tk.nutra.msc4511.12` identifier used for illustration throughout this
+document is an unstable placeholder only; a stable room version adopting this
+sketch MUST be assigned an identifier compliant with that format.
+
 ## Security considerations
 
 The major risks are incorrect field partitioning, metadata leaks through

@@ -300,10 +300,25 @@ separate Room Version MSC.
 ## Dependencies
 
 - None. This MSC is independent of
-  [MSC 00E4](https://github.com/matrix-org/matrix-spec-proposals/pull/00E4)
-  (Post-Quantum Digital Signatures for Federation), although it is
-  complementary. If MSC 00E4 is accepted before Room Version N is finalized,
-  `fndsa512` is included in the recognized algorithm set.
+  [MSC 00E4](00E4-quantum-sigs-minting-server-keys.md) (Post-Quantum Digital
+  Signatures for Federation), although it is complementary. If MSC 00E4 is
+  accepted before Room Version N is finalized, `fndsa512` is included in the
+  recognized algorithm set.
+- The rest of the quantum-signature series —
+  [MSC 00E2](00E2-quantum-sigs-federation-room-pdu.md) (PDU signing),
+  [MSC 00E5](00E5-quantum-sigs-federation-session-negotiation.md) (session
+  negotiation), and [MSC 00EA](00EA-quantum-sigs-e2ee.md) (E2EE) — build on the
+  `fndsa512` key material minted by MSC 00E4 and do not themselves add new
+  entries to the Recognized Signing Algorithms table above.
+- [MSC 00DA](00DA-bls-signatures-non-interactive-aggregation.md) (BLS signatures
+  and non-interactive aggregation) proposes a second new signing primitive for
+  federation. If accepted, its BLS scheme would need its own row in the
+  Recognized Signing Algorithms table, alongside `fndsa512`.
+- [MSC4499](4499-key-caching.md) (strict server signing key caching and key ID
+  uniqueness) is complementary rather than overlapping: this MSC restricts
+  _which algorithms_ may appear in `verify_keys`/`signatures`, while MSC4499
+  governs how a given key ID's key body is cached and bound once published. Both
+  apply to the same `algorithm:key_id` material.
 
 ## Backwards Compatibility
 

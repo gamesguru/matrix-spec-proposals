@@ -194,6 +194,13 @@ its TreeKEM key schedule provide logarithmic key distribution (network
 bandwidth) overhead, making PQC key agreement scalable; see
 [MSC3918](https://github.com/matrix-org/matrix-spec-proposals/pull/3918).
 
+[MSC00E5](./00E5-quantum-sigs-federation-session-negotiation.md) defines an
+ML-KEM-768 (FIPS 203) session-negotiation extension for the _federation_
+transport (`X-Matrix-PQC`), not for Olm/Megolm. It is a plausible template for
+the eventual Olm/Megolm ML-KEM migration mentioned above, but the two are
+independent: this MSC's device/cross-signing keys are unaffected by whether a
+server pair has negotiated an MSC00E5 session.
+
 ## Potential Issues
 
 - **Public key size.** FN-DSA-512 public keys are 897 bytes (vs 32 for Ed25519),

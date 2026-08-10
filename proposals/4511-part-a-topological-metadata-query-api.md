@@ -618,6 +618,13 @@ the omission with `start_event_errors` or `edge_errors` when the applicable
 field was requested. If the applicable error field was not requested, the server
 MUST set `limited` to `true`.
 
+This mirrors, for this query API, the same wrong-room hazard that
+[MSC4307](https://github.com/matrix-org/matrix-spec-proposals/pull/4307) closes
+at the core auth-rule level (rejecting `auth_events` whose `room_id` does not
+match the event being authorized): an `auth_events` or `prev_events` edge can
+point at an event from a different room, and both the base protocol and this
+traversal endpoint must refuse to treat that edge as same-room data.
+
 The responding server MUST NOT return event metadata if it would not be allowed
 to serve the corresponding full event to the requester.
 

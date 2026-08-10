@@ -275,3 +275,11 @@ Enforcing rate limits at the state-resolution layer.
   distributes their traffic across millions of cheap virtual servers and
   thousands of fake Matrix accounts. Only physical, unforgeable computational
   proof can constrain distributed Sybil resources.
+
+## Relationship to other proposals
+
+This MSC and [MSC00FF](00FA-WIP-dag-finality-majority-creators.md) (DAG finality
+via creator majority sign-off) are complementary DAG-level defenses: this MSC
+raises the cost of _producing_ spam events, while MSC00FF bounds how far back an
+already-accepted DAG can later be forked or rewritten. Neither depends on the
+other, and a deployment may adopt either or both independently.

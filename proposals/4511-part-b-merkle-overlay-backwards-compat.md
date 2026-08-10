@@ -343,10 +343,14 @@ repair path selection.
 ## Relationship to other proposals
 
 The overlay profile is a backwards-compatible accountability layer for Part A's
-sparse query response. It does not replace Part C's native room-version
+sparse query response. It does not replace
+[Part C](4511-part-c-merkleized-room-version-upgrade.md)'s native room-version
 commitment model: a signed overlay proves only that the responding server made a
 claim, while split canonicalization can make selected metadata part of event
-identity.
+identity. Part B is deployable in current room versions and can serve as the
+transitional accountability layer while a room population migrates toward a Part
+C-adopting room version, at which point the overlay attestation becomes
+redundant with native proof.
 
 ## Unstable prefix
 

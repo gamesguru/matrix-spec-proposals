@@ -340,7 +340,27 @@ starvation attacks against production infrastructure.
 
 ## Dependencies
 
-This MSC does not depend on any currently unmerged MSCs.
+This MSC does not depend on any currently unmerged MSCs, but it is the natural
+deployment ground for several other draft proposals that need
+production-adjacent trial conditions before stabilizing:
+
+- [MSC0F04](00B1-mandatory-lexicographic-production-room-semver-format.md)
+  explicitly permits unstable/experimental room version identifiers outside its
+  mandated format; `testnet`/`stagenet` room versions are a natural home for
+  exercising that carve-out.
+- [MSC00F3](00F3-WIP-proof-of-work-requirements.md) (proof-of-work spam
+  mitigation) and [MSC00FF](00FA-WIP-dag-finality-majority-creators.md) (DAG
+  finality via creator majority) are both DAG-level behavior changes that
+  benefit from `testnet`'s "anything goes" tolerance for state-resolution forks
+  and abuse traffic before being trialed on `stagenet`.
+- The quantum-signature series
+  ([MSC00E2](00E2-quantum-sigs-federation-room-pdu.md),
+  [MSC00E4](00E4-quantum-sigs-minting-server-keys.md),
+  [MSC00E5](00E5-quantum-sigs-federation-session-negotiation.md),
+  [MSC00EA](00EA-quantum-sigs-e2ee.md)) and
+  [MSC00DA](00DA-bls-signatures-non-interactive-aggregation.md) introduce new
+  federation signing primitives that are safer to interoperability-test on an
+  isolated network than on `mainnet`.
 
 ## Unstable prefix
 

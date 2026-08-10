@@ -355,7 +355,9 @@ If-None-Match: "xxh3:deadbeefcafebabe"
 ```
 
 The ETag SHOULD be computed as an order-independent accumulator over the
-returned user tuples:
+returned user tuples (the same XOR-of-hashes construction as the state
+accumulator in [MSC4500](4500-state-accumulators.md), applied here to EDU
+snapshots instead of room state):
 
 > `digest = XOR(H(user_id || version || content_hash) for each user in users)`
 
@@ -496,4 +498,10 @@ development:
 
 ## Dependencies
 
-This MSC has no hard dependencies on other unaccepted MSCs.
+This MSC has no hard dependencies on other unaccepted MSCs, but it reuses the
+order-independent XOR accumulator construction introduced by
+[MSC4500](4500-state-accumulators.md) (there applied to room state; here to EDU
+snapshots), and its transaction/reconciliation split is designed to be scheduled
+alongside [MSC0501](0501-federation-room-gossip-reconciliation.md)'s PDU
+reconciliation, per the "Why This Is Different From PDU Reconciliation" section
+above.

@@ -199,6 +199,30 @@ Enforce consensus on every individual event using a BFT consensus algorithm
   complexity, synchronization overhead, and vulnerability to transient server
   outages.
 
+### 4. Aggregated multi-signature checkpoints
+
+Instead of $M$ separate `m.room.finality` state events, creators could jointly
+produce a single aggregate signature over a checkpoint, using a scheme such as
+[MSC00DA](00DA-bls-signatures-non-interactive-aggregation.md) (BLS signature
+aggregation).
+
+- **Why rejected (for now):** This proposal deliberately favors plain Matrix
+  state events over a new cryptographic primitive, keeping finality observable
+  and auditable through ordinary room state and auth rules rather than requiring
+  clients and servers to implement pairing-based signature verification. This is
+  not a permanent rejection: a future revision could adopt MSC00DA's aggregate
+  signature object to compress an $M$-of-$N$ sign-off into one artifact once
+  that primitive is available, at the cost of the failure-localization
+  complexity MSC00DA itself notes for aggregate signatures.
+
+## Relationship to other proposals
+
+[MSC00F3](00F3-WIP-proof-of-work-requirements.md) (proof-of-work spam
+mitigation) and this MSC are complementary DAG-level defenses rather than
+overlapping ones: MSC00F3 raises the cost of producing spam events in the first
+place, while this MSC bounds how far back an already-accepted DAG can be forked
+or rewritten. A deployment may adopt either or both independently.
+
 ## Security Considerations
 
 ### 1. Malicious Creator Majorities

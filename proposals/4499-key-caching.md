@@ -38,6 +38,19 @@ existing `SHOULD` caching guidance to `MUST`, formalizes the `valid_until_ts`
 7-day validity clamp as a cache constraint, and replaces ambiguous logic with a
 strict 1:1 key ID uniqueness paradigm and accompanying caching guidance.
 
+### Scope
+
+This MSC governs the caching and verification of _remote_ server signing keys
+obtained through federation — `/_matrix/key/v2/server` responses and notary
+(`/_matrix/key/v2/query`) responses used to verify PDUs signed by other servers.
+It does not impose new requirements on rooms created with `m.federate: false`:
+such rooms never exchange PDUs with other servers, so no peer ever needs to
+fetch, cache, or corroborate a signing key on their account, and the First Seen
+Wins rule, corroboration tiers, and digest-binding cap defined below have no
+federated key material to act on. A room that later becomes federating (or whose
+`m.federate` restriction is otherwise bypassed) is subject to this MSC from that
+point onward like any other federated room.
+
 ### Key caching requirements
 
 Servers MUST cache federated server signing keys procured from
@@ -1108,6 +1121,14 @@ Because this requires changing how PDU signatures are verified and supplants
 legacy key formats thoroughly entrenched in the wild, it requires a new room
 version and is deferred to a future MSC. Until then, protection must remain
 strictly at the local server caching layer as outlined in this proposal.
+
+[MSC4291: Room IDs as hashes of the create event](https://github.com/matrix-org/matrix-spec-proposals/pull/4291)
+applies the identical technique to a different identifier: it derives `room_id`
+from a hash of the create event to make room-ID collision and forgery
+computationally intractable, for the same reason this section proposes deriving
+`key_id` from a hash of the key body. If MSC4291 lands first, it would be a
+concrete existing precedent for this kind of content-addressed identifier inside
+a room version's auth rules.
 
 This is one of several adjacent proposal lines which address the deeper problem
 that Matrix currently uses mutable, domain-scoped server signing keys as both a
