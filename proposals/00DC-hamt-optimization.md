@@ -158,6 +158,23 @@ claim, which is the actual basis for eliminating the snapshot cliff in
 Background item 1: there is no periodic pause, because there is no full-$S$
 structure ever rewritten in one step.
 
+The byte comparison above measures volume moved, not access pattern, and the
+second axis favors the HAMT independently of the first. Trie nodes are
+immutable, so every one of the $\log_{32}(S)$ writes on the path to the root is
+a fresh node — nothing existing is ever mutated in place — which means those
+writes can be streamed as sequential appends regardless of trie size.
+Reconstructing current state from a delta chain instead requires a _dependent_
+walk: each row is a pointer to its predecessor, successive rows are not
+generally co-located on disk, and neither the periodic $O(S)$ snapshot nor an
+ordinary point query can be assembled without following that chain row by row.
+That cost is pseudo-random I/O, not sequential I/O, and it doesn't show up in a
+byte count at all — on rotational media, or under contention with other
+random-access workloads, the gap between the two access patterns can dominate
+the raw byte-volume difference already argued above. This is what actually
+eliminates the snapshot cliff in Background item 1: the HAMT root is already a
+fully materialized, queryable snapshot after every append, so no replay of a
+dependent chain is ever needed to produce one.
+
 ### Fast delta isolation algorithm
 
 When comparing two state maps (e.g., $A$ and $B$) during a deep rebuild or
