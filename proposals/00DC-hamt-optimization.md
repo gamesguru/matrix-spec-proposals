@@ -10,19 +10,18 @@ Matrix homeservers spend a massive portion of their CPU and I/O budget managing
 state resolution and querying historical room states. Existing implementations
 suffer from systemic trade-offs:
 
-1. **Delta Chains & Snapshot Cliffs:** To avoid rewriting massive $O(S)$ state
+1. **Delta chains / snapshot cliff:** To avoid rewriting massive $O(S)$ state
    maps on every event, engines like Synapse write $O(1)$ deltas but must
    periodically pause to write $O(S)$ full snapshots to prevent read-latency
    degradation. Historical point-queries require fetching the snapshot and
    decompressing the delta chain in memory.
-2. **Branch Blindness:** Engines using auto-incrementing integers for local
+2. **Branch obliviousness:** Engines using auto-incrementing integers for local
    State Group IDs cannot detect when two independent forks resolve to the exact
    same state, resulting in redundant storage and redundant state resolution
-   math.
-3. **The CPU Tax of Determinism:** Engines that attempt to fix branch blindness
-   by hashing the state (e.g., Conduit's `shortstatehash`) must sort the entire
-   state map first, incurring a heavy $O(S \cdot \log S)$ CPU tax on every state
-   event.
+   math and disk I/O.
+3. **CPU tax:** Engines that attempt to fix branch blindness by hashing the
+   state (e.g., Conduit's `shortstatehash`) must sort the entire state map
+   first, incurring a heavy $O(S \cdot \log S)$ CPU tax on every state event.
 
 [MSC4500](4500-state-accumulators.md) introduces `LtHash16` as a wire-facing
 state accumulator. [MSC4511](4511-part-a-topological-metadata-query-api.md)
@@ -39,12 +38,12 @@ Array Mapped Prefix) trie.
 
 The state map `(type, state_key) -> event_id` is stored in the HAMT.
 
-- **Internal Nodes:** Contain a 32-bit `datamap` (marking leaf children) and a
+- **Internal nodes:** Contain a 32-bit `datamap` (marking leaf children) and a
   32-bit `nodemap` (marking internal children). They also cache a 64-bit
   non-cryptographic local **structural hash** computed from the bitmaps and
   child hashes.
-- **Leaf Nodes:** Contain the actual state tuples.
-- **State-Group Root:** Caches the full 2048-byte `LtHash16` lattice for the
+- **Leaf nodes:** Contain the actual state tuples.
+- **State-group root:** Caches the full 2048-byte `LtHash16` lattice for the
   entire state group.
 
 ### `O(1)` State group ID generation & deduplication
@@ -65,15 +64,15 @@ When comparing two state maps (e.g., $A$ and $B$) during a deep rebuild or
 network split, the delta $\Delta$ can be extracted without delta chain
 decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
 
-1. **Short-Circuit via LtHash:** If the 2048-byte `LtHash16` lattices at the
+1. **Short-circuit via LtHash:** If the 2048-byte `LtHash16` lattices at the
    roots of $A$ and $B$ are identical, the state maps have converged. Return an
    empty $\Delta$ in $O(1)$ time.
-2. **Structural Sharing:** Recursively walk the HAMT. If the pointer identities
+2. **Structural sharing:** Recursively walk the HAMT. If the pointer identities
    of node $A'$ and node $B'$ match, skip the subtree.
-3. **Structural Hashing:** If pointers differ (e.g., across process boundaries
+3. **Structural hashing:** If pointers differ (e.g., across process boundaries
    or database reloads), but the 64-bit `structural_hash` matches, skip the
    subtree.
-4. **Deep Diff:** Only when structural hashes differ, iterate the 32-bit CHAMP
+4. **Deep diff:** Only when structural hashes differ, iterate the 32-bit CHAMP
    bitmaps and recurse into differing children to extract the exact mismatched
    leaves.
 
