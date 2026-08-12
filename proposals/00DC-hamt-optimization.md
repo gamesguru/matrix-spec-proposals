@@ -1,4 +1,4 @@
-# MSC00DC: Faster state group, via augmented HAMT
+# MSC00DC: Faster state groups via an augmented HAMT
 
 This proposal describes a non-normative local storage architecture leveraging a
 32-way Hash Array Mapped Trie (HAMT) combined with MSC4500's `LtHash16` state
@@ -15,9 +15,11 @@ suffer from systemic trade-offs:
 
 1. **Delta chains / snapshot cliff:** To avoid rewriting massive $O(S)$ state
    maps on every event, engines like Synapse write $O(1)$ deltas but must
-   periodically pause to write $O(S)$ full snapshots to prevent read-latency
-   degradation. Historical point-queries require fetching the snapshot and
-   decompressing the delta chain in memory.
+   periodically issue a burst $O(S)$ full-snapshot write to prevent read-latency
+   degradation as the chain grows — it doesn't stall the room, but it is a
+   large, spiky write that recurs every `MAX_STATE_DELTA_HOPS` events and whose
+   cost is unavoidably tied to current room size. Historical point-queries
+   require fetching the snapshot and decompressing the delta chain in memory.
 2. **Branch obliviousness:** Engines using auto-incrementing integers for local
    State Group IDs cannot detect when two independent forks resolve to the exact
    same state, resulting in redundant storage and redundant state resolution
@@ -153,27 +155,42 @@ payload + 16B digest) ≈ 4.1KB, against ~500 rows × ~100B ≈ 50KB — still r
 a 12× win. Under the optional full-lattice-per-node variant (2048 bytes/node): 4
 nodes × (~1KB + 2KB) ≈ 12KB against the same 50KB — closer to 4×. (The ~1KB
 CHAMP payload figure is an assumption that swings with node occupancy, not a
-fixed constant.) What survives regardless of digest variant is the structural
-claim, which is the actual basis for eliminating the snapshot cliff in
-Background item 1: there is no periodic pause, because there is no full-$S$
-structure ever rewritten in one step.
+fixed constant, and both figures are pre-compaction — see Write amplification in
+Trade-offs for the multiplier an LSM-backed store adds on top, which the legacy
+side's own snapshot-row storage is not exempt from either.) What survives
+regardless of digest variant is that there is no full-$S$ structure ever
+rewritten in one step; the mechanism behind that claim follows below.
 
 The byte comparison above measures volume moved, not access pattern, and the
-second axis favors the HAMT independently of the first. Trie nodes are
-immutable, so every one of the $\log_{32}(S)$ writes on the path to the root is
-a fresh node — nothing existing is ever mutated in place — which means those
-writes can be streamed as sequential appends regardless of trie size.
-Reconstructing current state from a delta chain instead requires a _dependent_
-walk: each row is a pointer to its predecessor, successive rows are not
-generally co-located on disk, and neither the periodic $O(S)$ snapshot nor an
-ordinary point query can be assembled without following that chain row by row.
-That cost is pseudo-random I/O, not sequential I/O, and it doesn't show up in a
-byte count at all — on rotational media, or under contention with other
-random-access workloads, the gap between the two access patterns can dominate
-the raw byte-volume difference already argued above. This is what actually
-eliminates the snapshot cliff in Background item 1: the HAMT root is already a
+second axis favors the HAMT independently of the first — not because HAMT reads
+are non-dependent (Trade-offs below is explicit that they are: point queries
+cost $\log_{32} S$ serial, unprefetchable hops, same as any trie), but because
+of how many dependent hops each side needs and how likely each hop is to already
+be hot. Writing the new root costs $\log_{32}(S)$ dependent reads to descend the
+existing trie — ~4 hops at $S = 50{,}000$ — followed by $\log_{32}(S)$
+sequential appends of the resulting fresh nodes, since trie nodes are immutable
+and nothing existing is ever mutated in place; the append itself is sequential,
+the update as a whole is descend-then-append. Crucially, the top few levels of
+that descent are shared across every state group in the room, so they stay
+resident in cache under any realistic access pattern — effective _uncached_
+dependent hops are closer to 1–2, not 4. Reconstructing current state from a
+delta chain, by contrast, walks up to the full `MAX_STATE_DELTA_HOPS`
+(default 100) predecessor pointers, and each chain is walked once and evicted —
+delta rows have no equivalent of the trie's shared, permanently-hot upper
+levels. The real comparison is dependent-hop count under realistic caching (~1–2
+vs up to 100), not "dependent vs. not." Each of those hops is a serialized round
+trip that can't be overlapped with the next, so the gap compounds as _latency_,
+not just I/O volume — this holds on NVMe, and holds harder still on
+network-attached storage, where per-hop latency runs tens of times higher than
+local flash. This dependent-hop asymmetry is also why the win isn't a fixed
+constant factor: the legacy side's cost grows with room size ($O(S)$
+unamortized, $O(S/100)$ amortized against the hop ceiling), while the HAMT's
+grows with $\log_{32}(S)$, so the gap between them widens, without bound, as
+rooms grow — this design isn't merely faster today, it's what keeps per-append
+cost from growing polynomially with room size at all. The HAMT root is already a
 fully materialized, queryable snapshot after every append, so no replay of a
-dependent chain is ever needed to produce one.
+dependent chain is ever needed to produce one — that is what eliminates the
+snapshot cliff in Background item 1.
 
 ### Fast delta isolation algorithm
 
@@ -231,7 +248,10 @@ Replacing legacy delta chains with a persistent HAMT introduces specific costs:
   (e.g., ~4 node fetches for a room with 50,000 state events) rather than a
   single hash-table probe. These are serial and unprefetchable — each lookup
   depends on the previous — so they cannot be parallelized the way a single
-  indexed read can.
+  indexed read can. This is a real cost relative to a single-probe index, not a
+  wash relative to delta chains: see Write-path cost, above, for why the
+  comparable legacy figure (up to `MAX_STATE_DELTA_HOPS`, uncached) is worse on
+  both hop count and cache locality, not merely also-dependent.
 - **Write amplification:** Each state append writes $\log_{32} S$ nodes instead
   of one delta row (see Write-path cost, above). On an LSM-backed store this is
   compounded further by compaction, which typically rewrites each node an
@@ -258,6 +278,60 @@ Replacing legacy delta chains with a persistent HAMT introduces specific costs:
   extraction, implementations must still fetch the auth-chain to topologically
   sort the isolated $\Delta$; the auth-chain difference is a DAG problem, not a
   trie problem, and is not derivable from a trie diff.
+
+## Alternatives
+
+- **Raise or eliminate `MAX_STATE_DELTA_HOPS`.** Amortizes the $O(S)$ snapshot
+  cost over more events but doesn't remove it, and pushes the other direction: a
+  higher ceiling means longer chains, and every point query or state resolution
+  pays for the full chain length it lands on, not just the amortized average. It
+  also does nothing for branch obliviousness (Background item 2) or local-only
+  state identity (item 3) — those require a content-derived,
+  cross-server-comparable ID, which a longer delta chain cannot provide by
+  construction.
+- **Compress snapshots.** Reduces bytes moved per snapshot but not the $O(S)$
+  work of assembling one, and does nothing for items 2 or 3 either.
+- **Copy-on-write B-tree pages.** Gets structural sharing and immutability,
+  which addresses some of the write-amplification and point-in-time-query costs
+  above, but a B-tree's node identity is positional (key-range-based), not
+  content-derived — two independently constructed trees over identical content
+  don't reliably converge to identical page contents the way a HAMT's
+  hash-prefix-addressed nodes do, so it doesn't give branch obliviousness or
+  cross-server state identity without extra machinery layered on top.
+- **Branching factor other than 32.** A 16-way trie roughly doubles depth
+  ($\log_{16} S$ vs $\log_{32} S$) for smaller per-node bitmaps (16 bits vs 32
+  bits) and a smaller reference layout per node; a 64-way trie roughly halves
+  depth for larger nodes. 32 was chosen to align with MSC4500's `LtHash16`
+  lattice slot count and existing 32-bit bitmap conventions in comparable HAMT
+  implementations, keeping the per-level bitmap machinery (`datamap`/`nodemap`)
+  a single machine word; the byte-comparison figures in Write-path cost scale
+  with this choice and should be re-derived for a different branching factor,
+  not assumed to hold.
+- **Plain HAMT instead of CHAMP.** A plain HAMT boxes every entry as a child
+  node regardless of subtree occupancy; CHAMP's compression — inlining leaf
+  entries directly into the parent when a subtree holds only leaves — is what
+  keeps node density and cache behavior favorable for the shallow, high-fan-out
+  tries typical of Matrix room state. That density is the point for this
+  workload, not the ordering canonicality CHAMP is more commonly cited for (see
+  Canonicality invariant, above, which this proposal needs for a different
+  reason: pointer-identity sharing and positional deep-diff, not ordering per
+  se).
+
+None of these alternatives address branch obliviousness or local-only state
+identity (Background items 2–3) without independently reinventing a
+content-derived, homomorphic state identifier — which is what MSC4500's
+`LtHash16` already provides, and what this proposal exists to index locally.
+
+## Dependencies
+
+This proposal has a hard dependency on [MSC4500](4500-state-accumulators.md):
+the state-group root's mandatory lattice, the `BLAKE2b-256` collapse used for
+the cached root digest and state-group table key, and the deterministic State
+Group ID scheme in `O(1)` State group ID generation & deduplication (above) all
+assume `LtHash16` is available. Without MSC4500, this proposal has no
+cross-server-comparable identifier to build the HAMT root around, and reduces to
+a purely local delta-chain replacement with no branch-obliviousness or
+state-identity benefit.
 
 ## Security considerations
 
@@ -307,3 +381,10 @@ lattice alongside the lattice itself — the same collapse MSC4500 already defin
 — so the common-case convergence check (step 2 of delta isolation, applied at
 the root) is a cheap fixed-width comparison rather than a 2048-byte one, while
 the full lattice is retained for homomorphic updates.
+
+## Unstable prefix
+
+None required. Nothing described here is wire-facing or introduces a new
+endpoint, event field, or federation behavior; it is a local storage
+implementation detail servers MAY adopt independently of one another, with no
+client- or server-visible API surface to gate behind a feature flag.
