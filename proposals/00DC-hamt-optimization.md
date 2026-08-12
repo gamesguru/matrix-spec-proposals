@@ -67,7 +67,8 @@ The state map `(type, state_key) -> event_id` is stored in the HAMT.
   distinct keys still collide, entries are held in a node with no intrinsic
   ordering. Its digest contribution MUST use a fixed canonical ordering (e.g.
   sort by raw key bytes) — an unordered digest is nondeterministic and breaks
-  cross-implementation and cross-reload comparison.
+  reproducibility across reloads (and, for the optional unkeyed variant below,
+  across implementations too).
 - **State-group root:** MUST cache the true, unkeyed `LtHash16` lattice for the
   entire state group — this is the wire-facing accumulator MSC4500 defines, and
   it is what makes the root reproducible across servers and safe to use as the
@@ -82,24 +83,30 @@ The state map `(type, state_key) -> event_id` is stored in the HAMT.
   than a 2048-byte one, while the full lattice is retained for homomorphic
   incremental updates.
 
-**Canonicality invariant.** This does not affect the soundness of lattice-based
-equality: the root lattice is a shape- and order-independent sum over subtree
-contents, so equal lattices always imply equal content regardless of trie shape.
-Canonical shape still matters for two things this proposal depends on:
+**Canonicality invariant.** Non-canonical shape does not affect the soundness of
+the root's lattice-based equality: the lattice is a shape- and order-independent
+sum over subtree contents, so equal lattices always imply equal content
+regardless of trie shape. But canonical shape is load-bearing everywhere else
+this proposal relies on it. Under the default keyed internal-node digest (Data
+structure, above), the digest is computed over the bitmaps themselves, so two
+equal-content subtrees with different shape — one inlining an entry the other
+has boxed into a child — produce different digests outright; non-canonical shape
+doesn't just slow subtree skipping down, it defeats it, and every comparison
+falls through to deep diff. Canonical shape is also required for
 pointer-identity sharing (step 1 of delta isolation below, and deduplication
 generally), which only pays off if identical content actually converges to
-identical node objects; and the deep-diff step, which pairs `datamap`/`nodemap`
-bits positionally between $A'$ and $B'$ and needs a defined answer when one side
-has inlined an entry the other has boxed into a child — an undefined shape under
-deletion makes that comparison ambiguous, not merely less efficient. CHAMP gives
-canonical shape under insertion — shape is determined purely by hash-prefix and
-bitmap occupancy, independent of insertion order — but **not** under deletion
-unless implementations enforce the standard CHAMP repair invariant: when a
-removal leaves a node holding a single entry and no children, that entry MUST be
-inlined into the nearest ancestor with other content, rather than left as a
-degenerate single-entry node. Skipping this repair reintroduces
-insertion-order-dependent shape and breaks pointer-identity sharing and
-positional deep-diff across otherwise-identical state maps.
+identical node objects; and for the deep-diff step itself, which pairs
+`datamap`/`nodemap` bits positionally between $A'$ and $B'$ and needs a defined
+answer when one side has inlined an entry the other has boxed into a child — an
+undefined shape under deletion makes that comparison ambiguous, not merely less
+efficient. CHAMP gives canonical shape under insertion — shape is determined
+purely by hash-prefix and bitmap occupancy, independent of insertion order — but
+**not** under deletion unless implementations enforce the standard CHAMP repair
+invariant: when a removal leaves a node holding a single entry and no children,
+that entry MUST be inlined into the nearest ancestor with other content, rather
+than left as a degenerate single-entry node. Skipping this repair reintroduces
+insertion-order-dependent shape and breaks subtree skipping, pointer-identity
+sharing, and positional deep-diff across otherwise-identical state maps.
 
 ### `O(1)` State group ID generation & deduplication
 
@@ -125,16 +132,17 @@ foreign references then carry the 32-byte key, not the full lattice.
 Each state append (join, profile update, ban, etc.) writes $\log_{32}(S)$ trie
 nodes along the path from the changed leaf to the root. For a room with
 $S = 50{,}000$ state events, $\lceil \log_{32}(50{,}000) \rceil = 4$ node writes
-— that bound holds up to $S \approx 1.05 \times 10^6$ before climbing to 5–6 for
-community-scale rooms ($10^8$–$10^9$ state events). This replaces the legacy
-delta-chain append plus periodic $O(S)$ full-snapshot rewrite. Synapse-lineage
-engines pay that $O(S)$ snapshot cost only periodically, once the delta chain
-exceeds a hop ceiling (`MAX_STATE_DELTA_HOPS`, default 100), so the honest
-comparison is against an _amortized_ $O(S / 100)$ per-**state-event** legacy
-cost, not against the unamortized $O(S)$ figure — and since that denominator
-counts state events specifically, not all room traffic, the true amortized cost
-per state event is higher than a per-room-event framing would suggest, which
-understates the legacy cost if anything.
+— that bound holds up to $S \approx 1.05 \times 10^6$, which already covers
+every real Matrix room; the largest known rooms sit in the $10^5$–$10^6$ range,
+not the $10^8$–$10^9$ scale where the depth would climb to 6. This replaces the
+legacy delta-chain append plus periodic $O(S)$ full-snapshot rewrite.
+Synapse-lineage engines pay that $O(S)$ snapshot cost only periodically, once
+the delta chain exceeds a hop ceiling (`MAX_STATE_DELTA_HOPS`, default 100), so
+the honest comparison is against an _amortized_ $O(S / 100)$ per-**state-event**
+legacy cost, not against the unamortized $O(S)$ figure — and since that
+denominator counts state events specifically, not all room traffic, the true
+amortized cost per state event is higher than a per-room-event framing would
+suggest.
 
 Counting rows alone favors the HAMT by roughly two orders of magnitude (~4
 writes vs. ~500 amortized row-equivalents at the hop ceiling for our 50,000-
@@ -143,12 +151,12 @@ subtree digest it didn't before (see Data structure). In bytes, using the
 default 128-bit keyed-hash digest (16 bytes/node): 4 nodes × (~1KB CHAMP
 payload + 16B digest) ≈ 4.1KB, against ~500 rows × ~100B ≈ 50KB — still roughly
 a 12× win. Under the optional full-lattice-per-node variant (2048 bytes/node): 4
-nodes × (~1KB + 2KB) ≈ 12KB against the same 50KB — closer to 4×. Either byte
-figure is the one to publish, not the row count, since a storage reviewer will
-redo this arithmetic in seconds. What survives regardless of digest variant is
-the structural claim, which is the actual basis for eliminating the snapshot
-cliff in Background item 1: there is no periodic pause, because there is no
-full-$S$ structure ever rewritten in one step.
+nodes × (~1KB + 2KB) ≈ 12KB against the same 50KB — closer to 4×. (The ~1KB
+CHAMP payload figure is an assumption that swings with node occupancy, not a
+fixed constant.) What survives regardless of digest variant is the structural
+claim, which is the actual basis for eliminating the snapshot cliff in
+Background item 1: there is no periodic pause, because there is no full-$S$
+structure ever rewritten in one step.
 
 ### Fast delta isolation algorithm
 
@@ -167,12 +175,15 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
    width and the underlying hash's collision resistance — and, for the keyed
    variant, from the attacker's inability to target a digest computed with a
    secret they don't have — not from homomorphism, which only buys cheap $O(1)$
-   composition when a digest is updated incrementally. Applied at the root using
-   the mandatory unkeyed lattice, this is the $O(1)$ whole-state-map convergence
-   check described above — the same rule as any other level, not a separate
-   special case — and implementations SHOULD compare the cached
-   `BLAKE2b-256(lattice)` there rather than the full 2048 bytes, for the same
-   reason.
+   composition when a digest is updated incrementally. The root is a deliberate
+   exception to the default keyed scheme, not an oversight: under the default
+   variant every other level compares keyed 128-bit hashes, but the root always
+   compares the mandatory unkeyed lattice, because the root's comparison must be
+   reproducible across servers (it is the State Group ID) while internal-node
+   comparisons never leave the local server. Applied at the root, this is the
+   $O(1)$ whole-state-map convergence check described above, and implementations
+   SHOULD compare the cached `BLAKE2b-256(lattice)` there rather than the full
+   2048 bytes, for the same reason.
 3. **Deep diff:** Only when digests differ, iterate the 32-bit CHAMP bitmaps and
    recurse into differing children to extract the exact mismatched leaves.
 
@@ -215,12 +226,14 @@ Replacing legacy delta chains with a persistent HAMT introduces specific costs:
   distinct nodes — structural sharing means this is _not_ state-group-count ×
   nodes-per-group (that double-counts nodes shared across groups); the live
   figure is closer to $S/31$ internal nodes for the first trie (~1,600 nodes at
-  $S = 50{,}000$), plus ~4 new nodes per subsequent state group. At the default
-  16-byte keyed-hash digest this stays modest even at Synapse scale. The
-  optional full-lattice-per-node variant (2048 bytes/node) is the one that
-  reaches into the gigabytes and is the cost an operator will notice first,
-  independent of read/write latency — treat the two digest variants (see
-  Security considerations) as distinct memory budgets, not one number.
+  $S = 50{,}000$) — a full-occupancy lower bound; sparse occupancy at shallow
+  depths pushes the real count higher — plus ~4 new nodes per subsequent state
+  group. At the default 16-byte keyed-hash digest this stays modest even at
+  Synapse scale. The optional full-lattice-per-node variant (2048 bytes/node) is
+  the one that reaches into the gigabytes and is the cost an operator will
+  notice first, independent of read/write latency — treat the two digest
+  variants (see Security considerations) as distinct memory budgets, not one
+  number.
 - **Garbage collection:** Because nodes are structurally shared across multiple
   state groups, pruning old history requires implementing reference counting or
   mark-and-sweep garbage collection over the trie nodes.
@@ -259,7 +272,11 @@ lattice, not a substitute for it:
   given the memory analysis in Trade-offs. It is not homomorphic, so it cannot
   replace the root lattice for the `O(1)` incremental State Group ID updates
   described above — that still requires the true unkeyed lattice at the root,
-  maintained independently.
+  maintained independently. Because these digests are never compared across
+  servers, only across reloads of the same server, the key MUST be persisted and
+  stable across restarts: an implementation that regenerates or rotates it on
+  boot invalidates every cached internal-node digest on disk, forcing a full
+  subtree-digest rebuild before delta isolation can skip anything again.
 - **Optional: full unkeyed `LtHash16` sub-lattice at every internal node.** At
   2048 bytes/node this is not grindable regardless of keying, gives exact,
   key-independent lattice-strength equality at every level (not just the root),
