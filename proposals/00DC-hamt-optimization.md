@@ -244,14 +244,19 @@ obligation on any engine adopting this proposal.
 
 Replacing legacy delta chains with a persistent HAMT introduces specific costs:
 
-- **Dependent reads:** Point queries require $\log_{32} S$ dependent I/O lookups
-  (e.g., ~4 node fetches for a room with 50,000 state events) rather than a
-  single hash-table probe. These are serial and unprefetchable — each lookup
-  depends on the previous — so they cannot be parallelized the way a single
-  indexed read can. This is a real cost relative to a single-probe index, not a
-  wash relative to delta chains: see Write-path cost, above, for why the
-  comparable legacy figure (up to `MAX_STATE_DELTA_HOPS`, uncached) is worse on
-  both hop count and cache locality, not merely also-dependent.
+- **Dependent reads:** Point queries require $\log_{32} S$ dependent node
+  fetches (e.g., ~4 for a room with 50,000 state events) rather than a single
+  hash-table probe. These are serial and unprefetchable — each fetch depends on
+  the previous — so they cannot be parallelized the way a single indexed read
+  can. How many become cold I/O depends on the store's layout: the upper levels
+  are a small bounded set (one root, at most 32 nodes at level 1, at most 1024
+  at level 2) that an implementation can keep resident, but only if its node
+  keys cluster them; a purely content-derived key scatters them across the
+  keyspace, so residency is paid per cache block rather than per node. This is a
+  real cost relative to a single-probe index, not a wash relative to delta
+  chains: see Write-path cost, above, for why the comparable legacy figure (up
+  to `MAX_STATE_DELTA_HOPS`, uncached) is worse on both hop count and cache
+  locality, not merely also-dependent.
 - **Write amplification:** Each state append writes $\log_{32} S$ nodes instead
   of one delta row (see Write-path cost, above). On an LSM-backed store this is
   compounded further by compaction, which typically rewrites each node an

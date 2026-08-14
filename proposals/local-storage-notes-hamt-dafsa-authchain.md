@@ -189,7 +189,7 @@ used to size any cache or storage decision. This is the same category of open
 empirical question as the state-group convergence telemetry noted elsewhere;
 don't carry either number into a design decision as though it were measured.
 
-### `ShortEventId` ordering: what it buys you, and the one thing it must never be used for
+### `ShortEventId` ordering: benefits and advised restrictions
 
 Where a monotonically-increasing integer ID is minted at ingestion time and used
 as the transitive-closure array's element type, sorting that array by value
@@ -237,12 +237,65 @@ sorted array with binary search, a bitmask, or another dedicated structure is
 worth it. For a set sized in the tens to low hundreds, optimizing this before
 measuring it is very likely wasted engineering effort.
 
+## 4. Physical storage & key encoding (Ordered Key-Value Stores)
+
+While the HAMT is logically a pointer-chasing trie, physical layout in an
+ordered key-value store (e.g. RocksDB SSTables, or B-tree pages) is purely a
+function of the key encoding. A naive content-addressed key (`[digest]`)
+uniformly scatters a room's nodes across the entire database.
+
+A **room-and-depth bucketed key encoding** addresses this:
+`[shortroomid][depth][digest]`
+
+This encoding provides two structural properties without changing the HAMT
+logic:
+
+1. **Resident upper prefix:** All of a room's level 0, 1, and 2 nodes are
+   clustered into a contiguous keyspace. As the room grows, this upper prefix
+   becomes a vanishingly small fraction of the total structure (e.g., at _S_ =
+   50,000, levels 0–2 are ~1,000 nodes, representing ~40% of the trie; at _S_ =
+   1,000,000, those same ~1,000 nodes are ~3%). An implementation can reasonably
+   expect to keep this prefix resident. (This is a layout argument, not a
+   measurement, and should be validated against actual block cache telemetry
+   before relying on it to size a cache.)
+2. **Room-scoped deduplication:** Deduplication is preserved within the room.
+   State-event references (specifically the `ShortEventId` values, unlike
+   globally-allocated `shortstatekey`s) are room-unique, so no node containing
+   one can be shared across rooms at _any_ level. Room-prefixing forfeits
+   exactly zero deduplication.
+
+**Resolver API implication.** A key of `[shortroomid][depth][digest]` means a
+node cannot be fetched from its digest alone. The resolver interface must carry
+the room and the depth (e.g.,
+`FnMut(&StructuralHash, Depth) -> Result<HamtNode>`). Since the trie traversal
+inherently knows its current depth, this is mechanically straightforward, but it
+represents an API change from a purely content-addressed store.
+
+**Depth-in-key relies on content-determined depth.** Depth-in-key is safe only
+because depth is content-determined here: in a hash-prefix-indexed trie, a
+subtrie at depth _d_ is exactly the entry set sharing a _d_-length hash prefix,
+and the entries determine their own hashes. The CHAMP invariant (which mandates
+that a removal leaving a single entry inlines it into the nearest ancestor) is
+safe here: which entries become singletons is itself determined by the
+_d_-prefix entry set, so node content remains strictly content-determined. The
+same digest cannot legitimately appear at two depths, so prefixing by depth
+doesn't fragment deduplication.
+
+However, **path compression breaks this**: a collapsed single-child chain's
+placement depth is a function of what else is in the trie, not of the node's
+contents, so the same digest can legitimately occupy different depths in
+different generations. No naming convention recovers content-determination here
+— the choice is between excluding compressed nodes from depth bucketing (keying
+them by digest alone) and accepting a bounded intra-room deduplication loss
+where a shared compressed node is stored once per distinct depth. Which is
+cheaper is unmeasured.
+
 ## Where this fits relative to the MSCs
 
 None of the structures described here (HAMT, DAFSA, Merkle-ized prefix tries,
-transitive-closure auth chains, chain covers, `ShortEventId` interning) appear
-on the wire. They are local indexing and storage choices that sit entirely
-behind:
+transitive-closure auth chains, chain covers, `ShortEventId` interning,
+depth-bucketed key encodings) appear on the wire. They are local indexing and
+storage choices that sit entirely behind:
 
 - MSC4500's `LtHash16` accumulator digest, which is the sole cross-server
   equality commitment for room state.
