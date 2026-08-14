@@ -259,10 +259,8 @@ logic:
    measurement, and should be validated against actual block cache telemetry
    before relying on it to size a cache.)
 2. **Room-scoped deduplication:** Deduplication is preserved within the room.
-   State-event references (specifically the `ShortEventId` values, unlike
-   globally-allocated `shortstatekey`s) are room-unique, so no node containing
-   one can be shared across rooms at _any_ level. Room-prefixing forfeits
-   exactly zero deduplication.
+   State-event references are room-unique, so room-prefixing does not materially
+   reduce deduplication for the state-map trie.
 
 **Resolver API implication.** A key of `[shortroomid][depth][digest]` means a
 node cannot be fetched from its digest alone. The resolver interface must carry
@@ -274,12 +272,12 @@ represents an API change from a purely content-addressed store.
 **Depth-in-key relies on content-determined depth.** Depth-in-key is safe only
 because depth is content-determined here: in a hash-prefix-indexed trie, a
 subtrie at depth _d_ is exactly the entry set sharing a _d_-length hash prefix,
-and the entries determine their own hashes. The CHAMP invariant (which mandates
-that a removal leaving a single entry inlines it into the nearest ancestor) is
-safe here: which entries become singletons is itself determined by the
-_d_-prefix entry set, so node content remains strictly content-determined. The
-same digest cannot legitimately appear at two depths, so prefixing by depth
-doesn't fragment deduplication.
+and the entries determine their own hashes. In the non-compressed CHAMP case,
+the invariant that a removal leaving a single entry inlines it into the nearest
+ancestor is safe here: which entries become singletons is itself determined by
+the _d_-prefix entry set, so node content remains strictly content-determined.
+In that case the same digest cannot legitimately appear at two depths, so
+prefixing by depth doesn't fragment deduplication.
 
 However, **path compression breaks this**: a collapsed single-child chain's
 placement depth is a function of what else is in the trie, not of the node's
