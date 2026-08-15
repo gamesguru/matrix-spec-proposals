@@ -35,14 +35,6 @@ element removal), collision-resistant 2048-byte `LtHash16` accumulator function
 production blockchain architectures to compute real-time, incremental
 cryptographic state commitments under high transactional volume [^5], [^6].
 
-Avoiding diff chain reconstruction for point lookups will reduce Synapse's
-electricity consumption across a wide range of API state endpoints.
-
-The accumulator under question may be called 'homomorphic' and solves the
-following hashing problem: "Given the hash of an input, along with a small
-update to the input, how can we compute the hash of the new input with its
-update applied, without having to recompute the entire hash from scratch?"
-
 Should this proposal be accepted, for the sake of federation clarity homeservers
 must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
 accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
@@ -596,68 +588,34 @@ contract.
 
 ### State identifiers and local storage optimizations
 
-While this proposal primarily addresses federation, the adoption of a
-homomorphic sum accumulator introduces a paradigm shift for local homeserver
-database architectures, shifting state management from being _path-dependent_ to
-_path-independent_. This database paradigm mirrors modern high-stakes ledger
-optimizations (such as Solana's "Accounts Lattice Hash" system [^5]) that
-compute rolling, $O(1)$ state-root identities directly via vector addition to
-entirely bypass quadratic or linearithmic sorting and hashing bottlenecks.
+Locally, an accumulator makes state identity path-independent instead of
+path-dependent (cf. Solana's "Accounts Lattice Hash" [^5], which computes
+rolling `O(1)` state-root identities the same way). Today's homeservers trade
+read-time CPU against write-time I/O: Synapse's incrementing "state group" IDs
+need cache-heavy comparisons or graph traversal to tell two groups apart, and
+rely on background workers to deduplicate converging groups; Conduit-derived
+implementations hash sorted state lists (`ShortStateHash`) for cheap reads but
+must re-materialize, re-sort, and re-hash the full state vector on every write,
+since `BLAKE2b-256` isn't homomorphic.
 
-Currently, homeservers are forced into a trade-off between read-time CPU
-consumption and write-time I/O amplification:
+An `LtHash16` accumulator's 32-byte digest gives three optimizations instead:
 
-- Homeservers like **Synapse** track room states using locally-incrementing IDs
-  ("state groups"). Determining if two state groups contain identical state
-  requires cache-heavy dictionary comparisons or expensive backward graph
-  traversals. Synapse currently relies on complex background workers to
-  eventually deduplicate converging state groups.
-- Rust-based implementations like **Conduit-based derivatives** optimize
-  read-time reconstruction by hashing sorted lists of state events (e.g.,
-  `ShortStateHash`), but incur heavy write-time amplification. Because standard
-  hashes like `BLAKE2b-256` are not homomorphic, generating a state-collapse
-  digest requires materializing, re-sorting, and re-hashing the entire state
-  vector upon every state change; that is a separate concern from event-ID
-  hashing.
+1. **`O(1)` state progression.** A new state group's digest is the parent's
+   cached lattice with one subtraction and one addition, collapsed — no delta
+   walk, no re-sorted materialization, independent of room size or fork depth.
+2. **Free deduplication.** Lattice addition is commutative, so `Base + X + Y`
+   and `Base + Y + X` collapse to the same digest regardless of DAG-branch
+   ordering. Convergent branches can be deduplicated to one state group ID via a
+   plain unique-index or point lookup, with no dictionary comparison.
+3. **Fast-path state resolution.** State resolution v2/v2.1's first step —
+   checking whether diverging tips actually differ — becomes a 32-byte
+   comparison; equal digests mean no conflict set, skipping the algorithm
+   entirely.
 
-With an `LtHash16` accumulator, the 32-byte collapsed digest acts as a
-deterministic, cryptographically-secure natural fingerprint for the resolved
-state dictionary. This solves multiple architectural bottlenecks:
-
-1. **$O(1)$ State progression (write-path efficiency gain):** To compute the
-   state fingerprint for a newly arriving event, the homeserver no longer needs
-   to walk a delta chain or re-hash a materialized, canonically sorted JSON
-   dictionary. The server simply loads the parent's cached 2048-byte lattice,
-   homomorphically subtracts the replaced event (if any), adds the new event,
-   and collapses it to the new 32-byte digest. Generating the deterministic
-   identity of a new state group in a massive room is a microsecond operation
-   strictly independent of the room's total size or the fork's depth.
-
-2. **Maintaining commutativity (fast deduplication):** Because Matrix history is
-   a Directed Acyclic Graph (DAG), concurrent branches frequently apply
-   independent state changes in different orders (e.g., Server A sees event $X$
-   then $Y$; Server B sees $Y$ then $X$). Because the accumulator relies on
-   commutative modulo addition, `Base + X + Y` produces the exact same lattice
-   and digest as `Base + Y + X`. Homeservers can instantly deduplicate
-   convergent DAG branches into a single shared state group ID upon ingestion
-   (e.g., via a relational `UNIQUE` index or a key-value point lookup map),
-   without ever expanding or comparing dictionaries.
-
-3. **Fast-path state resolution:** During state resolution v2/v2.1, an expensive
-   early step is determining if diverging DAG tips actually contain different
-   states before building a conflict set. With the accumulator, this
-   historically expensive code path is short-circuited by a single 32-byte
-   memory comparison. If the diverging branches have the same digests, the
-   server knows with cryptographic assurance that there is no conflict set, and
-   can safely bypass the state resolution algorithm.
-
-While relational delta chains (pointers to parent state groups) are still
-required to materialize state into memory for client APIs and to isolate actual
-conflict sets during resolution (since a homomorphic hash cannot be inverted to
-name its constituent events), the accumulator relegates these structures purely
-to storage compression and certain cases of read-path retrievals. The
-traditionally bottlenecked write-path and the fast-path equality checks are
-entirely decoupled from delta chains or full state materialization.
+Delta chains are still needed to materialize state for client APIs and to
+isolate the actual conflict set during resolution (a homomorphic hash can't be
+inverted to name its summands); the accumulator only removes them from the
+write-path and the fast-path equality check.
 
 ## Potential issues
 
@@ -668,11 +626,9 @@ individual PDUs, they only survive the direct origin-to-first-hop transmission.
 If an event is relayed, or fetched later via `/backfill`, the hashes are
 missing.
 
-However, this is an acceptable constraint. The direct `/send` hop is precisely
-where real-time early-warning detection is most valuable to prevent split-brain.
-The `unsigned` dictionary on individual PDUs suffers from similar survival
-issues, as it is routinely stripped or rewritten by intermediate servers, making
-it prone to replication drift and structural or semantic ambiguity.
+This is an acceptable constraint: the direct `/send` hop is where real-time
+early-warning detection matters. `unsigned` suffers the same survival gap for
+the same reason — routinely stripped or rewritten by intermediate servers.
 
 ### False alarms (federation signal noise and DoS vectors)
 
@@ -746,11 +702,9 @@ from the server's timeline and resolved state, _are_ safe for any internal
 optimizations and representations described in this proposal (state group
 identity, fast-path deduplication, short-circuiting state resolution).
 
-The hashes are purely diagnostic tools and performance boosters. Servers must
-still rely exclusively on their internal state to judge soft-failures. Servers
-should only implement changes in federation prioritization at their discretion,
-since needless complexity can introduce unintended side-effects and the benefits
-of reconciliation remain, at the time of writing, investigative or speculative.
+The hashes are diagnostic only. Servers still rely exclusively on their internal
+state to judge soft-failures; any change to federation prioritization based on a
+mismatch is an implementation's own discretion.
 
 **State-isolation assurance:** Even a successful collision attack cannot corrupt
 room state. Because remote digests are never used to construct, modify, or
