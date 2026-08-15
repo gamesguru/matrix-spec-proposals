@@ -632,6 +632,11 @@ believe they were following the room version.
   corroboration layers, but it leaves the first observed binding unprotected
   against DNS or routing attacks.
 
+- **Scoped signing keys (MSC4100).** This is a narrower protocol-hardening
+  measure than the caching rules in this MSC, but it is still a relevant prior
+  art because it constrains which keys can be used for which federation
+  purposes.
+
 - **Bind federation more tightly to WebPKI-validated origin domains.** This is
   directionally attractive, and has prior art in
   [MSC1711](https://github.com/matrix-org/matrix-spec-proposals/pull/1711),
@@ -1134,6 +1139,10 @@ computationally intractable, for the same reason this section proposes deriving
 `key_id` from a hash of the key body. If MSC4291 lands first, it would be a
 concrete existing precedent for this kind of content-addressed identifier inside
 a room version's auth rules.
+
+This is also the closest MSC in the room-version namespace that shows the same
+mechanical move this proposal would need for key IDs: derive the identifier from
+the content being committed, not from an operator-chosen label.
 
 This is one of several adjacent proposal lines which address the deeper problem
 that Matrix currently uses mutable, domain-scoped server signing keys as both a
