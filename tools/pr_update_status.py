@@ -151,7 +151,7 @@ def main() -> int:
     fieldnames = list(rows[0].keys()) if rows else []
     out_fh = open(args.out, "w", newline="") if args.out else sys.stdout
     try:
-        writer = csv.DictWriter(out_fh, fieldnames=fieldnames)
+        writer = csv.DictWriter(out_fh, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     finally:
