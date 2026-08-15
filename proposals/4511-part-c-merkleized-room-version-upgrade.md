@@ -523,6 +523,9 @@ passes normal Matrix authorization and event verification.
 - [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
   as related work for representing state progression separately from the message
   event DAG.
+- [MSC4311: Ensuring the create event is available on invites](4311-stripped-state-create-event.md),
+  as nearby room-version/state work for making stripped-state content available
+  when room-version transitions need extra validation context.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata][polkadot-rfc-0078] as
   prior art for committing to metadata with a root hash while revealing only the
   pieces needed by the verifier.

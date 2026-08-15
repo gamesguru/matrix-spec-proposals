@@ -463,7 +463,7 @@ point and proceeds from there.
 It is important to note that the delta lattice cannot name events you have never
 seen—a lattice sum isn't invertible to its summands (the property that makes it
 collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSC0501 [Gossip-based federation room
+enumeration and healing are delegated to MSC0F01 [Gossip-based federation room
 reconciliation] and its `/room_diff` and `/room_events` endpoints. Attempting to
 recover the missing `+12 / -18` events directly from the accumulator difference
 is computationally intractable in the general case; the accumulator is for
@@ -491,13 +491,13 @@ already proved (that a mismatch exists), and a server that omits `shape` simply
 forgoes classification, not detection.
 
 Furthermore, this MSC cannot detect omissions in messages, redactions, or other
-non-state-altering events. For this capability, it fully defers to MSC0501.
+non-state-altering events. For this capability, it fully defers to MSC0F01.
 
-## Synergy with MSC0501 (event set reconciliation)
+## Synergy with MSC0F01 (event set reconciliation)
 
-This proposal and MSC0501 (`room_digest` / `room_diff`) solve fundamentally
+This proposal and MSC0F01 (`room_digest` / `room_diff`) solve fundamentally
 different sets. MSC4500's accumulator covers the room's _current resolved state
-set_ at arbitrary DAG positions. MSC0501's algebraic digest and bounded
+set_ at arbitrary DAG positions. MSC0F01's algebraic digest and bounded
 extremity fallback cover the _known event set_ (accepted events and retained
 rejection tombstones across the frame).
 
@@ -509,12 +509,12 @@ also holding true), the two proposals nicely complement each other:
    round trips.
 2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
    `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSC0501):** `room_diff` identifies missing event IDs and
+3. **Reconcile (MSC0F01):** `room_diff` identifies missing event IDs and
    `room_events` retrieves their PDUs and auth chains. The receiver admits
    verified events to its DAG, then recomputes its resolved state locally;
    remote state digests and state maps are never write targets.
 
-Because MSC4500 gives active rooms free passive detection, MSC0501's periodic
+Because MSC4500 gives active rooms free passive detection, MSC0F01's periodic
 polling can back off significantly for rooms with recent inbound transactions.
 
 ## Synergy with MSC4521 (state-set sketch reconciliation)
@@ -522,7 +522,7 @@ polling can back off significantly for rooms with recent inbound transactions.
 [Reconciliation (bisecting forks)](#reconciliation-bisecting-forks) above treats
 `/state_accumulator` as the only lookup primitive: once a mismatch is known, the
 receiver walks the DAG at `O(log ΔD)` depth to isolate a divergence point, then
-hands enumeration off to MSC0501. Servers that also implement MSC4521's
+hands enumeration off to MSC0F01. Servers that also implement MSC4521's
 State-map binding profile (see
 [Element derivation](../4521-algebraic-set-reconciliation.md#element-derivation)
 and

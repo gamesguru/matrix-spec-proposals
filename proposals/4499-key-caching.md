@@ -627,6 +627,11 @@ believe they were following the room version.
   explicitly avoids. Notary servers may themselves have stale caches,
   complicating efforts at gossip or consensus.
 
+- **Pure Trust-On-First-Use (MSC3834).** Keep the existing TOFU model and accept
+  first-contact poisoning as an explicit trade-off. This is simpler than adding
+  corroboration layers, but it leaves the first observed binding unprotected
+  against DNS or routing attacks.
+
 - **Bind federation more tightly to WebPKI-validated origin domains.** This is
   directionally attractive, and has prior art in
   [MSC1711](https://github.com/matrix-org/matrix-spec-proposals/pull/1711),

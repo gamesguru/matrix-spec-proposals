@@ -362,7 +362,7 @@ narrows the candidate population to the prefix that still overflows.
 ## Strata estimator
 
 Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
-difference sizing. MSC0501 requires all 32 entries on its sketch-sizing
+difference sizing. MSC0F01 requires all 32 entries on its sketch-sizing
 preflight; other consumers MAY treat the estimator as a local recommendation if
 they expose it at all.
 
@@ -613,7 +613,7 @@ resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
 the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
 measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
-The strata estimator is an optimization; MSC0501 requires all 32 entries on its
+The strata estimator is an optimization; MSC0F01 requires all 32 entries on its
 sketch-sizing preflight, while other consumers MAY treat it as a local
 recommendation if they expose it at all.
 
@@ -672,7 +672,7 @@ therefore lets a single offline grind permanently disable $1/2^{32}$ of the key
 space for every peer, with no recovery path. To bound this, the fallback MUST be
 scoped and time-limited rather than permanent: implementations MUST cache a
 ladder-failed prefix keyed on the consuming protocol's population-context
-identity (this profile does not itself define frames or rooms; under MSC0501
+identity (this profile does not itself define frames or rooms; under MSC0F01
 that identity is the `(room_id, frame_id)` pair) with a bounded TTL, RECOMMENDED
 to be no longer than the consuming protocol's own state/frame lifetime and in
 any case not persisted indefinitely, and MUST re-probe (re-enter the sketch
@@ -939,7 +939,7 @@ implemented three incompatible ways:
 ## Possible consumers
 
 - MSC4242 (State DAGs) — over an index of state events.
-- MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
+- MSC0F01 (federation missed-PDU reconciliation) — over a room's known-event set
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
 - MSC4500 (state accumulators) — over a room's resolved state map, via the
