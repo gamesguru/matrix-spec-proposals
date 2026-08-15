@@ -435,9 +435,10 @@ against the sender's full accumulator lattice.
 MSC4511 and MSC4521 complement this lookup primitive rather than replace it:
 MSC4511 can provide graph metadata and ancestor hints for choosing candidate
 repair points, and MSC4521 can reconcile known event sets after a gap has been
-identified, but neither proposal exposes historical resolved-state accumulators.
-For resolved-state divergence, `/state_accumulator` remains the lookup
-primitive.
+identified. Neither proposal exposes historical resolved-state accumulators —
+that remains `/state_accumulator`'s role — but see
+[Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation)
+below for an optional sketch-based accelerant to the bisection walk itself.
 
 The delta lattice tells you _that_ you've diverged and lets you **bisect** to
 _where_. Because both servers can produce digests at historical DAG points, the
@@ -515,6 +516,76 @@ also holding true), the two proposals nicely complement each other:
 
 Because MSC4500 gives active rooms free passive detection, MSC0501's periodic
 polling can back off significantly for rooms with recent inbound transactions.
+
+## Synergy with MSC4521 (state-set sketch reconciliation)
+
+[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks) above treats
+`/state_accumulator` as the only lookup primitive: once a mismatch is known, the
+receiver walks the DAG at `O(log ΔD)` depth to isolate a divergence point, then
+hands enumeration off to MSC0501. Servers that also implement MSC4521's
+State-map binding profile (see
+[Element derivation](../4521-algebraic-set-reconciliation.md#element-derivation)
+and
+[State-map binding](../4521-algebraic-set-reconciliation.md#state-map-binding))
+MAY skip or shorten that walk: instead of bisecting to a point and enumerating
+from there, the two sides exchange a PinSketch syndrome sketch directly over the
+resolved state maps at the already-known mismatched `before`/`after` DAG
+position, and decode the symmetric difference in one round trip.
+
+This is an accelerant to bisection, not a replacement for it, and it is
+capability-gated the same way `/state_accumulator` itself is (see
+[Capability discovery](#capability-discovery)): a receiver that does not
+advertise MSC4521 support falls back to tree-walk bisection exactly as today.
+This section defines nothing new about _when_ to reconcile, only a faster path
+for servers that already support both proposals.
+
+### Where the sketch travels
+
+The sketch MUST NOT be attached to per-PDU `state_hashes` entries, and MUST NOT
+be sent unconditionally with every transaction. A 32-entry strata estimator
+alone is a fixed 2048 bytes — the same size as the raw `LtHash16` lattice this
+proposal exists specifically to avoid transmitting (see
+[Network efficiency](#network-efficiency)). Sending it per-PDU, or even once per
+transaction, reproduces the exact cost this proposal was written to eliminate.
+
+Instead, the sketch is requested only after a mismatch is already known, as an
+optional addition to the existing escalation path:
+
+- As an added field on `state_hash_mismatch` (see
+  [Receiver contract](#receiver-contract)): a receiver that already knows it
+  diverged MAY include a `strata_estimator` alongside the mismatch report,
+  letting the sender decide in one extra round trip whether a full sketch
+  exchange is worth provisioning.
+- As a query option on `/state_accumulator`, e.g. `?sketch=true`, returning a
+  PinSketch syndrome sketch of the resolved state map at that DAG point instead
+  of, or alongside, the raw accumulator.
+
+### Sizing and fallback
+
+Sketch provisioning follows MSC4521's own strata-estimator rule: size the
+initial extraction request from $\hat d$, escalate on `capacity_exceeded`, and
+treat a `low_confidence` or `null` estimate as a signal to fall back to
+tree-walk bisection or a bulk `/state_accumulator` fetch rather than
+provisioning a large sketch speculatively. This mirrors the existing
+[Reconciliation](#reconciliation-bisecting-forks) fallback for historical points
+with no stored accumulator: both routes degrade to the same bulk-fetch floor,
+they just differ in how cheaply they resolve the common case.
+
+Because state-map divergence tends to cluster — a single bad state-resolution
+outcome on one branch typically drags a run of `(type, state_key)` slots along
+with it, rather than dropping independently at random the way missed PDUs often
+do — implementations SHOULD NOT assume MSC4521's strata-estimator bounds,
+calibrated primarily against event-set churn, transfer unchanged to
+resolved-state divergence. Operators adopting this section are encouraged to
+validate estimator tightness against their own state-map divergence patterns
+before relying on `low_confidence` thresholds tuned for the event-set case.
+
+### Non-goals
+
+This section does not change what MSC4500 detects or when: the `before`/ `after`
+`LtHash` digests remain the sole free, passive, per-transaction signal. Nothing
+here is required to implement the base proposal; a server MAY implement full
+`/state_accumulator` bisection and never implement this section at all.
 
 ## Implementation notes
 
@@ -880,7 +951,10 @@ This proposal is fully backwards-compatible:
 
 ## Dependencies
 
-This proposal currently has no known dependencies.
+This proposal currently has no known dependencies. The optional
+[Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation)
+section depends on MSC4521's State-map binding profile, but implementing it is
+not required to implement this proposal.
 
 ## Open questions
 
@@ -894,10 +968,13 @@ This proposal currently has no known dependencies.
 - **Self-verification:** Could servers perform self-verification (e.g. checking
   checksums of the result) before signing off on it? Is there value in auditing
   one's own state (either on-the-fly or on past events)?
-- **Future reconciliation structures:** If boolean drift detection is not
-  enough, should future work standardize an auxiliary set-reconciliation
-  structure (e.g. IBLT, Merkle search tree, or state-event LCA traversal) for
-  cheap event-level delta discovery after an accumulator mismatch?
+- **Future reconciliation structures:** MSC4521's State-map binding (see
+  [Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation))
+  now gives an optional PinSketch-based path for cheap state-level delta
+  discovery after an accumulator mismatch. Is one sketch-based structure enough,
+  or is there still a case for IBLT or Merkle-search-tree alternatives (e.g. for
+  servers that want the accelerant without pulling in MSC4521's GF(64)
+  machinery)?
 
 ## References
 

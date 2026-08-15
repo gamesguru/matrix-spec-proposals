@@ -148,6 +148,26 @@ Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
 the event-ID string or exclude the event from the population. This profile does
 not use auxiliary hash functions (e.g., `XXH3`).
 
+### State-map binding
+
+For resolved room state (as used by state-set consumers such as MSC4500), each
+element is one occupied `(type, state_key)` slot in the resolved state map at a
+given DAG point. `D(e)` is the `SHA-256` digest of the UTF-8 encoding of
+`type + "\x00" + state_key + "\x00" + event_id`, where `event_id` is the ID of
+the event currently occupying that slot, encoded per the room version's event-ID
+rules above (or the raw string for legacy room versions). Including `event_id`
+in the digest means a slot that changes occupant — not just a slot that appears
+or disappears — is itself a distinct element from the consuming set's point of
+view; the symmetric difference $S_A \triangle S_B$ therefore recovers both
+structural drift (a `(type, state_key)` present on one side only) and mutation
+drift (the same slot occupied by different events on each side) as a single
+element pair.
+
+This profile operates over the resolved state at one DAG point at a time. Both
+sides MUST compute it over the identical `before`/`after` position for a
+comparison to be meaningful — the same single-validated-frame requirement
+[Element derivation](#element-derivation) already states generally.
+
 ## Field
 
 The 64-bit Galois field is defined as
@@ -922,6 +942,9 @@ implemented three incompatible ways:
 - MSC0501 (federation missed-PDU reconciliation) — over a room's known-event set
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
+- MSC4500 (state accumulators) — over a room's resolved state map, via the
+  [State-map binding](#state-map-binding) profile, as an optional accelerant to
+  its bisection-based reconciliation path.
 
 <!-- ## References -->
 
