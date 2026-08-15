@@ -126,7 +126,11 @@ implemented as follows:
 4. **Removal and replacement.** Removing an element is lane-wise wrapping
    subtraction of its expansion. Replacing the event for a `(type, state_key)`
    pair is one subtraction (old element) followed by one addition (new element)
-   — the `O(1)` update at the heart of this proposal.
+   — the `O(1)` update at the heart of this proposal. A replace operation MUST
+   only be accepted when the removed and added entries refer to the same
+   `(type, state_key)` tuple. If the tuples differ, implementations MUST fail
+   closed with a panic, exception, or equivalent hard error, and MUST NOT
+   reinterpret the call as a replace, add, or remove.
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
 6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
    2048-byte sum lattice $S$ using `BLAKE2b-256`, hex-encoded at 64 characters:
