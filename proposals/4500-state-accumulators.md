@@ -738,6 +738,9 @@ payload of the event, enforcing it as a protocol-level requirement.
   requires a global room version upgrade and excludes older homeservers. It is
   possible this approach will be interleaved with MSC4242 (State DAGs), which
   _does_ make intentional PDU format changes intended for a new room version.
+  The broader state-resolution lineage here is MSC1442, MSC4297, and MSC1759,
+  which show how room versions evolve the conflict-resolution rules that this
+  proposal tries not to disturb.
 
 A transaction-level approach achieves similar diagnostic goal without friction.
 
@@ -762,6 +765,14 @@ free tamper-resistance on the primary hop. Consequently, relaying servers assert
 their own perceived state digest rather than blindly forwarding the origin
 server's viewpoint — limiting the propagation of unverified hints and offering
 broader auditability of major servers that frequently act as relays.
+
+### Historical repair endpoints
+
+MSC2451 (`query_auth`) is the historical example of a federation repair API that
+tried to recover missing or stale state-related information over the wire. It is
+relevant here as a cautionary predecessor: this MSC keeps the repair primitive
+additive and diagnostic, rather than trying to turn remote state into an
+authoritative write target.
 
 ## Security considerations
 
