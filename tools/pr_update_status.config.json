@@ -1,0 +1,50 @@
+{
+  "local_ref": "guru/working",
+  "placeholder_pattern": "MSC ?(0[0-9A-F]{3}|45XX|00[A-Z][0-9A-Z]?)",
+  "mscs": [
+    {
+      "msc": "4499",
+      "pr_number": 4499,
+      "pr_branch": "origin/guru/4499-strict-key-caching",
+      "files": ["proposals/4499-key-caching.md"],
+      "impl_branches": [
+        {"repo": "../continuwuity2", "branch": "guru/feat/notary-endpoint"}
+      ]
+    },
+    {
+      "msc": "4500",
+      "pr_number": 4500,
+      "pr_branch": "origin/guru/4500-state-accumulators",
+      "files": ["proposals/4500-state-accumulators.md"],
+      "impl_branches": [
+        {"repo": "../continuwuity2", "branch": "guru/feat/msc4500/state-accumulator"}
+      ]
+    },
+    {
+      "msc": "4511",
+      "pr_number": 4511,
+      "pr_branch": "origin/guru/4510-merkleized-topo-api",
+      "files": [
+        "proposals/4511-part-a-topological-metadata-query-api.md",
+        "proposals/4511-part-b-merkle-overlay-backwards-compat.md",
+        "proposals/4511-part-c-merkleized-room-version-upgrade.md"
+      ],
+      "impl_branches": [
+        {"repo": "../continuwuity2", "branch": "guru/feat/msc4511/augmented-hamt"},
+        {"repo": "../rezzy", "branch": "pr-hamt"},
+        {"repo": "../rezzy", "branch": "pr-reachability"}
+      ]
+    },
+    {
+      "msc": "4521",
+      "pr_number": 4521,
+      "pr_branch": "origin/guru/4521-algebraic-set-reconciliation",
+      "files": ["proposals/4521-algebraic-set-reconciliation.md"],
+      "impl_branches": [
+        {"repo": "../continuwuity2", "branch": "guru/feat/pinsketch-algebraic-digest-set-reconciliation"},
+        {"repo": "../rezzy", "branch": "pr-reconcile"},
+        {"repo": "../rezzy", "branch": "pr-gf64"}
+      ]
+    }
+  ]
+}
