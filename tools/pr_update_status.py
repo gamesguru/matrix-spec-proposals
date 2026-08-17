@@ -91,6 +91,10 @@ def local_line_count(repo: Path, local_ref: str, files: list[str]) -> int:
     return total
 
 
+def ref_exists(repo: Path, ref: str) -> bool:
+    return run_git(repo, "rev-parse", "--verify", f"{ref}^{{commit}}") is not None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--config", default=None, help="path to config JSON (default: tools/pr_update_status.config.json next to this script)")
@@ -111,18 +115,36 @@ def main() -> int:
         pr_branch = entry["pr_branch"]
         files = entry["files"]
 
-        pr_head = head_info(repo_root, pr_branch)
-        local_head = head_info(repo_root, local_ref)
+        pr_valid = ref_exists(repo_root, pr_branch)
+        local_valid = ref_exists(repo_root, local_ref)
 
-        local_files = files_at_ref(repo_root, local_ref, files)
-        pr_files = files_at_ref(repo_root, pr_branch, files)
-        only_local = local_files - pr_files
-        only_pr = pr_files - local_files
-        structural = bool(only_local or only_pr)
+        pr_head = head_info(repo_root, pr_branch) if pr_valid else f"<{pr_branch}: not found>"
+        local_head = head_info(repo_root, local_ref) if local_valid else f"<{local_ref}: not found>"
 
-        ins, dele = diff_stat(repo_root, pr_branch, local_ref, files)
-        local_lines = local_line_count(repo_root, local_ref, files)
-        refs = placeholder_refs(repo_root, local_ref, files, placeholder_pattern)
+        if pr_valid and local_valid:
+            local_files = files_at_ref(repo_root, local_ref, files)
+            pr_files = files_at_ref(repo_root, pr_branch, files)
+            only_local = local_files - pr_files
+            only_pr = pr_files - local_files
+            structural = "yes" if bool(only_local or only_pr) else "no"
+            ins_val, dele_val = diff_stat(repo_root, pr_branch, local_ref, files)
+            ins = str(ins_val)
+            dele = str(dele_val)
+            only_local_str = "; ".join(sorted(only_local)) or "-"
+            only_pr_str = "; ".join(sorted(only_pr)) or "-"
+        else:
+            ins = "N/A"
+            dele = "N/A"
+            structural = "UNAVAILABLE"
+            only_local_str = "UNAVAILABLE"
+            only_pr_str = "UNAVAILABLE"
+
+        if local_valid:
+            local_lines = str(local_line_count(repo_root, local_ref, files))
+            refs = placeholder_refs(repo_root, local_ref, files, placeholder_pattern)
+        else:
+            local_lines = "N/A"
+            refs = "UNAVAILABLE"
 
         impl_bits = []
         for impl in entry.get("impl_branches", []):
@@ -141,9 +163,9 @@ def main() -> int:
             "insertions": ins,
             "deletions": dele,
             "local_total_lines": local_lines,
-            "structural_change": "yes" if structural else "no",
-            "files_only_in_local": "; ".join(sorted(only_local)) or "-",
-            "files_only_in_pr": "; ".join(sorted(only_pr)) or "-",
+            "structural_change": structural,
+            "files_only_in_local": only_local_str,
+            "files_only_in_pr": only_pr_str,
             "placeholder_msc_refs": refs,
             "impl_branches": " | ".join(impl_bits) or "-",
         })

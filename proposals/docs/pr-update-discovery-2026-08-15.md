@@ -15,24 +15,67 @@ the last fetch — not re-verified live (fetch was declined mid-session), but
 user-confirmed via `git log --graph` to match:
 
 ```text
-21969b5bd (origin/gitlab/guru/4499-strict-key-caching) initial draft of strict unique signing keyIDs/notary caching rules — 6 weeks ago
-e4d3d70f9 (origin/gitlab/guru/4500-state-accumulators)  initial draft of state accumulators                               — 6 weeks ago
-8c92859c1 (origin/guru/4510-merkleized-topo-api)        chore: rename 4500 -> 4511                                        — 4 weeks ago
-bb76dade3 (origin/gitlab/guru/4521-algebraic-set-reconciliation) initial commit of algebraic set reconciliation           — 3 weeks ago
+21969b5bd (origin/gitlab/guru/4499-strict-key-caching)
+  initial draft of strict unique signing keyIDs/notary caching rules — 6 weeks ago
+e4d3d70f9 (origin/gitlab/guru/4500-state-accumulators)
+  initial draft of state accumulators — 6 weeks ago
+8c92859c1 (origin/guru/4510-merkleized-topo-api)
+  chore: rename 4500 -> 4511 — 4 weeks ago
+bb76dade3 (origin/gitlab/guru/4521-algebraic-set-reconciliation)
+  initial commit of algebraic set reconciliation — 3 weeks ago
 ```
 
 Every PR branch is frozen at its **initial-draft commit** — none of the
 subsequent tightening/review work in `guru/working` has been pushed yet. This is
 a content refresh for each, not a merge negotiation.
 
-## Summary table
+## Summary
 
-| MSC  | GH PR #                                                                | State | PR branch                                                                                           | PR head SHA | File(s) in `guru/working`                                     | Diff vs PR head                                                                                | Structural change?                               | Impl branch (reference)                                                                                                                        |
-| ---- | ---------------------------------------------------------------------- | ----- | --------------------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| 4499 | [#4499](https://github.com/matrix-org/matrix-spec-proposals/pull/4499) | DRAFT | `gamesguru:guru/4499-strict-key-caching`                                                            | `21969b5bd` | `4499-key-caching.md`                                         | +843/-116 (959 total)                                                                          | No (same file, heavily expanded)                 | continuwuity2 `guru/feat/notary-endpoint` @ `40fbc3471`                                                                                        |
-| 4500 | [#4500](https://github.com/matrix-org/matrix-spec-proposals/pull/4500) | OPEN  | `gamesguru:guru/4500-state-accumulators`                                                            | `e4d3d70f9` | `4500-state-accumulators.md`                                  | +390/-47 (437 total)                                                                           | No                                               | continuwuity2 `guru/feat/msc4500/state-accumulator` @ `fd4ce4212`                                                                              |
-| 4511 | [#4511](https://github.com/matrix-org/matrix-spec-proposals/pull/4511) | DRAFT | `gamesguru:guru/4510-merkleized-topo-api` (⚠ branch says 4510, PR is 4511 — turt2live flagged this) | `8c92859c1` | `4511-part-a-...md`, `4511-part-b-...md`, `4511-part-c-...md` | +1901/-0 (all new — PR head has one file: `4511-topological-metadata-query-api.md`, 784 lines) | **Yes — 1 file → 3-part split, same MSC number** | continuwuity2 `guru/feat/msc4511/augmented-hamt` @ `47d91bede`; rezzy `pr-hamt` @ `fb39314`, `pr-reachability` @ `d6e8e9a`                     |
-| 4521 | [#4521](https://github.com/matrix-org/matrix-spec-proposals/pull/4521) | OPEN  | `gamesguru:guru/4521-algebraic-set-reconciliation`                                                  | `bb76dade3` | `4521-algebraic-set-reconciliation.md`                        | +406/-154 (560 total)                                                                          | No                                               | continuwuity2 `guru/feat/pinsketch-algebraic-digest-set-reconciliation` @ `5c547d4de`; rezzy `pr-reconcile` @ `e50bbcd`, `pr-gf64` @ `4c94c96` |
+### MSC 4499
+
+- **GH PR #**:
+  [#4499](https://github.com/matrix-org/matrix-spec-proposals/pull/4499) (DRAFT)
+- **PR branch**: `gamesguru:guru/4499-strict-key-caching` (`21969b5bd`)
+- **File(s) in `guru/working`**: `4499-key-caching.md`
+- **Diff vs PR head**: +843/-116 (959 total) — No structural change (same file,
+  heavily expanded)
+- **Impl branch**: continuwuity2 `guru/feat/notary-endpoint` @ `40fbc3471`
+
+### MSC 4500
+
+- **GH PR #**:
+  [#4500](https://github.com/matrix-org/matrix-spec-proposals/pull/4500) (OPEN)
+- **PR branch**: `gamesguru:guru/4500-state-accumulators` (`e4d3d70f9`)
+- **File(s) in `guru/working`**: `4500-state-accumulators.md`
+- **Diff vs PR head**: +390/-47 (437 total) — No structural change
+- **Impl branch**: continuwuity2 `guru/feat/msc4500/state-accumulator` @
+  `fd4ce4212`
+
+### MSC 4511
+
+- **GH PR #**:
+  [#4511](https://github.com/matrix-org/matrix-spec-proposals/pull/4511) (DRAFT)
+- **PR branch**: `gamesguru:guru/4511-merkleized-topo-api` (`8c92859c1`, config
+  branch: `origin/guru/4510-merkleized-topo-api`)
+- **File(s) in `guru/working`**: `4511-part-a-...md`, `4511-part-b-...md`,
+  `4511-part-c-...md`
+- **Diff vs PR head**: +1901/-0 (all new — PR head has 1 file:
+  `4511-topological-metadata-query-api.md`, 784 lines)
+- **Structural change**: **Yes — 1 file → 3-part split, same MSC number**
+- **Impl branch**: continuwuity2 `guru/feat/msc4511/augmented-hamt` @
+  `47d91bede`; rezzy `pr-hamt` @ `fb39314`, `pr-reachability` @ `d6e8e9a`
+
+### MSC 4521
+
+- **GH PR #**:
+  [#4521](https://github.com/matrix-org/matrix-spec-proposals/pull/4521) (OPEN)
+- **PR branch**: `gamesguru:guru/4521-algebraic-set-reconciliation`
+  (`bb76dade3`)
+- **File(s) in `guru/working`**: `4521-algebraic-set-reconciliation.md`
+- **Diff vs PR head**: +406/-154 (560 total) — No structural change
+- **Impl branch**: continuwuity2
+  `guru/feat/pinsketch-algebraic-digest-set-reconciliation` @ `5c547d4de`; rezzy
+  `pr-reconcile` @ `e50bbcd`, `pr-gf64` @ `4c94c96`
 
 Commits accumulated on `guru/working` since each PR's draft, touching that MSC's
 file(s): 4499 = 74, 4500 = 22, 4511 = 44 (across old single-file + new split),

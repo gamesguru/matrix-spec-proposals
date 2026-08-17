@@ -486,7 +486,7 @@ cache successful stamp verification by `key_id`.
 
 The checks above are scattered across the preceding prose as individual
 requirements. This section states them as one ordered procedure. Receiving
-servers and notaries was required to validate an advertised
+servers and notaries were required to validate an advertised
 `fndsa512:<short_key_id>` key object in this order, rejecting the entire key at
 the first failing step and performing no later step once a step has failed:
 

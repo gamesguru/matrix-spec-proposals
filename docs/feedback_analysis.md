@@ -251,10 +251,12 @@ hard-asserts `foundKey == expectedKeyBase64`.
 
 ### 3a: Observable rejection semantics per surface
 
-> **Verdict: Valid gap.** The MSC says "MUST be rejected as malformed" at
-> [L146-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L146-L147)
-> but doesn't define what "rejected" looks like to the caller of the notary
-> endpoint. This directly caused the test's non-200 assertion problem.
+> **Verdict: Addressed in canonical MSC.** While earlier drafts stated "MUST be
+> rejected as malformed" without detailing notary response format, the canonical
+> MSC text at
+> [proposals/4499-key-caching.md](../proposals/4499-key-caching.md#L315-L320)
+> explicitly defines observable notary rejection: return HTTP 200 and omit the
+> malformed response from the `server_keys` array.
 
 ### 3b: Collision definitions need precision across three cases
 
@@ -354,7 +356,6 @@ hard-asserts `foundKey == expectedKeyBase64`.
 > [!NOTE]  
 > **MSC clarifications to consider:**
 >
-> - Define observable rejection semantics for the notary endpoint (omission vs.
->   error)
+> - Ensure notary rejection semantics (HTTP 200 + omission from `server_keys`) are consistently reflected across all test suites
 > - Address literal duplicate JSON keys (case A) more precisely
 > - Consider whether negative-caching backoff needs test-observable bounds

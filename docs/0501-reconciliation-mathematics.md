@@ -175,9 +175,9 @@ not evidence that the DAG has been repaired.
 
 ## 4. Bloom Yield on a Causal Graph
 
-Let `D = B \\ A` be the missing set and let `a_e` be the number of ancestors of
-`e` that also lie in `D`. Suppose each missing event is independently omitted
-with false-positive probability `\varepsilon`.
+Let `D = B \setminus A` be the missing set and let `a_e` be the number of
+ancestors of `e` that also lie in `D`. Suppose each missing event is
+independently omitted with false-positive probability $\varepsilon$.
 
 ### Proposition 4: expected integrable yield
 
@@ -190,14 +190,14 @@ $$
 
 **Proof.** Event `e` is integrable exactly when neither `e` nor any of its
 in-difference ancestors is omitted. There are `a_e+1` independently tested
-events in that condition, so its probability is `(1-\varepsilon)^{a_e+1}`.
+events in that condition, so its probability is $(1-\varepsilon)^{a_e+1}$.
 Linearity of expectation gives the average over `D`.
 
 $$
 \square
 $$
 
-For an antichain, `a_e=0` and `Y=1-\varepsilon`. For a causal chain, the yield
+For an antichain, `a_e=0` and $Y=1-\varepsilon$. For a causal chain, the yield
 is
 
 $$
@@ -345,15 +345,14 @@ $$
 field multiplications in the bounded decoder. A local work budget therefore sets
 a practical direct-decode capacity; the profile's `k=64` cap is the wire and
 local-policy boundary used by MSC0500. Given an estimate `\widehat{\Delta}` and
-a per-bucket safe occupancy `\lambda`, choose the bucket depth
+a per-bucket safe occupancy $\lambda$, choose the bucket depth
 
 $$
 d=\left\lceil\log_2\left(\frac{\widehat{\Delta}}{\lambda}\right)\right\rceil,
 $$
 
-clamped to the supported bucket depth. The chain is therefore
-`work budget -> k -> lambda -> d`, deriving escalation from CPU and overflow
-targets.
+clamped to the supported bucket depth. The chain is therefore work budget
+$\to k \to \lambda \to d$, deriving escalation from CPU and overflow targets.
 
 ### 6.4 Tombstones and accumulator security
 
@@ -506,7 +505,7 @@ for adaptive fanout rather than treating `f` as a universal constant.
 
 ### Corollary 10.1: minimum fanout
 
-For a target of at most `\delta` failure after `R` rounds, fanout must satisfy
+For a target of at most $\delta$ failure after $R$ rounds, fanout must satisfy
 
 $$
 f \geq
@@ -523,9 +522,9 @@ resampled model, fanout and rounds trade off through `fR`.
 
 ### Corollary 10.2: polling-period budget
 
-If a repair must complete within time `T` with failure probability at most
-`\delta`, and each round takes at most `P_r` seconds including polling,
-transfer, and validation, then choosing `R=\lfloor T/P_r\rfloor` requires
+If a repair must complete within time $T$ with failure probability at most
+$\delta$, and each round takes at most $P_r$ seconds including polling,
+transfer, and validation, then choosing $R=\lfloor T/P_r\rfloor$ requires
 
 $$
 f \geq
@@ -535,7 +534,7 @@ $$
 This equation should drive operational choices. A shorter polling period helps
 detection, but increases request load; a larger fanout helps contact
 probability, but increases per-round work. Neither parameter has a
-protocol-universal minimum independent of `q`, `T`, and `\delta`.
+protocol-universal minimum independent of $q$, $T$, and $\delta$.
 
 ### Corollary 10.3: adaptive fanout
 
@@ -568,10 +567,10 @@ $$
 p_i=(1-\varepsilon)w_i+\frac{\varepsilon}{N}
 $$
 
-ensures `p_i \geq \varepsilon/N` for every peer. This is a per-peer liveness
+ensures $p_i \ge \varepsilon/N$ for every peer. This is a per-peer liveness
 floor, not a guarantee of uniform behavior. The selection entropy is still
 determined by the measured weights `w_i`; operators should monitor it rather
-than treating `epsilon` as a complete decentralization proof.
+than treating $\varepsilon$ as a complete decentralization proof.
 
 For a set `M` of adversarial peers, the probability of selecting an adversarial
 peer is
@@ -580,7 +579,7 @@ $$
 p_M=(1-\varepsilon)W_M+\varepsilon\mu,
 $$
 
-where `W_M` is their weighted share and `\mu=|M|/N` their population share.
+where $W_M$ is their weighted share and $\mu=|M|/N$ their population share.
 Substituting `p_M` into the Section 8 eclipse bound gives the eclipse tail.
 Entropy and the eclipse bound measure different properties: high entropy
 discourages concentration, while the tail bound states the probability that all

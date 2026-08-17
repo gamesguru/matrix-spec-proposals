@@ -833,13 +833,12 @@ h64:    0x2633_a203_7c72_be2c
 ### V3 event ID
 
 For room version 3, strip the leading `$` and decode the remaining unpadded
-standard Base64 payload to recover `D(e)`. Room version 3 event IDs actually
-decode to a 16-byte payload (it is room version 4 and later that use the 32-byte
-form); the vector below uses a 32-byte payload only to illustrate the derivation
-mechanics and is not a real v3-format ID.
+standard Base64 payload to recover `D(e)`. Like room version 4 and later, room
+version 3 event IDs decode to a 32-byte SHA-256 payload.
 
 ```text
-input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])  # illustrative, not a real v3 ID
+input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
+D(e):   fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb
 h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
 h64:    0xfbfb_fbfb_fbfb_fbfb
 ```

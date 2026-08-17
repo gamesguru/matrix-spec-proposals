@@ -514,8 +514,9 @@ also holding true), the two proposals nicely complement each other:
    verified events to its DAG, then recomputes its resolved state locally;
    remote state digests and state maps are never write targets. When a fetched
    PDU is instead rejected, the receiver persists its event ID and rejection
-   reason (`E_rejected`/`K`) so subsequent `room_diff` rounds treat it as
-   resolved rather than re-fetching it every pass.
+   reason (storing a rejection tombstone in MSC0F01's tombstone set $K$) so
+   subsequent `room_diff` rounds treat it as resolved rather than re-fetching it
+   every pass.
 
 Because MSC4500 gives active rooms free passive detection, MSC0F01's periodic
 polling can back off significantly for rooms with recent inbound transactions.

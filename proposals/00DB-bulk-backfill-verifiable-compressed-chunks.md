@@ -107,15 +107,10 @@ The request body is:
   historical repair.
 - `min_depth`: Optional lower depth bound.
 - `resume`: Optional resumability hint object containing `transfer_id` and
-  `first_chunk`. `transfer_id` is scoped to the original request parameters
-  (`start`, `limit`, `direction`, `min_depth`, `encoding`, `compression`,
-  `include_bls_aggregate`, `aggregate_policy`, and `state_commitments`). Resumed
-  requests MUST match those original parameters and preserve the full-transfer
-  manifest, hashes, and commitments. `first_chunk` MUST be a bounded
-  non-negative integer relative to that original transfer
-  (`0 <= first_chunk < chunk_count`). Senders MUST reject unknown or expired
-  transfer IDs, parameter mismatches, or out-of-range/invalid `first_chunk`
-  indices with `400 M_INVALID_PARAM` before streaming.
+  `first_chunk`. Senders MUST validate request parameters and index bounds
+  against the original transfer as specified in the resumability rules below;
+  invalid, mismatched, or expired requests MUST be rejected with
+  `400 M_INVALID_PARAM` before streaming.
 - `compression`: Ordered list of compression encodings the receiver accepts. The
   sender MUST choose `encoding` from this list.
 - `include_bls_aggregate`: Whether the receiver wants an MSC00DA aggregate proof

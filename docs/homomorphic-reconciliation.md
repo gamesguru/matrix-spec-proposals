@@ -604,8 +604,8 @@ gossip layer affordable (§11.4).
 
 **Level 1 — localization.** On mismatch, exchange the bucketed digest: $b$ pairs
 of $(\chi_j, n_j)$. At $b = 256$, $\ell = 64$, 24-bit counts, this is 2.8 KB,
-fixed, independent of room size and of $\Delta$. Yields the differing bucket
-set, $L$, and $\hat\Delta_{\mathrm{occ}}$.
+fixed, independent of room size and of $\Delta$. Yields the differing bucket set
+$D$, the count bound $L$, and $\hat\Delta_{\mathrm{occ}}$.
 
 **Level 2 — extraction.** For each differing bucket, exchange $\sigma_{t_j}$
 with $t_j$ from §7.3. Decode per bucket via Berlekamp–Massey and root-finding.

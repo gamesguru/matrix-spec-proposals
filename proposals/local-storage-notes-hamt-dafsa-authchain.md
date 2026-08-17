@@ -252,13 +252,13 @@ logic:
 
 1. **Resident upper prefix:** All of a room's level 0, 1, and 2 nodes are
    clustered into a contiguous keyspace. As the room grows, this upper prefix
-   becomes a vanishingly small fraction of the total structure (e.g., at _S_ =
-   50,000, levels 0–2 are ~1,000 nodes, representing ~60% of the trie — a 32-way
-   HAMT has roughly _N_/31 total nodes, so ~1,613 total nodes at this size; at
-   _S_ = 1,000,000, those same ~1,000 nodes are ~3%). An implementation can
-   reasonably expect to keep this prefix resident. (This is a layout argument,
-   not a measurement, and should be validated against actual block cache
-   telemetry before relying on it to size a cache.)
+   becomes a small fraction of the total structure (a 32-way HAMT has a strict
+   lower bound of $N/31$ internal nodes, so for $S = 50,000$ keys there are at
+   least ~1,613 internal nodes and for $S = 1,000,000$ at least ~32,258 internal
+   nodes, while levels 0–2 contain at most 1,057 nodes). An implementation can
+   reasonably expect to keep this small upper prefix resident. (This is a layout
+   argument, not a measurement, and should be validated against actual block
+   cache telemetry before relying on it to size a cache.)
 2. **Room-scoped deduplication:** Deduplication is preserved within the room.
    State-event references are room-unique, so room-prefixing does not materially
    reduce deduplication for the state-map trie.

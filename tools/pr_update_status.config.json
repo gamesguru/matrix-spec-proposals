@@ -23,7 +23,7 @@
     {
       "msc": "4511",
       "pr_number": 4511,
-      "pr_branch": "origin/guru/4510-merkleized-topo-api",
+      "pr_branch": "origin/guru/4511-merkleized-topo-api",
       "files": [
         "proposals/4511-part-a-topological-metadata-query-api.md",
         "proposals/4511-part-b-merkle-overlay-backwards-compat.md",

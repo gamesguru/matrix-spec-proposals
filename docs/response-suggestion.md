@@ -2,7 +2,7 @@
 
 A SHOULD is likely too weak for duplicate JSON key detection in key response
 payloads, for the following reasons: **The MSC already says MUST at
-[proposals/4499-key-caching.md](../proposals/4499-key-caching.md#L315-L335):**
+[proposals/4499-key-caching.md](../proposals/4499-key-caching.md#L299-L313):**
 
 > _"A single key response payload MUST NOT contain multiple different public key
 > bodies for the same key ID (e.g., across `verify_keys` and `old_verify_keys`,
