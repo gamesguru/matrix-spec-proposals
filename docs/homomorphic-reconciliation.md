@@ -524,7 +524,8 @@ nothing to estimate.
 
 ### 7.2 Occupancy gives a two-sided estimate
 
-Let $D = |\{j : \chi^A_j \neq \chi^B_j\}|$. A bucket registers as differing iff
+Let $\mathcal{D} = \{j : \chi^A_j \neq \chi^B_j\}$ be the set of differing
+buckets, and $D = |\mathcal{D}|$ its count. A bucket registers as differing iff
 $\delta_j \geq 1$ and the XOR of the differing identifiers is nonzero, which
 fails with probability $2^{-\ell}$. So $D$ is, up to negligible error, the
 number of occupied bins when $\Delta$ balls are thrown into $b$ bins, and the
@@ -605,7 +606,7 @@ gossip layer affordable (§11.4).
 **Level 1 — localization.** On mismatch, exchange the bucketed digest: $b$ pairs
 of $(\chi_j, n_j)$. At $b = 256$, $\ell = 64$, 24-bit counts, this is 2.8 KB,
 fixed, independent of room size and of $\Delta$. Yields the differing bucket set
-$D$, the count bound $L$, and $\hat\Delta_{\mathrm{occ}}$.
+$\mathcal{D}$ (count $D$), the count bound $L$, and $\hat\Delta_{\mathrm{occ}}$.
 
 **Level 2 — extraction.** For each differing bucket, exchange $\sigma_{t_j}$
 with $t_j$ from §7.3. Decode per bucket via Berlekamp–Massey and root-finding.
