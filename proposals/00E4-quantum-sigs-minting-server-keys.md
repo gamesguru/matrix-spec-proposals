@@ -279,15 +279,15 @@ historical section, regardless of whether the accompanying Ed25519/notary
 authentication was otherwise valid.
 
 The proof is a non-interactive, cacheable stamp produced by the origin. It is
-not issued separately by each receiver. The proof MUST be carried inside the
-corresponding FN-DSA key object as the `pow` field. This placement is part of
-the Matrix signing object, so the stamp is covered by the origin's server-key
-signatures, included in `server_key_package_sha256`, and preserved by notary
-redistribution without special handling.
+not issued separately by each receiver. The proof was required to be carried
+inside the corresponding FN-DSA key object as the `pow` field. This placement is
+part of the Matrix signing object, so the stamp is covered by the origin's
+server-key signatures, included in `server_key_package_sha256`, and preserved by
+notary redistribution without special handling.
 
 ### Trusted notary historical keys
 
-An origin MAY include a top-level `trusted_notary_keys` array in its
+An origin could include a top-level `trusted_notary_keys` array in its
 `/_matrix/key/v2/server` response. Each entry is a full content-addressed FN-DSA
 server-key identifier of the form `fndsa512:<short_key_id>`, where
 `<short_key_id>` is the registry-defined 22-character unpadded base64url
@@ -303,17 +303,17 @@ their own cache, a notary cache, federation gossip, or some other retained
 archive before they can verify a signature made by that key. Because each listed
 identifier is content-addressed, a notary cannot fabricate a different FN-DSA
 key body to match it. Verifiers recompute the minting-bound `key_id` from the
-returned key body and proof, and the value MUST equal the listed full
-identifier. A verifier MUST NOT accept a notary-supplied historical key merely
-because its short key ID matches an allow-list entry.
+returned key body and proof, and the value was required to equal the listed full
+identifier. A verifier was not permitted to accept a notary-supplied historical
+key merely because its short key ID matches an allow-list entry.
 
-A notary returning a key because of `trusted_notary_keys` MUST return the full
-key object it retained, including the original `pow` field and any applicable
-retirement metadata or expiry claim. Receiving servers MUST validate the
-returned key object exactly as they validate a key from `verify_keys` or
-`old_verify_keys`: recompute the content-addressed `key_id`, verify the
-proof-of-work, check any signatures or expiry claims required for that object
-shape, and apply the First Seen Wins binding rules from MSC4499.
+A notary returning a key because of `trusted_notary_keys` was required to return
+the full key object it retained, including the original `pow` field and any
+applicable retirement metadata or expiry claim. Receiving servers were required
+to validate the returned key object exactly as they validate a key from
+`verify_keys` or `old_verify_keys`: recompute the content-addressed `key_id`,
+verify the proof-of-work, check any signatures or expiry claims required for
+that object shape, and apply the First Seen Wins binding rules from MSC4499.
 `trusted_notary_keys` is not a notary attestation and does not relax collision
 handling; it only lets the origin name additional historical keys by content
 address without embedding all of their key material in every server-key
@@ -326,16 +326,16 @@ copied from another server's response) can mint a valid co-generation proof for
 it. The proof's only job is to rate-limit and anti-spam-gate key minting and
 rotation; it is not an identity credential. Possession of the FN-DSA private key
 is established exclusively by the FN-DSA self-signature: once a server publishes
-an FN-DSA key, its `/_matrix/key/v2/server` response MUST include an FN-DSA
-self-signature in the `signatures` field, keyed by that key's `short_key_id`,
-alongside the existing Ed25519 signature. Receiving servers and notaries MUST
-verify this self-signature before trusting the FN-DSA key, independently of and
-in addition to verifying `pow`. Both checks are mandatory and neither
-substitutes for the other: a syntactically valid `pow` on a key the origin does
-not hold the private key for MUST still be rejected, because the response cannot
-carry a valid FN-DSA self-signature without the private key, and a validly
-self-signed key without a valid `pow` MUST still be rejected per the requirement
-above.
+an FN-DSA key, its `/_matrix/key/v2/server` response was required to include an
+FN-DSA self-signature in the `signatures` field, keyed by that key's
+`short_key_id`, alongside the existing Ed25519 signature. Receiving servers and
+notaries were required to verify this self-signature before trusting the FN-DSA
+key, independently of and in addition to verifying `pow`. Both checks are
+mandatory and neither substitutes for the other: a syntactically valid `pow` on
+a key the origin does not hold the private key for was still required to be
+rejected, because the response cannot carry a valid FN-DSA self-signature
+without the private key, and a validly self-signed key without a valid `pow` was
+still required to be rejected per the requirement above.
 
 Unlike a plain hash of the public key, the key's identifier here is
 proof-of-work-bound. The Cuckoo graph is selected from the key body,
@@ -403,8 +403,8 @@ candidates.
 The verifier derives the Cuckoo graph from the advertised public key,
 `server_name`, and supplied `nonce`; verifies the Cuckoo Cycle solution against
 that graph; then computes `key_id` from the canonical minting object. The
-enclosing key's advertised `short_key_id` MUST equal the 22-character unpadded
-base64url encoding of the first 16 bytes of that final `key_id`.
+enclosing key's advertised `short_key_id` was required to equal the 22-character
+unpadded base64url encoding of the first 16 bytes of that final `key_id`.
 
 ### Graph derivation
 
@@ -442,11 +442,11 @@ hardware. This is a target for parameter selection, not a guarantee on
 individual attempts: because a randomly seeded graph contains a 42-cycle only
 with some probability, realized solve time is stochastic — the prover retries
 with new nonces until a solvable graph is found, so any single attempt may
-finish well under or well over the target. Verifiers MUST NOT reject a proof for
-arriving unusually quickly or slowly; the minting stamp has no timing acceptance
-bound. Implementations calibrating a different deployment's expected solve time
-MUST NOT do so by changing `edge_bits` without minting a new, explicitly
-identified algorithm profile (see
+finish well under or well over the target. Verifiers were not permitted to
+reject a proof for arriving unusually quickly or slowly; the minting stamp has
+no timing acceptance bound. Implementations calibrating a different deployment's
+expected solve time were not permitted to do so by changing `edge_bits` without
+minting a new, explicitly identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
 `tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen` names one fixed
 parameterization so that all conforming implementations impose the same cost.
@@ -465,42 +465,44 @@ The proof response is:
 }
 ```
 
-(The example `solution` is truncated for illustration.) The `solution` array
-MUST contain exactly 42 unsigned integer edge indices in strictly increasing
-order (the canonical form of the edge set). Each edge index MUST be less than
-`2^29`, and `nonce` MUST be an integer in `[0, 2^32)`. Verification MUST reject
-duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
-Cuckoo Cycle proof; it then recomputes the Cuckoo graph for the supplied nonce,
-derives the 84 endpoints of the 42 supplied edges, and checks that they form a
-single 42-cycle. Only after the solution verifies does the verifier compute
-`key_id` from the canonical minting object. The minting stamp has no
-receiver-issued challenge and no expiry time; it remains valid for the committed
-`(server_name, key_id)` tuple. If either committed value changes, the origin
-MUST produce a new proof (a new key body or new `server_name` selects different
-Cuckoo graphs for every nonce, and a different solution changes the canonical
-minting object and therefore `key_id`, so a stale proof cannot be reused).
-Receivers SHOULD cache successful stamp verification by `key_id`.
+(The example `solution` is truncated for illustration.) The `solution` array was
+required to contain exactly 42 unsigned integer edge indices in strictly
+increasing order (the canonical form of the edge set). Each edge index was
+required to be less than `2^29`, and `nonce` was required to be an integer in
+`[0, 2^32)`. Verification was required to reject duplicate, unsorted,
+out-of-range, or non-integer entries before evaluating the Cuckoo Cycle proof;
+it then recomputes the Cuckoo graph for the supplied nonce, derives the 84
+endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
+Only after the solution verifies does the verifier compute `key_id` from the
+canonical minting object. The minting stamp has no receiver-issued challenge and
+no expiry time; it remains valid for the committed `(server_name, key_id)`
+tuple. If either committed value changes, the origin was required to produce a
+new proof (a new key body or new `server_name` selects different Cuckoo graphs
+for every nonce, and a different solution changes the canonical minting object
+and therefore `key_id`, so a stale proof cannot be reused). Receivers SHOULD
+cache successful stamp verification by `key_id`.
 
 ### Key object validation procedure
 
-The checks above are scattered across the preceding prose as individual MUSTs.
-This section states them as one ordered procedure. Receiving servers and
-notaries MUST validate an advertised `fndsa512:<short_key_id>` key object in
-this order, rejecting the entire key at the first failing step and performing no
-later step once a step has failed:
+The checks above are scattered across the preceding prose as individual
+requirements. This section states them as one ordered procedure. Receiving
+servers and notaries was required to validate an advertised
+`fndsa512:<short_key_id>` key object in this order, rejecting the entire key at
+the first failing step and performing no later step once a step has failed:
 
-1. **Field presence and shape.** The key object MUST contain `key` (a
+1. **Field presence and shape.** The key object was required to contain `key` (a
    well-formed, unpadded base64 FN-DSA-512 public key of the expected length)
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
-2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
+2. **Algorithm identifier.** `pow.algorithm` was required to exactly equal
    `tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen`. Any other value fails
    validation here as unrecognized; do not fall back to treating it as the old
    plain-hash construction.
-3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
-   integers, each strictly less than `2^29`, in strictly increasing order, with
-   no duplicates. `pow.nonce` MUST be an integer in `[0, 2^32)`. Any violation
-   fails validation here, before any hashing is performed.
+3. **Solution and nonce shape.** `pow.solution` was required to contain exactly
+   42 unsigned integers, each strictly less than `2^29`, in strictly increasing
+   order, with no duplicates. `pow.nonce` was required to be an integer in
+   `[0, 2^32)`. Any violation fails validation here, before any hashing is
+   performed.
 4. **Cuckoo graph selection.** From the enclosing response's advertised `key`
    and `server_name`, plus the supplied `nonce`, compute the 32-byte value
    specified in [Graph derivation](#graph-derivation). This step cannot itself
@@ -518,7 +520,7 @@ later step once a step has failed:
 7. **Self-signature.** Independently of steps 1-6: verify the FN-DSA
    self-signature over the enclosing response, keyed by the same `short_key_id`,
    using the advertised `key` (see the self-signature requirement above). This
-   check does not depend on `pow` and MAY be performed before, after, or
+   check does not depend on `pow` and could be performed before, after, or
    concurrently with steps 1-6, but the key is not valid unless both this step
    and step 6 pass — neither substitutes for the other.
 

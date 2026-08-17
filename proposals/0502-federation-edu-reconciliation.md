@@ -355,9 +355,10 @@ If-None-Match: "xxh3:deadbeefcafebabe"
 ```
 
 The ETag SHOULD be computed as an order-independent accumulator over the
-returned user tuples (the same XOR-of-hashes construction as the state
-accumulator in [MSC4500](4500-state-accumulators.md), applied here to EDU
-snapshots instead of room state):
+returned user tuples. This is a simple XOR-of-hashes construction, conceptually
+similar to — but a distinct algorithm from — the `LtHash16` state accumulator in
+[MSC4500](4500-state-accumulators.md), which combines lane-wise wrapping
+addition over 1024 uint16 lanes rather than XOR:
 
 > `digest = XOR(H(user_id || version || content_hash) for each user in users)`
 
@@ -379,12 +380,12 @@ incremental fetches.
 
 Servers advertise support through `GET /_matrix/federation/v1/version`. The
 feature is signaled in `unstable_features` as
-`tk.nutra.msc0502.edu_reconciliation`.
+`org.matrix.msc0502.edu_reconciliation`.
 
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc0502.edu_reconciliation": true
+    "org.matrix.msc0502.edu_reconciliation": true
   }
 }
 ```
@@ -489,19 +490,19 @@ development:
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier           | Purpose  | Development identifier                                     |
-| ----------------------------------- | -------- | ---------------------------------------------------------- |
-| `/_matrix/federation/v1/edu_digest` | endpoint | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_digest` |
-| `/_matrix/federation/v1/edu_state`  | endpoint | `/_matrix/federation/unstable/tk.nutra.msc0502/edu_state`  |
+| Proposed final identifier           | Purpose  | Development identifier                                       |
+| ----------------------------------- | -------- | ------------------------------------------------------------ |
+| `/_matrix/federation/v1/edu_digest` | endpoint | `/_matrix/federation/unstable/org.matrix.msc0502/edu_digest` |
+| `/_matrix/federation/v1/edu_state`  | endpoint | `/_matrix/federation/unstable/org.matrix.msc0502/edu_state`  |
 
 <!-- markdownlint-enable MD013 -->
 
 ## Dependencies
 
-This MSC has no hard dependencies on other unaccepted MSCs, but it reuses the
-order-independent XOR accumulator construction introduced by
-[MSC4500](4500-state-accumulators.md) (there applied to room state; here to EDU
-snapshots), and its transaction/reconciliation split is designed to be scheduled
-alongside [MSC0501](0501-federation-room-gossip-reconciliation.md)'s PDU
-reconciliation, per the "Why This Is Different From PDU Reconciliation" section
-above.
+This MSC has no hard dependencies on other unaccepted MSCs. Its ETag accumulator
+is only conceptually similar to — not the same construction as — the `LtHash16`
+state accumulator introduced by [MSC4500](4500-state-accumulators.md) (order-
+independent XOR here, versus lane-wise wrapping addition there), and its
+transaction/reconciliation split is designed to be scheduled alongside
+[MSC0501](0501-federation-room-gossip-reconciliation.md)'s PDU reconciliation,
+per the "Why This Is Different From PDU Reconciliation" section above.

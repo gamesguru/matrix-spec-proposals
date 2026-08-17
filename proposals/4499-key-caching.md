@@ -47,9 +47,9 @@ It does not impose new requirements on rooms created with `m.federate: false`:
 such rooms never exchange PDUs with other servers, so no peer ever needs to
 fetch, cache, or corroborate a signing key on their account, and the First Seen
 Wins rule, corroboration tiers, and digest-binding cap defined below have no
-federated key material to act on. A room that later becomes federating (or whose
-`m.federate` restriction is otherwise bypassed) is subject to this MSC from that
-point onward like any other federated room.
+federated key material to act on. A room whose `m.federate: false` restriction
+is not honored (for example, its events leak to peers) is subject to this MSC
+from that point onward like any other federated room.
 
 ### Key caching requirements
 

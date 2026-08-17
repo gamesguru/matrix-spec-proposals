@@ -2,8 +2,11 @@
 
 Several federation mechanisms need to know whether two servers contain the same
 set of identifiers. With a lot of work, this MSC lets them compute the exact
-symmetric difference between large populations, without any probabilistic
-errors. This MSC helps ensure network synchronization.
+symmetric difference between large populations, conditional on successful decode
+verification: the 128-bit XOR accumulator is a non-binding check with residual
+collision probability, and $h_{64}$ collisions can make two distinct identifiers
+indistinguishable to the decoder, so verification cannot unconditionally detect
+every incorrect decode. This MSC helps ensure network synchronization.
 
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
@@ -20,9 +23,12 @@ which is order-optimal for set reconciliation over a field of size $q = 2^{64}$,
 and performs syndrome decoding on the receiver side to recover candidate missing
 IDs. The decode result is not self-authenticating: an over-capacity decode can
 spuriously return the wrong set, so every successful decode MUST be checked
-against the accompanying 128-bit accumulator before it is trusted. With that
-verification step, the profile recovers the exact symmetric difference whenever
-it reports success.
+against the accompanying 128-bit accumulator before it is trusted. That
+accumulator check is itself non-binding, with residual collision probability,
+and $h_{64}$ collisions can make distinct identifiers indistinguishable to the
+decoder — so verification cannot unconditionally catch every incorrect decode.
+With that caveat, the profile recovers the exact symmetric difference whenever
+it reports success and verification passes.
 
 The profile targets differences up to 4,096 elements per exchange in populations
 up to $10^7$, keeps the initial depth-0 sketch at most 256 B, and caps a fully
@@ -154,10 +160,12 @@ For resolved room state (as used by state-set consumers such as MSC4500), each
 element is one occupied `(type, state_key)` slot in the resolved state map at a
 given DAG point. `D(e)` is the `SHA-256` digest of the UTF-8 encoding of
 `type + "\x00" + state_key + "\x00" + event_id`, where `event_id` is the ID of
-the event currently occupying that slot, encoded per the room version's event-ID
-rules above (or the raw string for legacy room versions). Including `event_id`
-in the digest means a slot that changes occupant — not just a slot that appears
-or disappears — is itself a distinct element from the consuming set's point of
+the event currently occupying that slot, taken as its literal ID string (e.g.
+`$abc123...`) for every room version — not the decoded binary payload used in
+[Matrix event-ID binding](#matrix-event-id-binding), which does not concatenate
+cleanly as UTF-8 text alongside `type` and `state_key`. Including `event_id` in
+the digest means a slot that changes occupant — not just a slot that appears or
+disappears — is itself a distinct element from the consuming set's point of
 view; the symmetric difference $S_A \triangle S_B$ therefore recovers both
 structural drift (a `(type, state_key)` present on one side only) and mutation
 drift (the same slot occupied by different events on each side) as a single
@@ -166,7 +174,7 @@ element pair.
 This profile operates over the resolved state at one DAG point at a time. Both
 sides MUST compute it over the identical `before`/`after` position for a
 comparison to be meaningful — the same single-validated-frame requirement
-[Element derivation](#element-derivation) already states generally.
+[Scope](#scope) already states generally.
 
 ## Field
 
@@ -467,12 +475,23 @@ below for adversarial limits.
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
 missing even syndromes are derived or implied. Implementations MAY use
 Berlekamp-Massey or an equivalent recurrence solver to derive a locator
-polynomial of degree at most $k$. If the observed syndromes are inconsistent
-with any such polynomial, or if root searching fails to produce a consistent set
-of roots, decoding fails, and the caller MAY split the node and retry at a
-smaller prefix. Implementations SHOULD enforce a computational work budget
-across polynomial root-finding during an exchange to prevent denial-of-service
-attacks from many nodes each driving the maximum trial count.
+polynomial of degree at most $k$. Decode failure MUST be classified into one of
+two distinct outcomes, and the two MUST NOT be conflated:
+
+- **`capacity_exceeded`**: the syndrome is well-formed (correct length, valid
+  field elements) but the true difference exceeds the requested capacity $k$ —
+  root searching fails to produce a consistent set of $\le k$ roots for an
+  otherwise-valid input. This is the only case in which the caller MAY split the
+  node and retry at a smaller prefix.
+- **Malformed input**: the syndrome is not well-formed for this profile (wrong
+  length, out-of-range field elements, or other structural violation). A
+  receiver MUST reject a malformed frame outright and MUST NOT retry it as a
+  capacity overflow — retrying malformed input as `capacity_exceeded` risks
+  masking invalid or malicious input as ordinary capacity growth.
+
+Implementations SHOULD enforce a computational work budget across polynomial
+root-finding during an exchange to prevent denial-of-service attacks from many
+nodes each driving the maximum trial count.
 
 ## Security considerations
 
@@ -814,10 +833,13 @@ h64:    0x2633_a203_7c72_be2c
 ### V3 event ID
 
 For room version 3, strip the leading `$` and decode the remaining unpadded
-standard Base64 payload to recover `D(e)`.
+standard Base64 payload to recover `D(e)`. Room version 3 event IDs actually
+decode to a 16-byte payload (it is room version 4 and later that use the 32-byte
+form); the vector below uses a 32-byte payload only to illustrate the derivation
+mechanics and is not a real v3-format ID.
 
 ```text
-input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
+input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])  # illustrative, not a real v3 ID
 h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
 h64:    0xfbfb_fbfb_fbfb_fbfb
 ```

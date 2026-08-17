@@ -348,7 +348,7 @@ production-adjacent trial conditions before stabilizing:
   explicitly permits unstable/experimental room version identifiers outside its
   mandated format; `testnet`/`stagenet` room versions are a natural home for
   exercising that carve-out.
-- [MSC00F3](00F3-WIP-proof-of-work-requirements.md) (proof-of-work spam
+- [MSC0F03](00F3-WIP-proof-of-work-requirements.md) (proof-of-work spam
   mitigation) and [MSC00FF](00FA-WIP-dag-finality-majority-creators.md) (DAG
   finality via creator majority) are both DAG-level behavior changes that
   benefit from `testnet`'s "anything goes" tolerance for state-resolution forks

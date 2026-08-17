@@ -512,7 +512,10 @@ also holding true), the two proposals nicely complement each other:
 3. **Reconcile (MSC0F01):** `room_diff` identifies missing event IDs and
    `room_events` retrieves their PDUs and auth chains. The receiver admits
    verified events to its DAG, then recomputes its resolved state locally;
-   remote state digests and state maps are never write targets.
+   remote state digests and state maps are never write targets. When a fetched
+   PDU is instead rejected, the receiver persists its event ID and rejection
+   reason (`E_rejected`/`K`) so subsequent `room_diff` rounds treat it as
+   resolved rather than re-fetching it every pass.
 
 Because MSC4500 gives active rooms free passive detection, MSC0F01's periodic
 polling can back off significantly for rooms with recent inbound transactions.
@@ -563,13 +566,15 @@ optional addition to the existing escalation path:
 ### Sizing and fallback
 
 Sketch provisioning follows MSC4521's own strata-estimator rule: size the
-initial extraction request from $\hat d$, escalate on `capacity_exceeded`, and
-treat a `low_confidence` or `null` estimate as a signal to fall back to
-tree-walk bisection or a bulk `/state_accumulator` fetch rather than
-provisioning a large sketch speculatively. This mirrors the existing
-[Reconciliation](#reconciliation-bisecting-forks) fallback for historical points
-with no stored accumulator: both routes degrade to the same bulk-fetch floor,
-they just differ in how cheaply they resolve the common case.
+initial extraction request from $\hat d$ and escalate on `capacity_exceeded`. A
+`low_confidence` estimate is still usable to size that initial request per
+MSC4521 and MUST NOT, on confidence grounds alone, be treated as reason to skip
+straight to bulk fallback — only a `null` estimate (stratum-31 saturation, i.e.
+unmeasurable) is a signal to fall back to tree-walk bisection or a bulk
+`/state_accumulator` fetch rather than provisioning a sketch. This mirrors the
+existing [Reconciliation](#reconciliation-bisecting-forks) fallback for
+historical points with no stored accumulator: both routes degrade to the same
+bulk-fetch floor, they just differ in how cheaply they resolve the common case.
 
 Because state-map divergence tends to cluster — a single bad state-resolution
 outcome on one branch typically drags a run of `(type, state_key)` slots along

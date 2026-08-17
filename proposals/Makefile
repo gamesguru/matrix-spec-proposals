@@ -36,7 +36,7 @@ QDF_NORMALIZER ?= ../tools/normalize_pdf_qdf.pl
 pdf:
 	$(require_f)
 	set -e; \
-	title="$$(sed -n 's/^# //p; /^# /q' "$(f)")"; \
+	title="$$(sed -n '/^# /{s/^# //p;q;}' "$(f)")"; \
 	raw_pdf="$(f).tmp.raw.pdf"; \
 	qdf_pdf="$(f).tmp.qdf.pdf"; \
 	norm_pdf="$(f).tmp.norm.qdf.pdf"; \

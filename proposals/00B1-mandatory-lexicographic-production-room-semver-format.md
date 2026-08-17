@@ -238,7 +238,7 @@ directly relevant to a couple of them:
   carve-out in section 4 above.
 - This proposal is orthogonal to the historical sequence of stable room version
   identifiers (`"1"` through `"12"`, most recently
-  [room version 12](https://spec.matrix.org/latest/rooms/v12/)) and to the
+  [room version 12](https://spec.matrix.org/v1.12/rooms/v12/)) and to the
   content of any given room version's auth or state-resolution rules; it only
   constrains how _future_ stable identifiers are formatted, not which room
   versions exist.

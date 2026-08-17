@@ -1,5 +1,10 @@
 # PR update discovery — 2026-08-15
 
+> **Historical snapshot.** Captured at `local_head 2308d7818`, before the
+> prior-art-reference and PR-feedback commits landed. The dangling-reference
+> findings below (MSC0501/0502/0F04/00E4) have since been resolved in the
+> proposal files; this note is kept for context, not as a current status report.
+
 Scope: decide what to push to the published upstream
 (matrix-org/matrix-spec-proposals) PRs for MSC4499, MSC4500, MSC4511, MSC4521.
 Plan-mode only — nothing committed/pushed.
@@ -40,7 +45,7 @@ turns up only placeholder-style refs, no `45XX` literal survived to the current
 text:
 
 - **MSC0501** — referenced 4x in `4521-algebraic-set-reconciliation.md` (L345,
-  596, 655, 922) and 6x in `4500-state-accumulators.md` (L473, 501, 503, 505,
+  596, 655, 922) and 7x in `4500-state-accumulators.md` (L473, 501, 503, 505,
   507, 519, 524). One of the 4500 hits is a **heading**, previously
   `## Synergy with MSCXXXX (event set reconciliation)` → now
   `## Synergy with MSC0501 (event set reconciliation)`.

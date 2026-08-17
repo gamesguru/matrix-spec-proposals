@@ -253,11 +253,12 @@ logic:
 1. **Resident upper prefix:** All of a room's level 0, 1, and 2 nodes are
    clustered into a contiguous keyspace. As the room grows, this upper prefix
    becomes a vanishingly small fraction of the total structure (e.g., at _S_ =
-   50,000, levels 0–2 are ~1,000 nodes, representing ~40% of the trie; at _S_ =
-   1,000,000, those same ~1,000 nodes are ~3%). An implementation can reasonably
-   expect to keep this prefix resident. (This is a layout argument, not a
-   measurement, and should be validated against actual block cache telemetry
-   before relying on it to size a cache.)
+   50,000, levels 0–2 are ~1,000 nodes, representing ~60% of the trie — a 32-way
+   HAMT has roughly _N_/31 total nodes, so ~1,613 total nodes at this size; at
+   _S_ = 1,000,000, those same ~1,000 nodes are ~3%). An implementation can
+   reasonably expect to keep this prefix resident. (This is a layout argument,
+   not a measurement, and should be validated against actual block cache
+   telemetry before relying on it to size a cache.)
 2. **Room-scoped deduplication:** Deduplication is preserved within the room.
    State-event references are room-unique, so room-prefixing does not materially
    reduce deduplication for the state-map trie.
@@ -265,28 +266,31 @@ logic:
 **Resolver API implication.** A key of `[shortroomid][depth][digest]` means a
 node cannot be fetched from its digest alone. The resolver interface must carry
 the room and the depth (e.g.,
-`FnMut(&StructuralHash, Depth) -> Result<HamtNode>`). Since the trie traversal
-inherently knows its current depth, this is mechanically straightforward, but it
-represents an API change from a purely content-addressed store.
+`FnMut(ShortRoomId, Depth, &StructuralHash) -> Result<HamtNode>`). Since the
+trie traversal inherently knows its current depth, this is mechanically
+straightforward, but it represents an API change from a purely content-addressed
+store.
 
 **Depth-in-key relies on content-determined depth.** Depth-in-key is safe only
 because depth is content-determined here: in a hash-prefix-indexed trie, a
 subtrie at depth _d_ is exactly the entry set sharing a _d_-length hash prefix,
-and the entries determine their own hashes. In the non-compressed CHAMP case,
-the invariant that a removal leaving a single entry inlines it into the nearest
-ancestor is safe here: which entries become singletons is itself determined by
-the _d_-prefix entry set, so node content remains strictly content-determined.
-In that case the same digest cannot legitimately appear at two depths, so
-prefixing by depth doesn't fragment deduplication.
+and the entries determine their own hashes. In the non-compressed CHAMP case, a
+removal leaving a single entry inlines that entry directly into its parent node
+— the storage depth is the parent's depth, which is itself determined by the
+_d_-prefix entry set alone, not by anything else in the trie. In that case the
+same digest cannot legitimately appear at two depths, so prefixing by depth
+doesn't fragment deduplication.
 
-However, **path compression breaks this**: a collapsed single-child chain's
-placement depth is a function of what else is in the trie, not of the node's
-contents, so the same digest can legitimately occupy different depths in
-different generations. No naming convention recovers content-determination here
-— the choice is between excluding compressed nodes from depth bucketing (keying
-them by digest alone) and accepting a bounded intra-room deduplication loss
-where a shared compressed node is stored once per distinct depth. Which is
-cheaper is unmeasured.
+**True path compression breaks this**, and is a distinct operation from the
+singleton-inlining case above: collapsing a _chain_ of single-child internal
+nodes into one compressed node places that node at a depth that depends on how
+many single-child ancestors happened to precede it — a property of the rest of
+the trie's population, not of the collapsed entry set's own hash prefix. So the
+same digest can legitimately occupy different depths in different generations.
+No naming convention recovers content-determination here — the choice is between
+excluding compressed nodes from depth bucketing (keying them by digest alone)
+and accepting a bounded intra-room deduplication loss where a shared compressed
+node is stored once per distinct depth. Which is cheaper is unmeasured.
 
 ## Where this fits relative to the MSCs
 
