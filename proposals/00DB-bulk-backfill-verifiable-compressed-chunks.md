@@ -151,9 +151,9 @@ chunk_stream  remaining bytes
 ```
 
 Receivers MUST read the four-byte little-endian `manifest_len` value before
-allocating or reading the manifest. Values of zero or greater than 1 MiB MUST be
-rejected with `400 M_INVALID_PARAM`; receivers MUST NOT allocate based on such a
-value.
+allocating or reading the manifest. Values of zero or greater than 1 MiB MUST
+cause the response to be rejected as malformed and processing aborted without
+allocating memory based on the untrusted size.
 
 The manifest has this shape:
 
@@ -221,20 +221,20 @@ preferences, aggregate policy, state-commitment options, and every other
 response-affecting option. A resumed request MUST match those parameters and the
 sender MUST preserve the original full-transfer manifest, hashes, and
 commitments. `chunk_count` and `resume.first_chunk` MUST be non-negative
-integers strictly less than `2^31 - 1` (`2147483647`) to conform to Matrix
-Canonical JSON integer limits and ensure safe allocation in 32-bit runtimes.
-`resume.first_chunk` MUST be less than the original `chunk_count`; senders MUST
-reject invalid or out-of-range values before streaming. A receiver MAY resume a
-dropped transfer by repeating the request with `resume.first_chunk` set to the
-first missing chunk. Senders SHOULD keep transfer IDs resumable for at least 10
-minutes, but MAY expire them earlier under resource pressure. A resumed response
-contains the suffix beginning at `first_chunk`, but its manifest describes the
-complete transfer: `chunk_count`, `event_count`, `edges`, state commitments, and
-the global hashes retain their original full-transfer meaning. The receiver MUST
-retain the previously verified prefix and combine it with the resumed suffix
-before checking the global hashes, final event count, and boundary commitments.
-The expected number of chunks in a resumed suffix is
-`chunk_count - first_chunk`.
+integers strictly less than `2^31 - 1` (`2147483647`) to ensure safe allocation
+in 32-bit runtimes and comply with Matrix Canonical JSON integer bounds (which
+permit values up to `2^53 - 1`). `resume.first_chunk` MUST be less than the
+original `chunk_count`; senders MUST reject invalid or out-of-range values
+before streaming. A receiver MAY resume a dropped transfer by repeating the
+request with `resume.first_chunk` set to the first missing chunk. Senders SHOULD
+keep transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
+under resource pressure. A resumed response contains the suffix beginning at
+`first_chunk`, but its manifest describes the complete transfer: `chunk_count`,
+`event_count`, `edges`, state commitments, and the global hashes retain their
+original full-transfer meaning. The receiver MUST retain the previously verified
+prefix and combine it with the resumed suffix before checking the global hashes,
+final event count, and boundary commitments. The expected number of chunks in a
+resumed suffix is `chunk_count - first_chunk`.
 
 ### Event stream
 

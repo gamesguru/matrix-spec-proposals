@@ -142,9 +142,10 @@ the DAG via `prev_events`. For highly active rooms with deep DAGs, this walk can
 be computationally expensive.
 
 - **Mitigation:**
-  1. Derive the checkpoint depth from `checkpoint_event_id`. If the event
-     retains a `depth` field, authorization MUST verify that it matches the
-     referenced checkpoint's actual depth before using it as a traversal bound.
+  1. Derive the traversal bound directly from `checkpoint_event_id`. Since
+     Matrix events retain a `depth` field, authorization MUST verify that it
+     matches the referenced checkpoint's actual depth before using it as a
+     traversal bound.
   2. Homeservers can cache the lineage of finalized checkpoints. Once
      $H_{latest}$ is known and cached, checking whether $E$ is a descendant of
      $H_{latest}$ can be optimized using pre-computed reachability indexes or

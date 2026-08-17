@@ -444,19 +444,19 @@ profile: a failed decode is reported as failure, not as an empty difference.
 Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
 **Verification.** A decoded difference MUST be checked against the 128-bit
-accumulator before it is trusted. Let $E$ be the expected remote digest, $R$ the
-residual digest, $L$ the local full identifiers, and $A(\cdot)$ the 128-bit
-accumulator:
+accumulator before it is trusted. Let $L$ be the set of locally held identifiers
+in the decoded symmetric difference, $A(L)$ their 128-bit accumulator sum, $R$
+the received residual digest, and $E$ the expected opposite-side accumulator:
 
 $$
 E = R \oplus A(L)
 $$
 
-The peer resolves the short IDs it holds, computes $A(L)$, and compares against
-$E$. A mismatch means the decode was wrong or the populations differed; the
-result MUST be discarded. Implementations SHOULD re-encode the recovered roots
-into a temporary sketch and verify that it matches the residual syndrome before
-returning elements.
+The verifying peer resolves the short IDs it holds locally in $L$, computes
+$A(L)$, and compares against $E$. A mismatch means the decode was wrong or the
+populations differed; the result MUST be discarded. Implementations SHOULD
+re-encode the recovered roots into a temporary sketch and verify that it matches
+the residual syndrome before admitting elements.
 
 A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
 Each side asymmetrically verifies the half it can resolve, the residual digest

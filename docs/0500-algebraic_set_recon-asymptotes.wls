@@ -13,12 +13,11 @@ cpuTime[k_] := (aggCap / k) * (0.00094 * k^2);
 netPayload[k_] := (aggCap / k) * (H + 8 * k);
 
 (* Generate Plots *)
-plot = Plot[{cpuTime[k], netPayload[k]/1000}, {k, 4, 64},
+pCpu = Plot[cpuTime[k], {k, 4, 64},
    PlotRange -> All,
-   PlotStyle -> {Directive[Thick, Blue], Directive[Thick, Red]},
-   PlotLegends -> {"Total CPU Time (ms)", "Network Payload (kB)"},
-   AxesLabel -> {"k (Bucket Capacity)", "Cost"},
-   PlotLabel -> "Protocol Trade-offs at Constant Aggregate Capacity (4096)",
+   PlotStyle -> Directive[Thick, Blue],
+   AxesLabel -> {"k (Bucket Capacity)", "CPU Time (ms)"},
+   PlotLabel -> "Total CPU Time vs Bucket Capacity",
    GridLines -> Automatic,
    Epilog -> {
      PointSize[Large], Green, 
@@ -27,5 +26,18 @@ plot = Plot[{cpuTime[k], netPayload[k]/1000}, {k, 4, 64},
    }
 ];
 
-Export["tradeoff.pdf", plot];
-Print["Plot exported to tradeoff.pdf."];
+pNet = Plot[netPayload[k]/1000, {k, 4, 64},
+   PlotRange -> All,
+   PlotStyle -> Directive[Thick, Red],
+   AxesLabel -> {"k (Bucket Capacity)", "Network Payload (kB)"},
+   PlotLabel -> "Network Payload vs Bucket Capacity",
+   GridLines -> Automatic
+];
+
+plot = GraphicsColumn[{pCpu, pNet}, PlotLabel -> "Protocol Trade-offs at Constant Aggregate Capacity (4096)"];
+
+res = Export["tradeoff.pdf", plot];
+If[res === $Failed,
+  Print["Error exporting plot to tradeoff.pdf."]; Exit[1],
+  Print["Plot exported to tradeoff.pdf."]
+];

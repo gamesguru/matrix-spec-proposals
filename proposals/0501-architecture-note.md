@@ -181,12 +181,12 @@ A salted, extremity-gated `bloom_v1` was drafted as a heavy-tail fallback —
 precondition, and a mandatory termination rule capping retries and escalating to
 exact recovery when the strata-estimated delta stalled. It was discarded, not
 shipped: the termination rule and the precondition existed only to bound a
-residual risk dynamic tree extraction (§3.4) doesn't have in the first place —
-rejected or superseded fork tips have no descendant to trigger causal-closure
-recovery, so `bloom_v1` could still silently and permanently drop such an event
-even with every safeguard in place. An exact mechanism that reuses the same
-decoder is strictly better than a probabilistic one bolted on next to it, once
-one exists.
+residual risk that dynamic tree extraction (§3.4) doesn't have in the first
+place — rejected or superseded fork tips have no descendant to trigger
+causal-closure recovery, so `bloom_v1` could still silently and permanently drop
+such an event even with every safeguard in place. An exact mechanism that reuses
+the same decoder is strictly better than a probabilistic one bolted on next to
+it, once one exists.
 
 ### 3.4 IBLT, RIBLT, and dynamic tree extraction
 

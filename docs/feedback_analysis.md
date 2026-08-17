@@ -140,19 +140,22 @@ feedback's point is:
 - Under the **current** spec, `POST /_matrix/key/v2/query` returns `200` with
   whatever keys could be validated; unresolvable servers are simply omitted from
   `server_keys`.
-- A "rejection" of the upstream payload would most naturally result in
-  `200 {"server_keys": []}` — the key is absent, not a 5xx.
-- Unless the MSC explicitly rewrites the notary's error semantics (which it
-  doesn't appear to), asserting non-200 is wrong.
+- A "rejection" of the upstream payload results in `200 {"server_keys": []}` —
+  the key is absent, not a 5xx error.
+- The in-repo MSC at
+  [proposals/4499-key-caching.md](../proposals/4499-key-caching.md#L315-L320)
+  explicitly specifies this notary behavior: "If a notary rejects an upstream
+  key response as malformed, it MUST still return HTTP 200 for the enclosing
+  `/_matrix/key/v2/query` response, omit that response from the `server_keys`
+  array, and MAY continue serving other valid entries in the batch."
 
 > **Verdict: Valid.** The correct assertion should be content-level: `200`
 > status, and the colliding key **absent** from `server_keys`. The test's
 > non-200 assertion would cause a fully compliant implementation to fail.
 >
-> [!WARNING]  
-> This is a spec gap the feedback identifies at
-> [Section 3, L39](https://github.com/matrix-org/complement/blob/main/tests/msc4499/detailed-feedback-001.md#L39):
-> the MSC must define "observable rejection semantics per surface."
+> [!NOTE]  
+> The canonical MSC specification in `proposals/4499-key-caching.md` (lines
+> 315–320) defines this observable notary rejection requirement.
 
 ### 2c: `TestIntraPayloadRejection` — Mischaracterized Threat Model
 
@@ -255,14 +258,14 @@ hard-asserts `foundKey == expectedKeyBase64`.
 
 ### 3b: Collision definitions need precision across three cases
 
-> **Verdict: Partially valid.** As noted above, the MSC _does_ distinguish case
-> B (different material, cross-map → MUST reject) from case C (identical
-> material → legal) at
-> [L141-L147](https://github.com/matrix-org/complement/blob/main/tests/msc4499/4499-key-caching.md#L141-L147).
-> But case A (literal duplicate JSON keys) is not addressed. The MSC says _"or
-> duplicated within the same dictionary"_ at L143, which implies it's aware of
-> the case, but doesn't specify how servers should handle JSON parsers that
-> silently deduplicate.
+> **Verdict: Addressed in canonical MSC.** The MSC distinguishes case B
+> (different material, cross-map → MUST reject) from case C (identical material
+> → legal). Case A (literal duplicate JSON keys) is explicitly addressed at
+> [proposals/4499-key-caching.md](../proposals/4499-key-caching.md#L328-L335):
+> _"Furthermore, implementations MUST reject key response payloads containing
+> duplicate keys within a single JSON object, at any depth, anywhere in the
+> response document... This rejection applies to the raw received bytes before
+> any canonicalization."_
 
 ### 3c: Negative caching as SHOULD with test-observable bounds
 

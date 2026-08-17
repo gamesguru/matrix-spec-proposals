@@ -224,8 +224,10 @@ room:
      DAG tips and the epoch window.
    - Verify that the client's `proof` forms a valid cycle of length 42 in the
      Cuckoo Graph seeded by:
-     $IP = \text{SHA256}(\text{CanonicalJSON}(E.\text{content})
-     \mathbin{\Vert} E.\text{type} \mathbin{\Vert} CH)$
+     $$
+     IP = \text{SHA256}(\text{CanonicalJSON}(E.\text{content})
+     \mathbin{\Vert} E.\text{type} \mathbin{\Vert} CH)
+     $$
    - Verify that the double SHA-256 hash of the cycle proof block contains at
      least `difficulty` leading zero bits.
    - If any verification step fails, **reject the event**.

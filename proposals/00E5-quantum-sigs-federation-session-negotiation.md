@@ -56,7 +56,7 @@ before encapsulating, rejecting invalid keys with `400 M_INVALID_PARAM`.
 {
   "session_id": "<opaque-string>",
   "ciphertext": "<unpadded-base64-ml-kem-768-ciphertext>",
-  "expires_ts": 1716003600000
+  "expires_ts": 1798848060000
 }
 ```
 

@@ -377,7 +377,8 @@ repairing state, or considering a gap resolved.
 This MSC does expose a bandwidth-consumption surface for servers which implement
 the endpoint. Authenticated federation peers could issue repeated large bounded
 topology queries, so implementations should apply the same conservative
-response-size and rate-limit controls described above.
+response-size and rate-limit controls described in
+[Part A](4511-part-a-topological-metadata-query-api.md).
 
 This is not unique to this overlay profile: `/event`, `/backfill`,
 `/get_missing_events`, and `/state_ids` already expose heavier bandwidth
@@ -426,11 +427,11 @@ passes normal Matrix authorization and event verification.
 
 ## References
 
-- [Matrix Server-Server API](https://spec.matrix.org/latest/server-server-api/)
+- [Matrix Server-Server API](https://spec.matrix.org/v1.11/server-server-api/)
   for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
   authorization, and the existing PDU flow this proposal tries to avoid
   overusing.
-- [Matrix room version 12](https://spec.matrix.org/latest/rooms/v12/) for the
+- [Matrix room version 12](https://spec.matrix.org/v1.11/rooms/v12/) for the
   current default room-version baseline, including event format behavior
   inherited from room version 11, event IDs inherited from room versions 3 and
   later, and v12-specific room ID and state-resolution changes.

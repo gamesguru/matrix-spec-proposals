@@ -223,7 +223,7 @@ endpoint, in the form of a new entry:
 
 ```json5
 {
-  unstable_features: {
+  "unstable_features": {
     "org.matrix.msc1234": true,
   },
 }
@@ -257,7 +257,7 @@ a spec version, using yet another `unstable_features` flag:
 
 ```json5
 {
-  unstable_features: {
+  "unstable_features": {
     "org.matrix.msc1234": true,
     "org.matrix.msc1234.stable": true,
   },

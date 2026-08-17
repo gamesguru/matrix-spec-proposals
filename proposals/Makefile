@@ -7,7 +7,8 @@ _help:
 	@printf '%s\n' 'Targets: format lint pdf (set f=... )'
 
 define require_f
-	@if [ -z "$(f)" ]; then echo "error: set f=FILE" >&2; exit 2; fi
+	@if [ -z "$(f)" ]; then echo "error: set f=FILE" >&2; exit 2; fi; \
+	if [ -z "$(FILES)" ]; then echo "error: file not found or invalid: $(f)" >&2; exit 2; fi
 endef
 
 FILES := $(filter-out %.pdf,$(wildcard $(f)))
@@ -24,8 +25,8 @@ lint:
 	markdownlint -- $(FILES_Q)
 
 
-GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD)
-SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD)
+GIT_COMMIT ?= $(shell git rev-parse --short=12 HEAD 2>/dev/null || echo "unknown")
+SOURCE_DATE_EPOCH ?= $(shell git show -s --format=%ct HEAD 2>/dev/null || date +%s)
 DATE ?= $(shell perl -MPOSIX=strftime -e 'print strftime("%F", gmtime(shift))' $(SOURCE_DATE_EPOCH))
 QPDF ?= qpdf
 GPG ?= gpg
@@ -47,31 +48,15 @@ pdf:
 	  -V urlcolor=blue \
 	  -V linkcolor=blue \
 	  -V pagestyle=empty \
+	  -M title="$$title" \
 	  -M subject="Compiled by Shane [$(DATE)]" \
 	  -M keywords="commit $(GIT_COMMIT)"; \
 	"$(QPDF)" --qdf --object-streams=disable "$$raw_pdf" "$$qdf_pdf"; \
 	perl "$(QDF_NORMALIZER)" "$$qdf_pdf" "$$norm_pdf"; \
 	"$(QPDF)" --deterministic-id --linearize "$$norm_pdf" "$(f).pdf"; \
 	rm -f "$$raw_pdf" "$$qdf_pdf" "$$norm_pdf"
-#	  -M title="$$title" \
 
 .PHONY: sign
 sign:
 	$(require_f)
 	"$(GPG)" --batch --yes --armor --detach-sign --output "$(f).pdf.asc" "$(f).pdf"
-
-# 	pandoc "$(f)" -o "$(f).pdf" \
-# 		--pdf-engine=xelatex \
-# 		-V geometry:margin=0.65in \
-# 		-V colorlinks=true \
-# 		-V urlcolor=blue \
-# 		-V linkcolor=blue \
-# 		-V pagestyle=empty
-# 	|| \
-# 	pandoc "$(f)" -o "$(f).pdf" \
-# 		--pdf-engine=lualatex \
-# 		-V geometry:margin=0.65in \
-# 		-V colorlinks=true \
-# 		-V urlcolor=blue \
-# 		-V linkcolor=blue \
-# 		-V pagestyle=empty

@@ -123,7 +123,7 @@ order:
 1. Match `profile` exactly against the closed registry.
 2. Decode `key` and require exactly the registry's public-key length.
 3. Require exactly 42 unsigned solution entries, strictly ascending, with each
-   entry less than `2^29`; require `nonce < 2^32`.
+   entry less than `2^29`; require `0 <= nonce < 2^32`.
 4. Compute `G`, interpret its 32 bytes as four unsigned 64-bit little-endian
    words `(k0, k1, k2, k3)` for SipHash-2-4, derive bipartite graph endpoints
    $u_j = \operatorname{SipHash-2-4}(2 \cdot e_j) \mathbin{\&} (2^{29} - 1)$ in
@@ -265,17 +265,18 @@ that preserves verifier safety:
   during migration, and rely on a follow-up MSC or room version before becoming
   mandatory.
 
-## Legacy key minting construction
+## Legacy key minting construction (non-normative)
 
-Homeservers and notaries that support this MSC MUST require a valid
-co-generation proof-of-work for every newly generated FN-DSA key body — the
-initial minting of a server's first FN-DSA key and every subsequent key-body
-rotation — before accepting or attesting to that key. This requirement is
-unconditional: there is no exemption for TOFU, notary-sourced, or
-otherwise-trusted key objects, and no implementation-level opt-out. A receiving
-server or notary MUST reject an FN-DSA key object that lacks a valid embedded
-`pow` proof conforming to this section, regardless of whether the accompanying
-Ed25519/notary authentication is otherwise valid.
+Historical implementations and notaries supporting this legacy construction
+required a valid co-generation proof-of-work for every newly generated FN-DSA
+key body — the initial minting of a server's first FN-DSA key and every
+subsequent key-body rotation — before accepting or attesting to that key. Under
+that construction, this requirement was unconditional: there was no exemption
+for TOFU, notary-sourced, or otherwise-trusted key objects, and no
+implementation-level opt-out. A receiving server or notary rejected an FN-DSA
+key object that lacked a valid embedded `pow` proof conforming to this
+historical section, regardless of whether the accompanying Ed25519/notary
+authentication was otherwise valid.
 
 The proof is a non-interactive, cacheable stamp produced by the origin. It is
 not issued separately by each receiver. The proof MUST be carried inside the

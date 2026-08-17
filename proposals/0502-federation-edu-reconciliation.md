@@ -42,8 +42,8 @@ MSC0501 addresses PDU divergence in the room DAG. PDUs are:
   linked graph.
 - **Append-only** — new events reference previous events; the history only
   grows.
-- **Set-reconcilable** — version-vector comparison can identify missing state
-  snapshots for a given EDU stream.
+- **Set-reconcilable** — algebraic set reconciliation or merge-base walks over
+  event IDs can identify missing history.
 
 EDUs are fundamentally different:
 

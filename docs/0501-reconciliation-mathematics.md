@@ -427,10 +427,10 @@ $$
 p=(1-\varepsilon)W_{\mathcal M}+\varepsilon\mu,
 $$
 
-where `W_M` is adversarial hub weight and `mu` is the adversarial Sybil
-fraction. The floor makes `p<1` whenever the adversary lacks a Sybil majority,
-but the tail bound should determine `f`; the mean alone is insufficient for a
-security target.
+where $W_{\mathcal M}$ is adversarial hub weight and $\mu$ is the adversarial
+Sybil fraction. The floor makes `p<1` whenever the adversary lacks a Sybil
+majority, but the tail bound should determine `f`; the mean alone is
+insufficient for a security target.
 
 ## 9. Convergence and Scheduling
 
@@ -581,15 +581,16 @@ p_M=(1-\varepsilon)W_M+\varepsilon\mu,
 $$
 
 where `W_M` is their weighted share and `\mu=|M|/N` their population share.
-Substituting `p_M` into Theorem 8 gives the eclipse tail. Entropy and the
-eclipse bound measure different properties: high entropy discourages
-concentration, while the tail bound states the probability that all selected
-peers are bad. The tail assumes fresh independent selections. Persistent offline
-peers, sticky connections, or an adversary holding a slot violate that
-assumption; peer rotation is therefore required, and the uniform floor must be
-applied over the full peer set rather than only currently live peers.
+Substituting `p_M` into the Section 8 eclipse bound gives the eclipse tail.
+Entropy and the eclipse bound measure different properties: high entropy
+discourages concentration, while the tail bound states the probability that all
+selected peers are bad. The tail assumes fresh independent selections.
+Persistent offline peers, sticky connections, or an adversary holding a slot
+violate that assumption; peer rotation is therefore required, and the uniform
+floor must be applied over the full peer set rather than only currently live
+peers.
 
-If an offline fraction `rho` consumes slots persistently, a first-order
+If an offline fraction $\rho$ consumes slots persistently, a first-order
 effective fanout approximation is
 
 $$

@@ -64,10 +64,11 @@ implement the topology query at all.
 ```
 
 The `tk.nutra.msc4511.overlay_attestations` flag is advertised separately in
-Part B for overlay proofs. The `tk.nutra.msc4511.computed_graph_queries` flag
-advertises the optional `compute` extension in this part. Future room-version
-commitments described in Part C are gated by room-version negotiation instead of
-a federation capability flag.
+[Part B](4511-part-b-merkle-overlay-backwards-compat.md) for overlay proofs. The
+`tk.nutra.msc4511.computed_graph_queries` flag advertises the optional `compute`
+extension in this part. Future room-version commitments described in
+[Part C](4511-part-c-merkleized-room-version-upgrade.md) are gated by
+room-version negotiation instead of a federation capability flag.
 
 A server that does not advertise this flag SHOULD be treated as not supporting
 the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to
