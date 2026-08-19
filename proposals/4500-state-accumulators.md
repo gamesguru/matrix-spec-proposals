@@ -140,49 +140,6 @@ replacement, and deduplication. The accumulator is a cryptographic commitment of
 that map's current `(type, state_key, event_id)` assignments, not a set manager
 or delta-decoder.
 
-Implementations MAY additionally maintain an auxiliary, order-independent
-**shape checksum** over the occupied `(type, state_key)` slots only, computed as
-a second `LtHash16` lattice under a distinct domain separation tag so it can be
-meaningfully compared across servers (see
-[Shape checksum wire format](#shape-checksum-wire-format) below). Such a
-checksum remains advisory and non-authoritative — it MUST NOT be used for
-anything other than classifying a mismatch already detected by the main
-accumulator — but because it is comparable across servers, it can help classify
-whether a mismatch reflects disagreement about which slots exist or only
-disagreement about which `event_id` occupies an existing slot. A
-`state_key`-only checksum is not useful, because `state_key` is not unique
-without the event `type`.
-
-#### Shape checksum wire format
-
-The shape checksum reuses the same `LtHash16` machinery as the main accumulator,
-with two differences:
-
-1. **Input encoding.** Each occupied slot is serialized as
-   `len(type) || type || len(state_key) || state_key` — the same two
-   length-prefixed fields as the main encoding, with the `event_id` field
-   omitted entirely. Two occupying events for the same `(type, state_key)`
-   therefore expand to the identical element for shape purposes, which is the
-   intended behavior: replacing the event in an existing slot changes the main
-   accumulator but leaves the shape lattice unchanged.
-2. **Domain separation.** The encoded element is expanded with `SHAKE256` using
-   the distinct tag `msc4500_lthash16_shape\x00` instead of
-   `msc4500_lthash16\x00`, so shape and main lattice values can never be
-   confused or cross-contaminated even though the underlying accumulation and
-   collapse steps (accumulation, removal/replacement, initial state, and
-   `BLAKE2b-256` collapse) are otherwise identical to
-   [Algorithm specification](#algorithm-specification).
-
-The shape checksum is advisory and local; it is intentionally not part of
-`state_hashes`, so it is not transmitted in transactions. It is only useful once
-a main-accumulator mismatch has already been detected, to help an operator or
-future reconciliation logic classify the kind of drift, so paying its cost on
-every transaction would be waste. The multiplicity assumption in
-[Parameter security](#security-considerations) also holds structurally for the
-shape lattice: a resolved state map has exactly one occupied slot per
-`(type, state_key)` key, so every shape element likewise has multiplicity 1
-regardless of room size.
-
 ### Transaction payload
 
 Servers implementing this MSC MUST embed a `state_hashes` dictionary at the root
@@ -660,13 +617,10 @@ is the sole equality check.
 
 ## Test vectors
 
-To assist implementers, the following test vectors are provided. Scenarios 1-4
-use the main accumulator: `SHAKE256` element expansion prefixed with the domain
+To assist implementers, the following test vectors are provided. They use the
+main accumulator: `SHAKE256` element expansion prefixed with the domain
 separation tag `msc4500_lthash16\x00`, 16-bit little-endian wrapping lane
-addition/subtraction, and standard `BLAKE2b-256` collapse digest. Scenario 5
-uses the same machinery for the auxiliary shape lattice, with the distinct
-domain separation tag `msc4500_lthash16_shape\x00` and the `event_id`-less
-encoding described in [Shape checksum wire format](#shape-checksum-wire-format).
+addition/subtraction, and standard `BLAKE2b-256` collapse digest.
 
 ### Empty state
 
@@ -736,37 +690,6 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 - Lattice $S_3$ prefix (first 16 bytes): `296ff8b7c050f4ec0c0419bdf2b7cc9e`
 - Collapse digest:
   `8b611750bb056a38f9e3f9fcc74ae1f0771f12ade0daecc6963e302d15f8e67f`
-
-### Scenario 5: shape checksum (mutation drift)
-
-The shape lattice for the same state progression as Scenarios 3 and 4, using the
-domain separation tag `msc4500_lthash16_shape\x00` and the
-`len(type) || type || len(state_key) || state_key` encoding (no `event_id`) from
-[Shape checksum wire format](#shape-checksum-wire-format).
-
-At the point of Scenario 3 (two elements, `$event_1` and `$event_2`):
-
-- Raw encoded shape element for the membership slot:
-  `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d`
-- Raw encoded shape element for the name slot: `0b006d2e726f6f6d2e6e616d650000`
-- Shape lattice prefix (first 16 bytes): `02d418079bc5b05d4b9a61f633b40dfb`
-- Shape collapse digest:
-  `9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d`
-
-At the point of Scenario 4 (membership slot's occupying event replaced by
-`$event_3`), the shape lattice is **unchanged**: the shape element for the
-membership slot depends only on `m.room.member` and `@alice:example.com`, so
-subtracting and re-adding it nets to zero.
-
-- Shape lattice prefix (first 16 bytes): `02d418079bc5b05d4b9a61f633b40dfb`
-- Shape collapse digest:
-  `9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d`
-
-This is the canonical example of the mutation-drift classification the shape
-checksum provides: the main accumulator digest changes between Scenario 3 and
-Scenario 4 (`99d3ed0a…` → `8b611750…`), while the shape digest stays identical
-(`9aab4968…` in both), correctly signaling that the occupied slots did not
-change — only which event occupies one of them.
 
 ## Unstable prefix
 
