@@ -60,7 +60,7 @@ two servers whose event sets differ by a small, arbitrarily-distributed set of
 holes, with no topological hint as to where the holes are.
 
 MSC0501 proposes to repair this with a digest exchange: a 16-byte accumulator as
-an agreement check, plus `algebraic_v1` sketch/estimator layers (MSC0503) to
+an agreement check, plus `algebraic_v1` sketch/estimator layers (MSC0501) to
 localize and extract small symmetric differences over the room's known-event
 set, with loud decode failure and bounded fallbacks when differences are large.
 
@@ -675,7 +675,7 @@ same code path.
 
 At $b = 256$, $t = 8$, $\ell = 64$:
 
-- **Profile resident size:** MSC0503's complete structure is approximately **23
+- **Profile resident size:** MSC0501's complete structure is approximately **23
   KiB per room**, including the room and bucket $h_{128}$ accumulators, counts,
   eight-syndrome arrays, and the 32-strata estimator.
 - **Update cost:** approximately 618 ns per event with the portable reference
