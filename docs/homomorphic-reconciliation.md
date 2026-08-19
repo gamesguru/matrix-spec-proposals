@@ -60,7 +60,7 @@ two servers whose event sets differ by a small, arbitrarily-distributed set of
 holes, with no topological hint as to where the holes are.
 
 MSC0501 proposes to repair this with a digest exchange: a 16-byte accumulator as
-an agreement check, plus `algebraic_v1` sketch/estimator layers (MSC0501) to
+an agreement check, plus `algebraic_v1` sketch/estimator layers (MSC4521) to
 localize and extract small symmetric differences over the room's known-event
 set, with loud decode failure and bounded fallbacks when differences are large.
 

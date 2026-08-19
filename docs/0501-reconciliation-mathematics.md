@@ -1,6 +1,6 @@
 # Mathematical Foundations of Federation Reconciliation
 
-This note records the mathematical claims supporting MSC0501 and MSC0500. It is
+This note records the mathematical claims supporting MSC0501 and MSC4521. It is
 explanatory, not normative. The MSCs define the wire behavior and security
 requirements; this note gives the proofs and assumptions behind them.
 
@@ -344,7 +344,7 @@ $$
 
 field multiplications in the bounded decoder. A local work budget therefore sets
 a practical direct-decode capacity; the profile's `k=64` cap is the wire and
-local-policy boundary used by MSC0500. Given an estimate `\widehat{\Delta}` and
+local-policy boundary used by MSC4521. Given an estimate `\widehat{\Delta}` and
 a per-bucket safe occupancy $\lambda$, choose the bucket depth
 
 $$

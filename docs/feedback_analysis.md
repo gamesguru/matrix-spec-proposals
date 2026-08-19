@@ -356,6 +356,7 @@ hard-asserts `foundKey == expectedKeyBase64`.
 > [!NOTE]  
 > **MSC clarifications to consider:**
 >
-> - Ensure notary rejection semantics (HTTP 200 + omission from `server_keys`) are consistently reflected across all test suites
+> - Ensure notary rejection semantics (HTTP 200 + omission from `server_keys`)
+>   are consistently reflected across all test suites
 > - Address literal duplicate JSON keys (case A) more precisely
 > - Consider whether negative-caching backoff needs test-observable bounds
