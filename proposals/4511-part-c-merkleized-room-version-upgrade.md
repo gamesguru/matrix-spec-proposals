@@ -372,24 +372,11 @@ or withholds each independently provable field.
 
 ## Performance characteristics and benchmarking
 
-Exact speedups depend on implementation, database layout, cache state, and
-workload, but the theoretical bandwidth bounds and storage overhead can be
-quantified.
-
-### Asymptotic bandwidth analysis
-
-For a traversal visiting `N` events:
-
-- full-event retrieval transfers `O(N * S_event)` bytes;
-- sparse topology query transfers `O(N * S_meta + P)` bytes, where `S_meta` is
-  the size of the requested metadata fieldset and `P` is the size of optional
-  proof material.
-
-When proofs are not requested, the bandwidth reduction approaches
-`1 - (S_meta / S_event)`. As an illustrative range, if a full event is 1 to 5
-KiB and the requested topology metadata is 80 to 300 bytes per event, the
-bandwidth reduction is roughly 70% to 98%. Implementations MUST NOT rely on
-these illustrative percentages as protocol guarantees.
+The shared bandwidth and benchmarking analysis for the topology query endpoint
+is defined in
+[Part A, Performance characteristics and benchmarking](4511-part-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
+This part documents only what the split-canonicalization sketch adds on top of
+that baseline.
 
 ### Storage overhead
 
@@ -407,19 +394,10 @@ indexes is optional and would increase this overhead.
 
 ### Cacheability
 
-Event topology is immutable. Once an event's `prev_events`, `auth_events`,
-`depth`, and event ID are known, those values do not change. Responses for
-stable, authorization-equivalent queries are therefore cacheable in a way that
-linear `/backfill` responses are not: a cached sparse topology answer can remain
-useful even when later room history advances.
-
-### Empirical benchmarking
-
-Implementations SHOULD benchmark this proof profile against their specific event
-store and federation workload. Recommended metrics include total bytes
-transferred, number of round trips, database rows read, full event JSON decode
-count, CPU time, active RAM usage, wall-clock latency, and success rate for gap
-repair path selection.
+The base topology-query cacheability analysis from Part A applies unchanged to
+responses carrying proofs: the committed metadata is event-intrinsic and
+immutable, so a cached proof-bearing response remains useful as room history
+advances.
 
 ## Relationship to other proposals
 
@@ -456,50 +434,30 @@ MSC defines a narrower operation that requires only the proven metadata.
 
 ### Bandwidth consumption
 
-This MSC does expose a bandwidth-consumption surface for servers which implement
-the endpoint. Authenticated federation peers could issue repeated large bounded
-topology queries, so implementations should apply the same conservative
-response-size and rate-limit controls described above.
-
-This is not unique to this proof profile: `/event`, `/backfill`,
-`/get_missing_events`, and `/state_ids` already expose heavier bandwidth
-surfaces.
-
-The intended use case here is real-world gap repair: inbound transactions,
-backfill attempts, and auth-chain recovery often need to know a few edges or
-candidate servers before deciding which full events to fetch. Returning compact
-metadata can reduce total bandwidth compared to fetching full PDUs or state sets
-blindly. This can also support operator-initiated repair tooling.
-
-Servers should still treat this as an optional endpoint with hard response-size
-limits, per-origin rate limits, and conservative defaults. If a deployment does
-not see federation repair value from this query shape, it can decline to expose
-the endpoint.
+The bandwidth surface of the topology query endpoint and its mitigations are
+covered in
+[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations);
+the response-size limits, per-origin rate limits, and conservative defaults
+described there apply unchanged. This proof profile's specific cost is the
+sibling-hash material in `proofs`, which scales with the number of proven fields
+and proven events.
 
 ### Hint validation and reputation
 
-Because current room versions cannot independently verify topological hints
-without fetching the full event, requesting servers are exposed to potential
-misdirection from responding nodes. To mitigate this without strictly
-standardizing a global reputation system, implementations should rely on local
-heuristics.
+The hint-reputation heuristics defined in
+[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations)
+apply unchanged. Two proof-specific notes apply:
 
-Requesting servers SHOULD track topology hints they later verify against full
-events. If a responding server repeatedly returns metadata contradicted by
-verified event payloads, the requester MAY deprioritize that server for future
-topology queries, apply local rate limits, or ignore its topology hints for a
-limited period.
+- Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
+  directly verifiable against `event_root` in room versions that adopt this
+  sketch, so contradicted metadata is provably false rather than merely
+  suspicious.
+- `candidate_servers` is not event-intrinsic and is not part of this native
+  proof model; a poor candidate may simply be stale or unavailable rather than
+  provably false.
 
-Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
-directly verifiable against `event_root` in room versions that adopt this
-sketch. `candidate_servers` is not event-intrinsic and is not part of this
-native proof model; a poor candidate may simply be stale or unavailable rather
-than provably false.
-
-Implementations should decay these penalties over time to prevent transient
-corruption or partial-state desyncs from permanently poisoning a peer. Such
-reputation data MUST NOT cause the requester to reject a valid event which
-passes normal Matrix authorization and event verification.
+Reputation decay and the rule that such data MUST NOT cause rejection of a valid
+event still apply exactly as in Part A.
 
 ## References
 

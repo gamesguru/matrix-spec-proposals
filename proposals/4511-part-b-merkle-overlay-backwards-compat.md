@@ -275,24 +275,10 @@ domain-separation strings together, and verifiers MUST reject unknown versions.
 
 ## Performance characteristics and benchmarking
 
-Exact speedups depend on implementation, database layout, cache state, and
-workload, but the theoretical bandwidth bounds and storage overhead can be
-quantified.
-
-### Asymptotic bandwidth analysis
-
-For a traversal visiting `N` events:
-
-- full-event retrieval transfers `O(N * S_event)` bytes;
-- sparse topology query transfers `O(N * S_meta + P)` bytes, where `S_meta` is
-  the size of the requested metadata fieldset and `P` is the size of optional
-  proof material.
-
-When proofs are not requested, the bandwidth reduction approaches
-`1 - (S_meta / S_event)`. As an illustrative range, if a full event is 1 to 5
-KiB and the requested topology metadata is 80 to 300 bytes per event, the
-bandwidth reduction is roughly 70% to 98%. Implementations MUST NOT rely on
-these illustrative percentages as protocol guarantees.
+The shared bandwidth and benchmarking analysis for the topology query endpoint
+is defined in
+[Part A, Performance characteristics and benchmarking](4511-part-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
+This part documents only what the overlay profile adds on top of that baseline.
 
 ### Storage overhead
 
@@ -313,32 +299,20 @@ recompute them from stored event metadata on demand.
 
 ### Cacheability
 
-Event topology is immutable. Once an event's `prev_events`, `auth_events`,
-`depth`, and event ID are known, those values do not change. Responses for
-stable, authorization-equivalent queries are therefore cacheable in a way that
-linear `/backfill` responses are not: a cached sparse topology answer can remain
-useful even when later room history advances.
+The base topology-query cacheability analysis from Part A applies unchanged to
+overlay-bearing responses. Two overlay-specific notes apply:
 
-Signed overlay attestations include `attestation_ts` in the signed envelope so
-contradictory response roots can be ordered approximately in time. The attested
-field set is restricted to event-intrinsic metadata, so an old attestation
-should remain valid evidence that the responder made that assertion at the
-signed timestamp. Responder-local hint fields such as `rejected` and
-`soft_failed` are excluded from the overlay root precisely because their values
-can change over time.
-
-For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
-overlay attestations whose signed `attestation_ts` is more than 24 hours old,
-unless local policy or operator tooling is explicitly evaluating historical
-evidence.
-
-### Empirical benchmarking
-
-Implementations SHOULD benchmark this overlay profile against their specific
-event store and federation workload. Recommended metrics include total bytes
-transferred, number of round trips, database rows read, full event JSON decode
-count, CPU time, active RAM usage, wall-clock latency, and success rate for gap
-repair path selection.
+- Signed overlay attestations include `attestation_ts` in the signed envelope so
+  contradictory response roots can be ordered approximately in time. The
+  attested field set is restricted to event-intrinsic metadata, so an old
+  attestation should remain valid evidence that the responder made that
+  assertion at the signed timestamp. Responder-local hint fields such as
+  `rejected` and `soft_failed` are excluded from the overlay root precisely
+  because their values can change over time.
+- For liveness-sensitive decisions, requesters SHOULD reject or de-prioritize
+  overlay attestations whose signed `attestation_ts` is more than 24 hours old,
+  unless local policy or operator tooling is explicitly evaluating historical
+  evidence.
 
 ## Relationship to other proposals
 
@@ -374,56 +348,29 @@ repairing state, or considering a gap resolved.
 
 ### Bandwidth consumption
 
-This MSC does expose a bandwidth-consumption surface for servers which implement
-the endpoint. Authenticated federation peers could issue repeated large bounded
-topology queries, so implementations should apply the same conservative
-response-size and rate-limit controls described in
-[Part A](4511-part-a-topological-metadata-query-api.md).
-
-This is not unique to this overlay profile: `/event`, `/backfill`,
-`/get_missing_events`, and `/state_ids` already expose heavier bandwidth
-surfaces.
-
-The intended use case here is accountable sparse metadata: repair tooling can
+The bandwidth surface of the topology query endpoint and its mitigations are
+covered in
+[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations);
+the response-size limits, per-origin rate limits, and conservative defaults
+described there apply unchanged. The overlay profile's specific cost is the
+proof material in `overlay_proofs`, which scales with the number of attested
+events and disclosed leaf paths rather than with room size. Repair tooling can
 record which server asserted which topology facts without requiring one
 signature per returned event.
 
-Servers should still treat this as an optional endpoint with hard response-size
-limits, per-origin rate limits, and conservative defaults. If a deployment does
-not see federation repair value from this query shape, it can decline to expose
-the endpoint.
-
 ### Hint validation and reputation
 
-Because overlay attestations do not make metadata true, requesting servers are
-still exposed to potential misdirection from responding nodes. To mitigate this
-without strictly standardizing a global reputation system, implementations
-should rely on local heuristics.
-
-Requesting servers SHOULD track topology hints they later verify against full
-events. If a responding server repeatedly returns metadata contradicted by
-verified event payloads, the requester MAY deprioritize that server for future
-topology queries, apply local rate limits, or ignore its topology hints for a
-limited period.
-
-Signed overlay attestations make this evidence transferable. A requester that
-obtains an `overlay_proofs` entry can show a third party that the responding
-server signed a response root containing a particular commitment for
-`(room_id, event_id, fields_version)` at the envelope's `attestation_ts`. This
-still does not prove the attested metadata is true, but it does make
-contradictions between responders, or contradictions with a later fetched PDU,
-auditable outside the original requester's local logs.
-
-Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
-falsifiable when the full PDU is eventually fetched, and are therefore useful
-inputs to these heuristics. `candidate_servers` is not directly falsifiable in
-the same way; a poor candidate may simply be stale or unavailable rather than
-provably false.
-
-Implementations should decay these penalties over time to prevent transient
-corruption or partial-state desyncs from permanently poisoning a peer. Such
-reputation data MUST NOT cause the requester to reject a valid event which
-passes normal Matrix authorization and event verification.
+The hint-reputation heuristics defined in
+[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations)
+apply unchanged to overlay-bearing responses. What the overlay adds is
+transferable evidence: a requester that obtains an `overlay_proofs` entry can
+show a third party that the responding server signed a response root containing
+a particular commitment for `(room_id, event_id, fields_version)` at the
+envelope's `attestation_ts`. This still does not prove the attested metadata is
+true, but it does make contradictions between responders, or contradictions with
+a later fetched PDU, auditable outside the original requester's local logs.
+Reputation decay and the rule that such data MUST NOT cause rejection of a valid
+event still apply exactly as in Part A.
 
 ## References
 
