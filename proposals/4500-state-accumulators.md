@@ -98,9 +98,9 @@ implemented as follows:
    per length is sufficient since no field in a valid PDU can exceed the global
    65 KB event size limit.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
-   tag `msc4500_lthash16\x00`, is expanded to exactly 2048 bytes using the
+   tag `msc4500_lthash16_v1\x00`, is expanded to exactly 2048 bytes using the
    `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
-   `expansion = SHAKE256("msc4500_lthash16\x00" || element, 2048)`. A
+   `expansion = SHAKE256("msc4500_lthash16_v1\x00" || element, 2048)`. A
    fixed-width hash cannot fill the lattice; this uniform XOF expansion is
    essential for identical lane distribution. `SHAKE256` is natively supported
    across virtually all cryptographic libraries without custom parameter block
@@ -166,7 +166,7 @@ event; otherwise `after` equals `before`. If a server does not know about a PDU
 in the given `prev_events`, they shall omit it entirely from the dictionary.
 
 - `algorithm`: A single top-level string identifying the digest algorithm used
-  for every entry in this transaction's `state_hashes` (e.g. `lthash16`, see
+  for every entry in this transaction's `state_hashes` (e.g. `lthash16-v1`, see
   [Algorithm specification](#algorithm-specification)). One value governs the
   whole transaction; mixing algorithms within a single transaction serves no
   purpose and is not supported. A receiver that does not recognize the algorithm
@@ -214,7 +214,7 @@ are equivalent.
     }
   ],
   "state_hashes": {
-    "algorithm": "lthash16",
+    "algorithm": "lthash16-v1",
     "$sample_pduid_abc123def456": {
       "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
       "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
@@ -259,7 +259,7 @@ digest family the receiver evaluated against.
   "pdus": {
     "$sample_pduid_abc123def456": {
       "state_hash_mismatch": {
-        "algorithm": "lthash16",
+        "algorithm": "lthash16-v1",
         "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
         "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
       }
@@ -619,7 +619,7 @@ is the sole equality check.
 
 To assist implementers, the following test vectors are provided. They use the
 main accumulator: `SHAKE256` element expansion prefixed with the domain
-separation tag `msc4500_lthash16\x00`, 16-bit little-endian wrapping lane
+separation tag `msc4500_lthash16_v1\x00`, 16-bit little-endian wrapping lane
 addition/subtraction, and standard `BLAKE2b-256` collapse digest.
 
 ### Empty state
@@ -648,10 +648,10 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
 - Element 1 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_1)$):
-  `d72df88a72ff61da6b2287649ff6001c`
-- Lattice $S_1$ prefix (first 16 bytes): `d72df88a72ff61da6b2287649ff6001c`
+  `c6a4f2e8f4016c9aaf9c52e67020f221`
+- Lattice $S_1$ prefix (first 16 bytes): `c6a4f2e8f4016c9aaf9c52e67020f221`
 - Collapse digest:
-  `3bcd9f595b4b5c7095b300ec5cf37ff1ff3f79400643f7ba66171e150ddb6606`
+  `d26472b7d70e5811b22aa575e1ada898b3c83891547d7d0b90972aa44db42db2`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -671,10 +671,10 @@ ID `$event_2`.
 - Raw encoded element: `0b006d2e726f6f6d2e6e616d650000246576656e745f32`
 - Element 2 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_2)$):
-  `8c9d4997da61e28d7e6b83255fff064e`
-- Lattice $S_2$ prefix (first 16 bytes): `63cb41224c614368e98d0a8afef5066a`
+  `8107236052d1e6d7193cada70d85fa2c`
+- Lattice $S_2$ prefix (first 16 bytes): `47ac154946d35272c8d8ff8d7da5ec4e`
 - Collapse digest:
-  `99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c`
+  `687f1b5c3c5c4132b6fdc03c070e01287b01aec044e98560ccdfee501009cc0f`
 
 ### Scenario 4: instant replacement
 
@@ -686,10 +686,10 @@ event ID `$event_3`. This is performed by subtracting the expansion for
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f33`
 - Element 3 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_3)$):
-  `9dd1af20e6ee125f8e98969793b8c650`
-- Lattice $S_3$ prefix (first 16 bytes): `296ff8b7c050f4ec0c0419bdf2b7cc9e`
+  `14e9b8900236b9d0d2e07dc6b392fa14`
+- Lattice $S_3$ prefix (first 16 bytes): `95f0dbf054079fa8eb1c2a6ec017f441`
 - Collapse digest:
-  `8b611750bb056a38f9e3f9fcc74ae1f0771f12ade0daecc6963e302d15f8e67f`
+  `0c1eb97da39dcc2ab9cfa61c4da329dbcd8e230b892a70583857c934424927a9`
 
 ## Unstable prefix
 
