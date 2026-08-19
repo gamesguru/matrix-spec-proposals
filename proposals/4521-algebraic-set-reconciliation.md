@@ -3,10 +3,11 @@
 Several federation mechanisms need to know whether two servers contain the same
 set of identifiers. With a lot of work, this MSC lets them compute the exact
 symmetric difference between large populations, conditional on successful decode
-verification: the 128-bit XOR accumulator is a non-binding check with residual
-collision probability, and $h_{64}$ collisions can make two distinct identifiers
-indistinguishable to the decoder, so verification cannot unconditionally detect
-every incorrect decode. This MSC helps ensure network synchronization.
+verification (the accumulator is non-binding and $h_{64}$ collisions can make
+distinct identifiers indistinguishable to the decoder, so verification cannot
+unconditionally detect every incorrect decode; see
+[Decode and verification](#decode-and-verification)). This MSC helps ensure
+network synchronization.
 
 Some consumers need that over a room's known event or resolved state set; others
 use it to synchronize key IDs between notaries, or to reconcile ephemeral and
@@ -747,21 +748,7 @@ The reconciliation mechanisms in this MSC use standard algebraic and
 combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
-- **Syndrome sketches and BCH-style power sums:** The extraction layer computes
-  an odd-power syndrome map over $\mathbb{F}_{2^{64}}$:
-  $\sigma_k(S) = \left(\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3,
-  \ldots, \sum_{e \in S} h_{64}(e)^{2k-1}\right)$.
-  Even powers are omitted because the Frobenius endomorphism makes them
-  redundant in characteristic 2. Recovering the symmetric difference from these
-  coordinates is the finite-field analogue of power-sum/root recovery in
-  classical algebra.[^8]
-
-- **128-bit accumulator and linear dependence:** The $h_{128}$ accumulator
-  provides fault detection but is explicitly not cryptographically binding. Over
-  $\mathbb{F}_2$, any set of 129 128-bit values is linearly dependent, so a
-  nonempty subset can always have XOR sum zero.
-
-- **Dynamic tree extraction and antichain invariants:** When divergence exceeds
+- **Dynamic tree extraction and antichain invariants.** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
   $h_{64}(e)$, splitting the key space rather than a leaf sequence of arbitrary
   length. Termination follows because each split weakly reduces node population,
@@ -776,35 +763,15 @@ contracts, but these analogies may help understand the protocol.
   random-access protocols. `algebraic_v1` does not adopt this refinement; it is
   a candidate for a future profile revision, not a change to this one.
 
-- **Decode cost:** Decoding a single capacity-$k$ node costs $O(k^2 \log_2 q)$,
-  where $q = 2^{64}$ and thus $\log_2 q = 64$. With per-node capacity capped at
-  $k \le 32$ and failures isolated independently, a difference of size $d$
-  spread over $n$ nodes has total decode cost
-  $O\left(\frac{d^2}{n}\log_2 q\right)$.
-
-- **Strata estimation and trailing-zero counts:** The pre-decode estimator
-  groups elements by trailing-zero count in $h_{64}$. Because $h_{64}(e)$ is
-  modeled as uniformly distributed, the highest nonempty residual stratum gives
-  a compact estimate of $d = \lvert S_A \triangle S_B \rvert$, in the same broad
-  family as probabilistic counting heuristics.
-
-### Exploratory implementer materials
-
-Exploratory exercises. Useful for testing the theory before implementation.
-
-- **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
-  reduction.
-- **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
-  Recover missing elements via aggregated sums and squares.
-- **Binary prefix routing:** _Codeforces 842D_[^14]. Recursive subdivision over
-  a bit-prefix key space.
-- **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
-  Shared bit-prefix / range-bounding logic.
-- **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
-  Berlekamp-Massey recurrence recovery.
-- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_[^6].
-  Adaptive split-and-continue reconciliation when a fixed-capacity decode
-  overflows.
+- **Field, syndrome, accumulator, and strata.** The odd-power syndrome map and
+  its BCH-style recovery, the non-binding 128-bit accumulator, the decode-cost
+  model, and the strata estimator are specified normatively in [Field](#field),
+  [Syndrome sketch](#syndrome-sketch),
+  [Level-0 accumulator](#level-0-accumulator),
+  [Decode and verification](#decode-and-verification), and
+  [Strata estimator](#strata-estimator). See
+  [Security considerations](#security-considerations) for the accumulator's
+  adversarial limits.
 
 ## Test vectors
 
@@ -957,6 +924,27 @@ implemented three incompatible ways:
 
 <!-- markdownlint-enable MD013 -->
 
+## Appendix: exploratory implementer materials (non-normative)
+
+The following are exploratory exercises and scaffolding for testing the theory
+before implementation. They are not part of the normative contract; they are
+collected here to keep the proposal body focused on the wire format and decode
+contracts.
+
+- **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
+  reduction.
+- **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
+  Recover missing elements via aggregated sums and squares.
+- **Binary prefix routing:** _Codeforces 842D_[^14]. Recursive subdivision over
+  a bit-prefix key space.
+- **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
+  Shared bit-prefix / range-bounding logic.
+- **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
+  Berlekamp-Massey recurrence recovery.
+- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_[^6].
+  Adaptive split-and-continue reconciliation when a fixed-capacity decode
+  overflows.
+
 ## Possible consumers
 
 - MSC4242 (State DAGs) — over an index of state events.
@@ -1001,13 +989,6 @@ implemented three incompatible ways:
 [^7]:
     _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
     GitHub. <https://github.com/bitcoin-core/minisketch>
-
-[^8]:
-    Putnam Questionnaire. 1968 A6, solution archive:
-    <https://prase.cz/kalva/putnam/psoln/psol686.html>
-
-    Paraphrased: find all polynomials of any degree whose coefficients are all
-    +1 or -1, and whose roots are all real.
 
 [^9]:
     Putnam Questionnaire. 2008 A3, archive PDF:

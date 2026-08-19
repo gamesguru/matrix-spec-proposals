@@ -441,6 +441,18 @@ boundary, rather than metadata committed to an individual event.
 
 ### Computed graph queries
 
+Computed graph queries are an **optional convenience layer** over the core raw
+traversal primitive. The raw traversal — per-event edge metadata, candidate
+servers, edge errors, and truncated-walk markers — is the normative core of this
+endpoint and is sufficient for gap repair on its own. Computed facts such as
+`common_ancestor` and `hop_distance` save a requester extra round trips by doing
+small, bounded graph math server-side, but they are not required for
+interoperability: a server that declines them is fully conformant, and a
+requester MUST be able to reproduce equivalent results by walking the returned
+raw edges itself. The scope of this section is therefore deliberately narrow —
+two fixed query names with hard limits — and future extensions must opt in via a
+new unstable-prefix flag and satisfy the extension contract below.
+
 Responding servers MAY support small computed graph queries in addition to raw
 metadata fields. These queries are bounded by the same recursion, record, time,
 authorization, and room-boundary limits as normal traversal.

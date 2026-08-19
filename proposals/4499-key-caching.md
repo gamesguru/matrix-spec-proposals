@@ -63,9 +63,13 @@ any potential future signing algorithms defined by later proposals).
 **Cache refresh lifetime.** Servers MUST cache key responses and SHOULD
 proactively refresh cached keys before their clamped `valid_until_ts` expiry
 (restricted to _at most_ 7 days from fetch) to avoid verification failures
-during key rotation windows. When a server re-fetches a key and receives the
+during key rotation windows.
+
+**Refresh on identical body.** When a server re-fetches a key and receives the
 exact same key body it already has, this is a normal refresh; the server MUST
-simply update its cached `valid_until_ts`. This includes the case where the same
+simply update its cached `valid_until_ts`.
+
+**First `expired_ts` assignment.** A re-fetch is also the ordinary way a key
 body moves from `verify_keys` to `old_verify_keys` and thereby carries an
 `expired_ts` for the first time: that first-ever `expired_ts` for the binding
 MUST be recorded, since a binding with no recorded retirement has no upper bound
@@ -73,9 +77,11 @@ for historical verification. What servers MUST NOT do is replace an `expired_ts`
 that a prior observation already assigned to that binding — a second, different
 `expired_ts` value arriving later MUST be rejected, not the first one. See
 [Historical event verification](#historical-event-verification) for the full
-first-assignment-wins rule. Furthermore, servers MUST rely on their cache. They
-MUST NOT fetch origin keys for every inbound message or request if a valid key
-is already cached locally.
+first-assignment-wins rule.
+
+**Rely on cache.** Servers MUST rely on their cache. They MUST NOT fetch origin
+keys for every inbound message or request if a valid key is already cached
+locally.
 
 **Negative caching and backoff.** Servers MUST cache fetch failures. A dead or
 unreachable remote server can cause fetch storms if every inbound event or
@@ -218,6 +224,20 @@ metadata: implementations that bound the promotion window MUST track that bound
 per provisional binding, so that refreshing one key does not silently extend or
 shorten another key's override window.
 
+The two-tier rule applies only to the notary-versus-direct case. Direct-versus-
+direct conflicts are always resolved by First Seen Wins. Notary-versus-notary
+conflicts (or the same notary at two different times) are also resolved by First
+Seen Wins among provisional observations. A freshness-driven re-fetch MUST NOT
+become a side channel for overriding First Seen Wins: if a server queries a
+notary with `minimum_valid_until_ts` to force an upstream refresh and the
+notary's re-fetch of the origin yields key material for the same key ID that
+conflicts with a binding the notary already holds, the notary MUST reject the
+new key as a collision rather than serving it as an update. Symmetrically, from
+the querying client's perspective, a notary response returned to satisfy
+`minimum_valid_until_ts` is still an ordinary provisional observation subject to
+the rules above; requesting fresher validity confers no override authority over
+an existing binding.
+
 <!-- synapse-derived: complement coverage currently exercises the core
 promotion path against Synapse in TestMSC4499Key/BindingPromotion; the
 remaining edge cases below this sentence aren't separately covered by that
@@ -238,19 +258,7 @@ not leave provisional bindings unpromoted indefinitely merely because no later
 demand happens to ask for that exact key ID again. Once permanent, the binding
 is subject to the standard First Seen Wins rule: a later direct fetch presenting
 a different key body for the same key ID is a collision and MUST be rejected and
-logged. Direct-versus-direct conflicts are always resolved by First Seen Wins;
-the two-tier rule applies only to the notary-versus-direct case.
-Notary-versus-notary conflicts (or the same notary at two different times) are
-also resolved by First Seen Wins among provisional observations. A
-freshness-driven re-fetch MUST NOT become a side channel for overriding First
-Seen Wins: if a server queries a notary with `minimum_valid_until_ts` to force
-an upstream refresh and the notary's re-fetch of the origin yields key material
-for the same key ID that conflicts with a binding the notary already holds, the
-notary MUST reject the new key as a collision rather than serving it as an
-update. Symmetrically, from the querying client's perspective, a notary response
-returned to satisfy `minimum_valid_until_ts` is still an ordinary provisional
-observation subject to the rules above; requesting fresher validity confers no
-override authority over an existing binding.
+logged.
 
 ### Key ID uniqueness requirement
 
@@ -532,25 +540,34 @@ binding's retirement timestamp, permanently, the same way the key body itself is
 permanent. A later observation asserting a _different_ `expired_ts` for the same
 key ID — earlier **or** later — MUST be logged as suspicious and MUST NOT
 replace the first-observed value, for eviction ordering or for any future
-verification. Earlier values would retroactively fail already-accepted PDUs,
-forcing a state reset over pure metadata with no dispute about the event or the
-key's ownership; later values would widen the window a holder of that
-compromised retired key can backdate forgeries into (see the discussion under
-[Security considerations](#security-considerations)), so neither direction is
-benign. A deliberate consequence of this rule is that there is no
-early-revocation path for `expired_ts`: an origin cannot shorten a retired key's
-validity window after the fact, even to respond to a compromise discovered after
-the first `expired_ts` was recorded. That gap is intentional, not an oversight —
-widening the window is the more dangerous failure mode of the two — and the only
-recourse for a compromised retired key is out-of-band manual operator action on
-each affected peer; this MSC does not specify a protocol-level peer-side
-cache-eviction mechanism, and `expired_ts` updates are not one. This is distinct
-from the provisional-binding override above, where a direct fetch replacing a
+verification.
+
+**Why both directions are rejected.** Earlier values would retroactively fail
+already-accepted PDUs, forcing a state reset over pure metadata with no dispute
+about the event or the key's ownership; later values would widen the window a
+holder of that compromised retired key can backdate forgeries into (see the
+discussion under [Security considerations](#security-considerations)), so
+neither direction is benign.
+
+**No early revocation.** A deliberate consequence of this rule is that there is
+no early-revocation path for `expired_ts`: an origin cannot shorten a retired
+key's validity window after the fact, even to respond to a compromise discovered
+after the first `expired_ts` was recorded. That gap is intentional, not an
+oversight — widening the window is the more dangerous failure mode of the two —
+and the only recourse for a compromised retired key is out-of-band manual
+operator action on each affected peer; this MSC does not specify a
+protocol-level peer-side cache-eviction mechanism, and `expired_ts` updates are
+not one.
+
+**Distinct from provisional-binding override.** This is distinct from the
+provisional-binding override above, where a direct fetch replacing a
 _conflicting key body_ MAY prompt re-verification of recent events — that path
 corrects which key was ever legitimate; this rule instead governs metadata churn
 on a key body that was never in question, and requires no per-PDU reliance
 bookkeeping beyond simply never re-verifying an already-accepted PDU against a
-later-observed `expired_ts`. Because this binding is per-receiver and local, a
+later-observed `expired_ts`.
+
+**Per-receiver divergence.** Because this binding is per-receiver and local, a
 peer that first observes the changed `expired_ts` (e.g., one joining or
 refreshing after the change) may still reach a different verdict than one that
 locked in the original value earlier — the same cross-peer divergence already
