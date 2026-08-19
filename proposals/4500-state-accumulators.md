@@ -1,4 +1,4 @@
-# MSC4500: State accumulator endpoint and transaction digests
+# MSC4500: State accumulator and transaction digests
 
 Matrix servers replicate a room as a DAG of events and rely on state resolution
 to eventually converge on a shared state. When servers diverge, the result can
@@ -43,19 +43,13 @@ accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ### Relationship to existing specification
 
-This MSC introduces two primary mechanisms to the Matrix federation protocol:
+This MSC introduces a transaction-level state hash to the Matrix federation
+protocol: a new `state_hashes` dictionary in the
+`PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
+their local, resolved state view alongside the events they are transmitting.
 
-1. **Transaction-level state hashes:** A new `state_hashes` dictionary in the
-   `PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
-   their local, resolved state view alongside the events they are transmitting.
-2. **Federation reconciliation endpoint:** A new
-   `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{roomId}?event_id={eventId}`
-   endpoint that allows an out-of-sync server to query historical accumulator
-   points from a healthy peer and perform a "state bisect" path without a heavy
-   `make_join` or `make_knock`.
-
-These mechanisms are additive and do not alter existing room version consensus
-rules, nor do they modify the canonical structure of the signed PDU itself.
+This mechanism is additive and does not alter existing room version consensus
+rules, nor does it modify the canonical structure of the signed PDU itself.
 
 Rather than attaching hashes to individual events (which are routinely stripped,
 rewritten, or relayed by intermediate servers), this proposal places the hashes
@@ -76,18 +70,18 @@ pre-standard implementations can avoid probing unsupported peers.
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4500.state_accumulator": true
+    "tk.nutra.msc4500.state_hashes": true
   }
 }
 ```
 
 A server that does not advertise this flag SHOULD be treated as not supporting
-the `/state_accumulator` endpoint for routine federation repair. Receivers
-SHOULD avoid repeated probes to unsupported peers; a `501 Not Implemented`
-response, or a `404` response with `M_UNRECOGNIZED` or a non-Matrix body, SHOULD
-be cached as an unsupported signal for at least 24 hours unless an operator
-explicitly overrides the cache. The cache MUST be invalidated on any observed
-change to the peer's `/version` document.
+the transaction state hashes. Receivers SHOULD avoid repeated probes to
+unsupported peers; a `501 Not Implemented` response, or a `404` response with
+`M_UNRECOGNIZED` or a non-Matrix body, SHOULD be cached as an unsupported signal
+for at least 24 hours unless an operator explicitly overrides the cache. The
+cache MUST be invalidated on any observed change to the peer's `/version`
+document.
 
 ### Algorithm specification
 
@@ -179,15 +173,11 @@ with two differences:
    `BLAKE2b-256` collapse) are otherwise identical to
    [Algorithm specification](#algorithm-specification).
 
-The `/state_accumulator` response (see
-[Endpoint definition](#endpoint-definition)) MAY include an additional `shape`
-field: the 32-byte `BLAKE2b-256` collapse digest of the shape lattice at that
-same DAG point, hex-encoded identically to `digest`. Adding `shape` costs
-roughly 70 bytes of JSON overhead per response. The shape checksum is
-intentionally not part of `state_hashes`: it is only useful once a
-main-accumulator mismatch has already been detected and a receiver is bisecting
-via `/state_accumulator`, so paying its cost on every transaction would be
-waste. The multiplicity assumption in
+The shape checksum is advisory and local; it is intentionally not part of
+`state_hashes`, so it is not transmitted in transactions. It is only useful once
+a main-accumulator mismatch has already been detected, to help an operator or
+future reconciliation logic classify the kind of drift, so paying its cost on
+every transaction would be waste. The multiplicity assumption in
 [Parameter security](#security-considerations) also holds structurally for the
 shape lattice: a resolved state map has exactly one occupied slot per
 `(type, state_key)` key, so every shape element likewise has multiplicity 1
@@ -298,16 +288,14 @@ If the local digest matches the incoming one, all systems are nominal.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a background `/get_missing_events`
-or perform a state bisection (see
-[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks)) with
-authoritative servers, while replying to the sender with the mismatched digest
-embedded in a `state_hash_mismatch` dictionary as part of the PDU's processing
-result and the `200 OK` response. Unknown keys in per-PDU result objects are
-silently ignored by existing implementations, so adding `state_hash_mismatch` is
-backwards-compatible. `state_hash_mismatch.algorithm` echoes back the algorithm
-identifier from the triggering transaction's `state_hashes.algorithm`, so a
-sender receiving the mismatch can tell which digest family the receiver
-evaluated against.
+with authoritative servers, while replying to the sender with the mismatched
+digest embedded in a `state_hash_mismatch` dictionary as part of the PDU's
+processing result and the `200 OK` response. Unknown keys in per-PDU result
+objects are silently ignored by existing implementations, so adding
+`state_hash_mismatch` is backwards-compatible. `state_hash_mismatch.algorithm`
+echoes back the algorithm identifier from the triggering transaction's
+`state_hashes.algorithm`, so a sender receiving the mismatch can tell which
+digest family the receiver evaluated against.
 
 ```json
 {
@@ -324,16 +312,16 @@ evaluated against.
 ```
 
 Mismatch handling SHOULD be deduplicated per room (i.e. the first detection
-triggers logging/bisection, but subsequent mismatching transactions within a
-reasonable cooldown period are deprioritized to limit logger output and network
-activity). Note that if a receiving server **rejects** an incoming state event
-due to auth/power-level rules, their `after` hash will instantly (and correctly)
+triggers logging, but subsequent mismatching transactions within a reasonable
+cooldown period are deprioritized to limit logger output and network activity).
+Note that if a receiving server **rejects** an incoming state event due to
+auth/power-level rules, their `after` hash will instantly (and correctly)
 mismatch the sender's `after` hash. This mechanism instantly detects split-brain
 authorization failures.
 
 Homeservers operating under Partial State (MSC3706) MUST silently defer hash
-validation for that room. They cannot compare state to emit warnings or trigger
-bisection (until the room state is fully synchronized).
+validation for that room. They cannot compare state to emit warnings (until the
+room state is fully synchronized).
 
 The emphasis here is on agility: if a receiver cannot validate the `before` and
 `after` hashes readily (e.g., from an in-memory LRU cache or a point database
@@ -352,70 +340,6 @@ A mismatched or deferred hash does not block the PDU; it is still processed
 under standard rules. Whether homeservers implements an automated healing
 pipeline or merely log the divergence for admin intervention is left as an
 implementation detail.
-
-### Endpoint definition
-
-`GET /_matrix/federation/v1/state_accumulator/{roomId}?event_id={eventId}`
-
-This is the endpoint's eventual stable name. Until this MSC is stabilized,
-implementations MUST serve it at the unstable path given in
-[Unstable prefix](#unstable-prefix) instead; the request/response shapes below
-apply identically to both paths.
-
-Returns the raw lattice for the room state immediately **after** `eventId` is
-applied (the `after` accumulator of that PDU).
-
-**Response (200):**
-
-```json
-{
-  "event_id": "$sample_pduid_abc123def456",
-  "algorithm": "lthash16",
-  "lattice": "<base64url, unpadded, 2048 raw bytes>",
-  "n_state_events": 2,
-  "digest": "99d3ed0ae604d2fb5849f7280062e27ecea4425b64b25190e067e3d6a755680c",
-  "shape": "9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d"
-}
-```
-
-`shape` is OPTIONAL and, when present, is the collapse digest of the auxiliary
-shape lattice described in
-[Shape checksum wire format](#shape-checksum-wire-format) at this same DAG
-point. A server that does not maintain the shape lattice MUST omit the field
-rather than fabricate a value.
-
-`lattice` is OPTIONAL. Divergence bisection compares only the 32-byte `digest`
-values at successive DAG points against the receiver's own locally-computed
-lattice, so a server MAY omit the 2048-byte `lattice` payload and return just
-`digest` (plus `shape` if supported) to keep responses small and avoid revealing
-raw state content. A server that omits `lattice` MUST still include `digest`; a
-server that includes `lattice` MUST ensure `BLAKE2b-256(lattice)` equals
-`digest`. A receiver MUST NOT adopt a remote `lattice` as its own local
-accumulator — remote state is never a write target (see
-[Synergy with MSC0501 (event set reconciliation)](#synergy-with-msc0501-event-set-reconciliation)).
-
-The receiver MUST verify that `BLAKE2b-256(lattice)` equals `digest` before
-using the lattice; a mismatch indicates the response is malformed or tampered
-with, and MUST be discarded.
-
-**Errors:** `404 M_NOT_FOUND` if the server does not hold resolved PDU state at
-that event (unknown event, outlier, purged history, bug). `403 M_FORBIDDEN` if
-the requesting server is denied by `m.room.server_acl`, or if the requesting
-server was not a participant in the room at the queried event — this endpoint
-MUST apply the same historical-visibility rule as
-`GET /_matrix/federation/v1/state_ids/{roomId}`: current room membership alone
-is not sufficient to authorize a query about an arbitrary historical point,
-since a server that joined recently can otherwise use this endpoint to learn a
-digest and cardinality count for epochs before it joined. Mirroring `/state_ids`
-costs nothing here: divergence-healing only needs historical accumulator points
-within the requester's own membership epochs, since a server cannot have locally
-computed an accumulator for an epoch it was never present for in the first
-place.
-
-**Rate limiting:** Servers SHOULD rate-limit per peer per room. Bisection
-requires `O(log ΔD)` sequential network calls, so a short burst allowance (e.g.
-30 requests) with a sustained rate of ~1/second is a reasonable default. The
-response is ~3 KB; amplification risk is negligible.
 
 ### Other affected endpoints
 
@@ -436,73 +360,6 @@ Server-Server APIs.
   server immediately returns `304 Not Modified`, bypassing the legacy database
   traversal and JSON serialization of tens of thousands of state events.
 
-## Reconciliation (bisecting forks)
-
-When the 32-byte digest triggers a mismatch alarm, the receiving server knows at
-least one party is desynchronized. The receiver performs homomorphic subtraction
-against the sender's full accumulator lattice.
-
-MSC4511 and MSC4521 complement this lookup primitive rather than replace it:
-MSC4511 can provide graph metadata and ancestor hints for choosing candidate
-repair points, and MSC4521 can reconcile known event sets after a gap has been
-identified. Neither proposal exposes historical resolved-state accumulators —
-that remains `/state_accumulator`'s role — but see
-[Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation)
-below for an optional sketch-based accelerant to the bisection walk itself.
-
-The delta lattice tells you _that_ you've diverged and lets you **bisect** to
-_where_. Because both servers can produce digests at historical DAG points, the
-receiver can query accumulators at $O(\log \Delta D)$ depth (topological
-bisection—similar to `git bisect`—over the known `prev_events` graph or auth
-chain) to find the earliest event where the digests diverged. This endpoint
-defines the queryable primitive — the accumulator at a given event — and
-deliberately leaves the traversal strategy to the implementation, since the DAG
-is a partial order rather than a line: unlike `git bisect`'s single linear
-history, a divergence between two forked branches that each contributed
-independent drift may not reduce to one earliest event at all, but to a frontier
-of events. The `O(log ΔD)` figure describes the linear-history case;
-implementations bisecting across genuinely forked histories should expect the
-earliest-divergence result to be a small set of candidate events rather than a
-single one, and should treat this proposal as defining the lookup primitive, not
-the search algorithm over it. For historical PDUs where a server has no stored
-accumulator (and deems retroactive computation prohibitive), it responds
-`404 M_NOT_FOUND`; the bisecting requester then treats the oldest event for
-which both sides _can_ produce accumulators as a lower bound on the divergence
-point and proceeds from there.
-
-It is important to note that the delta lattice cannot name events you have never
-seen—a lattice sum isn't invertible to its summands (the property that makes it
-collision-resistant). Once the exact divergence point is isolated via bisection,
-enumeration and healing are delegated to MSC0501 [Gossip-based federation room
-reconciliation] and its `/room_diff` and `/room_events` endpoints. Attempting to
-recover the missing `+12 / -18` events directly from the accumulator difference
-is computationally intractable in the general case; the accumulator is for
-verification, not reconciliation. Cheap delta discovery requires separate
-set-reconciliation structures or timeline traversal, such as IBLT-style
-state-set reconciliation, Merkle search trees over `(type, state_key)` slots, or
-Matrix-native lowest-common-ancestor traversal across state-altering events.
-
-If both servers maintain the shape checksum and exchange it via the `shape`
-field of the `/state_accumulator` response (see
-[Shape checksum wire format](#shape-checksum-wire-format)), a bisecting receiver
-can compare its own locally-computed shape digest against the sender's `shape`
-value at the same DAG point to classify a mismatch already detected by the main
-accumulator:
-
-- Matching shape checksum + mismatching main accumulator indicates mutation
-  drift: both servers agree on the active `(type, state_key)` slots but disagree
-  on one or more occupying `event_id`s.
-- Mismatching shape checksum + mismatching main accumulator indicates structural
-  drift: the servers disagree on which `(type, state_key)` slots exist at all.
-
-This classification is only ever advisory context for an operator or an
-automated bisection strategy; it does not change what the main accumulator
-already proved (that a mismatch exists), and a server that omits `shape` simply
-forgoes classification, not detection.
-
-Furthermore, this MSC cannot detect omissions in messages, redactions, or other
-non-state-altering events. For this capability, it fully defers to MSC0501.
-
 ## Synergy with MSC0501 (event set reconciliation)
 
 This proposal and MSC0501 (`room_digest` / `room_diff`) solve fundamentally
@@ -512,96 +369,31 @@ extremity fallback cover the _known event set_ (accepted events and retained
 rejection tombstones across the frame).
 
 Because state divergence implies event-set divergence (with the converse _often_
-also holding true), the two proposals nicely complement each other:
+also holding true), the two proposals complement each other: MSC4500 provides
+continuous, passive, free state-consistency detection on every `/send`; when a
+mismatch is reported, MSC0501's `room_diff` / `room_events` reconcile the
+missing event set. The receiver admits verified events to its DAG and recomputes
+its resolved state locally; remote state digests and state maps are never write
+targets. Because MSC4500 gives active rooms free passive detection, MSC0501's
+periodic polling can back off significantly for rooms with recent inbound
+transactions.
 
-1. **Detect (MSC4500, passive, free):** Every `/send` carries before/after
-   digests. Active rooms get continuous state-consistency checks with zero extra
-   round trips.
-2. **Bisect (MSC4500, active):** On mismatch, optional bisection via the
-   `/state_accumulator` endpoint alerts to the divergence point.
-3. **Reconcile (MSC0501):** `room_diff` identifies missing event IDs and
-   `room_events` retrieves their PDUs and auth chains. The receiver admits
-   verified events to its DAG, then recomputes its resolved state locally;
-   remote state digests and state maps are never write targets. When a fetched
-   PDU is instead rejected, the receiver persists its event ID and rejection
-   reason (storing a rejection tombstone in MSC0501's tombstone set $K$) so
-   subsequent `room_diff` rounds treat it as resolved rather than re-fetching it
-   every pass.
-
-Because MSC4500 gives active rooms free passive detection, MSC0501's periodic
-polling can back off significantly for rooms with recent inbound transactions.
+MSC4500 cannot detect omissions in messages, redactions, or other
+non-state-altering events; for that capability it fully defers to MSC0501.
 
 ## Synergy with MSC4521 (state-set sketch reconciliation)
 
-[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks) above treats
-`/state_accumulator` as the only lookup primitive: once a mismatch is known, the
-receiver walks the DAG at `O(log ΔD)` depth to isolate a divergence point, then
-hands enumeration off to MSC0501. Servers that also implement MSC4521's
-State-map binding profile (see
+MSC4521's State-map binding profile (see
 [Element derivation](../4521-algebraic-set-reconciliation.md#element-derivation)
 and
 [State-map binding](../4521-algebraic-set-reconciliation.md#state-map-binding))
-MAY skip or shorten that walk: instead of bisecting to a point and enumerating
-from there, the two sides exchange a PinSketch syndrome sketch directly over the
-resolved state maps at the already-known mismatched `before`/`after` DAG
-position, and decode the symmetric difference in one round trip.
-
-This is an accelerant to bisection, not a replacement for it, and it is
-capability-gated the same way `/state_accumulator` itself is (see
-[Capability discovery](#capability-discovery)): a receiver that does not
-advertise MSC4521 support falls back to tree-walk bisection exactly as today.
-This section defines nothing new about _when_ to reconcile, only a faster path
-for servers that already support both proposals.
-
-### Where the sketch travels
-
-The sketch MUST NOT be attached to per-PDU `state_hashes` entries, and MUST NOT
-be sent unconditionally with every transaction. A 32-entry strata estimator
-alone is a fixed 2048 bytes — the same size as the raw `LtHash16` lattice this
-proposal exists specifically to avoid transmitting (see
-[Network efficiency](#network-efficiency)). Sending it per-PDU, or even once per
-transaction, reproduces the exact cost this proposal was written to eliminate.
-
-Instead, the sketch is requested only after a mismatch is already known, as an
-optional addition to the existing escalation path:
-
-- As an added field on `state_hash_mismatch` (see
-  [Receiver contract](#receiver-contract)): a receiver that already knows it
-  diverged MAY include a `strata_estimator` alongside the mismatch report,
-  letting the sender decide in one extra round trip whether a full sketch
-  exchange is worth provisioning.
-- As a query option on `/state_accumulator`, e.g. `?sketch=true`, returning a
-  PinSketch syndrome sketch of the resolved state map at that DAG point instead
-  of, or alongside, the raw accumulator.
-
-### Sizing and fallback
-
-Sketch provisioning follows MSC4521's own strata-estimator rule: size the
-initial extraction request from $\hat d$ and escalate on `capacity_exceeded`. A
-`low_confidence` estimate is still usable to size that initial request per
-MSC4521 and MUST NOT, on confidence grounds alone, be treated as reason to skip
-straight to bulk fallback — only a `null` estimate (stratum-31 saturation, i.e.
-unmeasurable) is a signal to fall back to tree-walk bisection or a bulk
-`/state_accumulator` fetch rather than provisioning a sketch. This mirrors the
-existing [Reconciliation](#reconciliation-bisecting-forks) fallback for
-historical points with no stored accumulator: both routes degrade to the same
-bulk-fetch floor, they just differ in how cheaply they resolve the common case.
-
-Because state-map divergence tends to cluster — a single bad state-resolution
-outcome on one branch typically drags a run of `(type, state_key)` slots along
-with it, rather than dropping independently at random the way missed PDUs often
-do — implementations SHOULD NOT assume MSC4521's strata-estimator bounds,
-calibrated primarily against event-set churn, transfer unchanged to
-resolved-state divergence. Operators adopting this section are encouraged to
-validate estimator tightness against their own state-map divergence patterns
-before relying on `low_confidence` thresholds tuned for the event-set case.
-
-### Non-goals
-
-This section does not change what MSC4500 detects or when: the `before`/ `after`
-`LtHash` digests remain the sole free, passive, per-transaction signal. Nothing
-here is required to implement the base proposal; a server MAY implement full
-`/state_accumulator` bisection and never implement this section at all.
+lets two servers that already know their resolved state maps diverge exchange a
+PinSketch syndrome sketch directly and decode the symmetric difference. This is
+a natural companion to the mismatch signal MSC4500 produces, but it is optional
+and independent: a server MAY implement MSC4500's transaction digests and never
+implement this section at all. This MSC defines nothing about _when_ to
+reconcile, only the passive detection signal; MSC4521 defines the reconciliation
+primitive.
 
 ## Implementation notes (non-normative)
 
@@ -612,8 +404,6 @@ servers MAY choose any storage layout that yields the same wire-visible digests.
 The natural storage model is one 2048-byte lattice per state group. Creating a
 new state group from a delta is one subtraction plus one addition against the
 parent's lattice — `O(1)`, no chain walk and no full state materialization.
-Historical `/state_accumulator` queries then reduce to the existing event (state
-group lookup plus a single row or cache read).
 
 Servers without persisted lattices can compute them on demand per-event during
 naive delta chain traversals or iterative BFS sweeps (accumulating the already
@@ -630,9 +420,8 @@ incrementally as each group is created — to compute the lowest common state
 group between two DAG tips locally in $O(\log n)$, with no network round trip.
 This is independent of the `LtHash16` accumulator: the accumulator detects
 _that_ divergence exists; the jump table finds _where_, locally, before falling
-back to the `/state_accumulator` bisection endpoint in
-[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks) for cases
-where the common ancestor predates local retention.
+back to a network-based repair such as MSC0501 for cases where the common
+ancestor predates local retention.
 
 An Euler tour over this same forest, combined with a sparse-table RMQ, would
 give $O(1)$ instead of $O(\log n)$ queries, but requires the full tour to be
@@ -660,13 +449,13 @@ top of it can go stale or silently report a wrong or non-existent answer:
   delta-parent pointers reflects only that recorded lineage; it MAY report a
   lowest common state group that is a storage-layer simplification of the true
   derivation history, and MUST NOT be treated as an authoritative substitute for
-  the accumulator/bisection outcome.
+  the accumulator outcome.
 - **Local disconnection.** A server's stored state groups are not guaranteed to
   form one connected tree at all times — backfill gaps, rejoining after a long
   absence, or independent partial-state resyncs can leave disconnected
   components until intervening history arrives. A lookup between groups in
   different components MUST return "unknown," not "no common ancestor," and fall
-  back to network-based bisection.
+  back to network-based repair such as MSC0501.
 
 A related local-only technique — isolating _which_ `(type, state_key)` tuples
 diverged between two locally-held state maps, in time proportional to the
@@ -797,15 +586,42 @@ relevant here as a cautionary predecessor: this MSC keeps the repair primitive
 additive and diagnostic, rather than trying to turn remote state into an
 authoritative write target.
 
+### Reconciliation endpoint and bisection (considered and rejected)
+
+An earlier revision of this MSC defined a
+`GET /state_accumulator/{roomId}?event_id={eventId}` federation endpoint to
+query the raw accumulator lattice (and optionally a shape checksum) at arbitrary
+historical DAG points, together with an `O(log ΔD)` bisection walk over
+`prev_events` to locate the earliest divergence point. This was rejected as out
+of scope for this proposal:
+
+- **Value is thin.** The 32-byte digest is already carried in the transaction
+  payload; exposing the full 2048-byte lattice added ~3 KB responses for the
+  sole purpose of enabling homomorphic subtraction, which has no consumer once
+  the bisection walk is removed.
+- **Redundant with later MSCs.** Divergence-point lookup and enumeration/healing
+  are handled more elegantly by other proposals — MSC4511 provides graph
+  metadata and ancestor hints, and MSC0501 / MSC4521 reconcile the missing event
+  set directly. The absence of historical resolved-state accumulators in those
+  MSCs does not justify a bespoke endpoint and bisection protocol here.
+- **Awkward semantics.** The DAG is a partial order, so bisection over forked
+  histories does not reduce to a single earliest divergence event but to a
+  frontier of candidates, undercutting the clean `git bisect` analogy.
+
+This MSC therefore confines itself to establishing a quantum-secure wire
+agreement state hash in the transaction payload. If a future consumer needs
+historical resolved-state accumulator points, it can define a focused endpoint
+(e.g. on `/state_ids`) then.
+
 ## Security considerations
 
 Homeservers MUST NEVER use a _remote_ accumulator digest (received from a peer
-via `/send` or `/state_accumulator`) as a source of truth to construct, modify,
-or authorize state. Local state resolution MUST proceed normally as the sole
-authoritative driver of state convergence. Locally-computed lattices, derived
-from the server's timeline and resolved state, _are_ safe for any internal
-optimizations and representations described in this proposal (state group
-identity, fast-path deduplication, short-circuiting state resolution).
+via `/send`) as a source of truth to construct, modify, or authorize state.
+Local state resolution MUST proceed normally as the sole authoritative driver of
+state convergence. Locally-computed lattices, derived from the server's timeline
+and resolved state, _are_ safe for any internal optimizations and
+representations described in this proposal (state group identity, fast-path
+deduplication, short-circuiting state resolution).
 
 The hashes are diagnostic only. Servers still rely exclusively on their internal
 state to judge soft-failures; any change to federation prioritization based on a
@@ -838,9 +654,9 @@ regardless of total room size. Total state cardinality ($N$) is _not_ bounded by
 $2^{16}$; massive rooms are fully supported.
 
 The `n_before` and `n_after` payload fields are diagnostic only — they help a
-receiver gauge the magnitude of a divergence when choosing between bisection,
-full resync, and inaction. They MUST NOT be used as a validation shortcut:
-digest comparison is the sole equality check.
+receiver gauge the magnitude of a divergence when choosing between full resync
+and inaction. They MUST NOT be used as a validation shortcut: digest comparison
+is the sole equality check.
 
 ## Test vectors
 
@@ -946,31 +762,25 @@ subtracting and re-adding it nets to zero.
 - Shape collapse digest:
   `9aab4968674238606d7be6c20bf85c2ecd7e7ae19f5c63313ed3c456a91d432d`
 
-This is the canonical example of the mutation-drift classification in
-[Reconciliation (bisecting forks)](#reconciliation-bisecting-forks): the main
-accumulator digest changes between Scenario 3 and Scenario 4 (`99d3ed0a…` →
-`8b611750…`), while the shape digest stays identical (`9aab4968…` in both),
-correctly signaling that the occupied slots did not change — only which event
-occupies one of them.
+This is the canonical example of the mutation-drift classification the shape
+checksum provides: the main accumulator digest changes between Scenario 3 and
+Scenario 4 (`99d3ed0a…` → `8b611750…`), while the shape digest stays identical
+(`9aab4968…` in both), correctly signaling that the occupied slots did not
+change — only which event occupies one of them.
 
 ## Unstable prefix
 
 For experimental implementations, the features should be referred to using the
-following unstable identifiers. Everywhere else in this document,
-`state_hashes`, `state_hash_mismatch`, and the `/state_accumulator` endpoint are
-written under their eventual stable names for readability; unstable
-implementations MUST substitute the identifiers below in the wire format
-instead, with identical shapes and semantics. The capability flag is
-`tk.nutra.msc4500.state_accumulator`, and the unstable federation endpoint is
-`/_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`.
+following unstable identifiers. Everywhere else in this document, `state_hashes`
+and `state_hash_mismatch` are written under their eventual stable names for
+readability; unstable implementations MUST substitute the identifiers below in
+the wire format instead, with identical shapes and semantics. The capability
+flag is `tk.nutra.msc4500.state_hashes`.
 
 - The transaction payload key: `tk.nutra.msc4500.state_hashes` (replacing
   `state_hashes` at the root of the `/send` request body)
 - The per-PDU mismatch result key: `tk.nutra.msc4500.state_hash_mismatch`
   (replacing `state_hash_mismatch` in the `/send` response body)
-- The reconciliation endpoint:
-  `GET /_matrix/federation/unstable/tk.nutra.msc4500/state_accumulator/{room_id}`
-  (replacing `GET /_matrix/federation/v1/state_accumulator/{roomId}`)
 
 ## Backwards compatibility
 
@@ -978,16 +788,13 @@ This proposal is fully backwards-compatible:
 
 - Unknown transaction keys (`state_hashes`) are silently ignored by existing
   servers, per current federation behavior.
-- The unstable reconciliation endpoint returns a `404` response with
-  `M_UNRECOGNIZED` or a non-Matrix body on non-implementing servers, which
-  callers treat as an "unsupported" signal.
 - No room version consensus rules are modified.
 
 ## Dependencies
 
 This proposal currently has no known dependencies. The optional
 [Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation)
-section depends on MSC4521's State-map binding profile, but implementing it is
+section relies on MSC4521's State-map binding profile, but implementing it is
 not required to implement this proposal.
 
 ## Open questions
@@ -995,8 +802,8 @@ not required to implement this proposal.
 - Impact on or relevance to partial joins (MSC3902)?
 - **Large or irrevocably broken rooms:** How should servers handle large or
   irrevocably broken rooms?
-- **Client-Server impact:** What is the impact of a state bisect on the
-  client-server relationship? Specifically, how should servers handle detecting
+- **Client-Server impact:** How should a server surface a detected state
+  divergence to clients, if at all? For example, how should it handle detecting
   missed events that fell through over the Client-Server `/sync` v5 endpoint?
   (See future work).
 - **Self-verification:** Could servers perform self-verification (e.g. checking
@@ -1004,9 +811,9 @@ not required to implement this proposal.
   one's own state (either on-the-fly or on past events)?
 - **Future reconciliation structures:** MSC4521's State-map binding (see
   [Synergy with MSC4521](#synergy-with-msc4521-state-set-sketch-reconciliation))
-  now gives an optional PinSketch-based path for cheap state-level delta
-  discovery after an accumulator mismatch. Is one sketch-based structure enough,
-  or is there still a case for IBLT or Merkle-search-tree alternatives (e.g. for
+  gives an optional PinSketch-based path for cheap state-level delta discovery
+  after an accumulator mismatch. Is one sketch-based structure enough, or is
+  there still a case for IBLT or Merkle-search-tree alternatives (e.g. for
   servers that want the accelerant without pulling in MSC4521's GF(64)
   machinery)?
 
