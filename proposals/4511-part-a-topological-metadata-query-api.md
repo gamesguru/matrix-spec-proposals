@@ -827,6 +827,29 @@ repair MSCs, but sits at a different layer:
   commitments. It does not replace state resolution or make metadata alone
   sufficient to accept history.
 
+- [MSC2695: Get event by ID over federation](https://github.com/matrix-org/matrix-spec-proposals/pull/2695)
+  fetches a single full PDU by event ID over federation. MSC4511 is the
+  traversal step that answers _which_ event IDs to fetch: it returns sparse
+  per-event metadata and edge context, and leaves fetching the full PDU to
+  existing mechanisms such as MSC2695.
+
+- [MSC2316: Federation queries to aid with database recovery](https://github.com/matrix-org/matrix-spec-proposals/pull/2316)
+  defines a recovery protocol for a server that has lost its copy of the DAG.
+  MSC4511 is not itself a recovery protocol, but its bounded edge queries are a
+  natural pull primitive for such recovery: a recovering server can ask a remote
+  peer for the edges and candidate servers it needs before fetching full events.
+
+- [MSC2391: Efficient point-queries for room state over federation](https://github.com/matrix-org/matrix-spec-proposals/pull/2391)
+  is the state-side analog: a granular alternative to bulk `/state` and
+  `/state_ids` transfers for asking a targeted state question. MSC4511 targets
+  DAG topology rather than state, and is recursive over selected edge types
+  rather than a single point lookup.
+
+None of these provides a recursive sparse query over DAG edges: arbitrary start
+point, selectable edge types, bounded traversal, and sparse per-event metadata
+plus candidate servers. MSC4511 is the piece these other proposals assume or
+compose around rather than provide.
+
 ## Security considerations
 
 The major risks are:
