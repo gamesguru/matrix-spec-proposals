@@ -739,142 +739,96 @@ believe they were following the room version.
 
 ### Storage considerations
 
-Mandating indefinite storage of key-body bindings introduces a theoretical
-storage exhaustion vector if an attacker forces a server to fetch and
-permanently store millions of unique key IDs. Homeserver implementations MUST
-enforce a maximum limit of 3,000 retired key IDs (`old_verify_keys` entries) per
-remote server name, matching the per-response ceiling above; a server's current
-`verify_keys` (bounded separately at 50) are exempt from and not counted against
-this ceiling, so the two 3,000-entry limits always refer to the same retired-key
-capacity. If a remote server reaches this quota, receiving servers MUST NOT
-ignore new key IDs permanently. Instead, they MUST evict retired keys according
-to the deterministic ordering defined below — not by recency or
-least-recently-used heuristics, which would make eviction
-implementation-dependent rather than the deterministic behavior this MSC
-requires. Keys currently published in the `verify_keys` section of a direct
-fetch MUST always be prioritized and exempt from eviction. This exemption is
-bounded by the 50-key active ceiling on any single response
-([Key caching requirements](#key-caching-requirements)); it is not a license for
-a `verify_keys` set to grow without bound across many legitimate rotations over
-time. A remote server whose cumulative set of currently-active key IDs, observed
-across successive responses, grows far beyond the single-digit counts typical of
-legitimate operation is itself the signal described as "unambiguously hostile"
-below, independent of whether any individual response stays under the 50-key
-cap.
+Mandating indefinite storage of key-body bindings introduces a storage
+exhaustion vector if an attacker forces a server to fetch and permanently store
+millions of unique key IDs. Homeservers MUST enforce a maximum of 3,000 retired
+key IDs (`old_verify_keys` entries) per remote server name, matching the
+per-response ceiling above; a server's current `verify_keys` (bounded separately
+at 50) are exempt from and not counted against this ceiling. If a remote server
+reaches this quota, receiving servers MUST NOT ignore new key IDs permanently;
+instead, they MUST evict retired keys according to the deterministic ordering
+below — never by recency or least-recently-used heuristics, which would make
+eviction implementation-dependent. Keys currently published in the `verify_keys`
+section of a direct fetch MUST always be prioritized and exempt from eviction.
 
-<!-- synapse-derived: tier definitions and retention-ordering pass against
-Synapse by default per complement TestMSC4499Key/CorroborationTierRetention -->
-
-**Corroboration tier.** This tier answers a narrower question than the
-provisional/permanent split above. It does not decide which key body is correct
-— First Seen Wins already settles that, permanently, regardless of
-corroboration. It only decides which permanently-retained retired-key bindings
-get deleted first if the 3,000-entry ceiling above is ever reached. That
-question matters because `old_verify_keys` entries are plain claims inside a
+**Corroboration tier.** `old_verify_keys` entries are plain claims inside a
 self-signed response — the origin asserts "this key used to be active," but
-nothing separately signed by the retired key itself backs that claim up, making
+nothing separately signed by the retired key backs that claim, making
 retired-key claims cheaper to fabricate in bulk than current `verify_keys`
-entries (see [Other considerations](#other-considerations)).
+entries. Corroboration does not decide which key body is correct — First Seen
+Wins already settles that permanently — it only decides which
+permanently-retained retired-key bindings get evicted first if the 3,000-entry
+ceiling is reached. Before applying the eviction ordering, implementations MUST
+sort retired bindings into two tiers:
 
-Before applying the eviction ordering below, implementations MUST sort retired
-bindings into two tiers:
-
-- **Corroborated:** the receiving server itself independently observed that
+- **Corroborated:** the receiver itself independently observed that
   `(server_name, algorithm, key_id)` as a currently-published `verify_keys`
-  entry in some prior response — via a direct fetch, or via a notary relaying
-  the origin's genuinely-active state at that earlier time — before this
-  retirement claim arrived. A local operator may also mark a binding
-  corroborated based on independently verified historical evidence.
+  entry in some prior response (via a direct fetch, or a notary relaying the
+  origin's genuinely-active state at that earlier time), or a local operator
+  marked it corroborated from independently verified historical evidence.
 - **Uncorroborated:** everything else — a retired-key entry that arrives
   already-retired, with no independent record anywhere that the key was ever
   genuinely active.
 
-<!-- /synapse-derived -->
-
 Corroboration MUST be grounded only in the receiver's own accumulated
 observation history or explicit operator action, never in a live attestation
-solicited at retirement time: a notary MUST NOT be queried at retirement time to
-simply vouch that it once saw a key active. Without the "grounded in a prior,
-organic observation" requirement, nothing would stop a single compromised or
-colluding notary from making that claim, on demand, about any key for any
-domain, turning one bad notary into a universal corroboration-forging oracle and
-defeating this tier's purpose entirely. This corroboration path requires nothing
-beyond the plain self-signed response data every implementation already relies
-on for First Seen Wins — the same baseline `/_matrix/key/v2/server` and
-`/_matrix/key/v2/query` self-signature this MSC assumes throughout — and it MUST
-NOT be strengthened, weakened, or otherwise gated by any advisory provenance
-signal a future proposal might define (for example, TLS transcript evidence or a
-notary-side anti-spam proof artifact): such signals are advisory-only wherever
-they are defined, and this MSC has no dependency on them.
+solicited at retirement time — otherwise one compromised or colluding notary
+could vouch on demand for any key on any domain, turning it into a universal
+corroboration-forging oracle and defeating the tier's purpose.
 
 Uncorroborated bindings MUST still be accepted and retained for historical PDU
-verification — rejecting them outright would break legitimate first-contact
-backfill (a server that joins federation late and has never talked to an origin
-before its most recent rotation) and the lost-key recovery case in
-[Recovery from key loss](#recovery-from-key-loss), where a peer may legitimately
-be the first to ever see a given historical key. Corroboration changes exactly
-one thing — eviction order under the ceiling — and nothing else: an
-uncorroborated binding is accepted the same way, stored the same way, and blocks
-a later conflicting key body under First Seen Wins exactly as permanently as a
-corroborated one does.
+verification — rejecting them outright would break first-contact backfill and
+the lost-key recovery case in [Recovery from key loss](#recovery-from-key-loss)
+— but they sort below corroborated bindings for eviction. Corroboration changes
+exactly one thing — eviction order under the ceiling — and nothing else.
 
 The retirement source and the ceiling accounting are separate questions and
 implementations MUST treat them separately:
 
 - **Explicit retirement:** if a key is present in `old_verify_keys`, it is a
   retired binding with an effective retirement timestamp equal to its
-  `expired_ts` (subject to the malformed-future check below).
+  `expired_ts` (subject to the malformed-future check).
 - **Inferred retirement:** if a key was previously observed active but later
   disappears from the origin's responses without ever appearing in
   `old_verify_keys`, the receiver still treats it as retired verification
-  material for local retention purposes, with an effective retirement timestamp
-  equal to the receiver's last observation time at which the key was still
-  present.
-- **Ceiling accounting:** both categories above count against the same local
-  3,000-entry retired-key retention ceiling, because both represent retired
-  verification material the receiver may need to keep for historical
-  verification and eviction ordering. Current `verify_keys` do not count toward
-  that 3,000-entry retired-key ceiling.
+  material with an effective retirement timestamp equal to the receiver's last
+  observation time at which the key was still present.
+- **Ceiling accounting:** both categories count against the same local
+  3,000-entry retired-key ceiling; current `verify_keys` do not count toward it.
 
 If MSC00E4 `trusted_notary_keys` is present, a listed full content-addressed key
 identifier permits a notary to return the corresponding retained historical key
 body without the origin embedding that body in `old_verify_keys`. This does not
-create a new corroboration source by itself. The receiver still recomputes the
+create a new corroboration source by itself: the receiver still recomputes the
 returned key body's full content-addressed `key_id`, verifies any required
-proof-of-work, signatures, and expiry claims, and then sorts the binding into
-the corroborated or uncorroborated tier using the same local observation-history
+proof-of-work, signatures, and expiry claims, and sorts the binding into the
+corroborated or uncorroborated tier using the same local observation-history
 rules above. A notary-supplied body whose recomputed full ID does not exactly
 match the origin-signed `trusted_notary_keys` entry MUST be rejected.
 
 Implementations MUST apply this ceiling deterministically: always retain all
 current `verify_keys`; then retain corroborated retired keys in descending order
-of an _effective retirement timestamp_ (defined below); then, in whatever slots
-remain, retain uncorroborated retired keys under the same ordering. When a new
-valid retired-key binding is learned while the local retired-key set for that
-remote server is already at the 3,000-entry ceiling, implementations MUST
-recompute the full retained set by applying this ordering across the union of
-the previously retained retired keys and the newly learned candidate. If the new
-candidate sorts above the retention floor, it MUST be stored and whichever
-existing binding now falls below the floor MUST be evicted; if the new candidate
-sorts below the floor, the implementation MUST discard that new candidate
-instead — subject to the digest binding surviving that eviction regardless (see
-the digest-binding cap below). Hitting the storage ceiling therefore MUST
-degrade into this deterministic prune-and-retain behavior, not into fetch
-failure, not into dropping all newly learned historical bindings
-unconditionally, and not into eviction of currently-active `verify_keys`.
-Uncorroborated bindings are therefore always evicted before any corroborated
-binding, regardless of their respective `expired_ts` values. For a key published
-in `old_verify_keys`, the effective retirement timestamp is its `expired_ts`.
-For a key that was previously observed active (in `verify_keys` or
-`old_verify_keys`) but has since disappeared from the origin's responses without
-ever being given an `expired_ts` (a lazy or misbehaving origin simply dropping
-it), the effective retirement timestamp is the local timestamp of the last
-observation in which the key was still present. This makes every
-retained-or-evictable binding sortable, including vanished keys that never
-received a formal retirement. Ties in the effective retirement timestamp are
-broken by bytewise lexicographic comparison of the full `algorithm:key_id`
-string as UTF-8, ascending; the lexicographically smaller identifier is retained
-first. Any keys ordered below the retention floor by this rule may be evicted.
+of an _effective retirement timestamp_; then, in whatever slots remain, retain
+uncorroborated retired keys under the same ordering. Ties in the effective
+retirement timestamp are broken by bytewise lexicographic comparison of the full
+`algorithm:key_id` string as UTF-8, ascending. When a new valid retired-key
+binding is learned while the local retired-key set is already at the 3,000-entry
+ceiling, implementations MUST recompute the retained set by applying this
+ordering across the union of the previously retained retired keys and the newly
+learned candidate: if the new candidate sorts above the retention floor it MUST
+be stored and whichever existing binding now falls below the floor MUST be
+evicted; if it sorts below the floor, the implementation MUST discard it —
+subject to the digest binding surviving that eviction regardless (see the
+digest-binding cap below). Hitting the storage ceiling MUST therefore degrade
+into this deterministic prune-and-retain behavior, not into fetch failure, not
+into dropping all newly learned historical bindings unconditionally, and not
+into eviction of currently-active `verify_keys`. Uncorroborated bindings are
+therefore always evicted before any corroborated binding, regardless of their
+respective `expired_ts` values. For a key published in `old_verify_keys`, the
+effective retirement timestamp is its `expired_ts`; for a key previously
+observed active but since dropped by a lazy or misbehaving origin without an
+`expired_ts`, it is the local timestamp of the last observation in which the key
+was still present. This makes every retained-or-evictable binding sortable.
 Equivalent pseudocode:
 
 ```text
@@ -894,51 +848,37 @@ evict every retired candidate below that cut line
 ```
 
 Eviction of a _corroborated_ binding SHOULD be logged at warning level: reaching
-the ceiling deeply enough to displace corroborated history is itself the anomaly
-signal for the flood scenario in [Other considerations](#other-considerations),
-and costs nothing beyond the logging this MSC already requires elsewhere for
-collisions. This ceiling applies only to the retained verification material and
-retirement metadata for retired keys. The immutable key-ID-to-key-body digest
-binding itself is a separate, smaller record — see
-[Digest-binding cap](#digest-binding-cap) below — that survives eviction of its
-verification material, so that if verification material for a retired key is
-later pruned, a future body reusing that evicted key ID is still checked against
-the original digest and rejected if it conflicts, rather than being treated as
-first seen again. Because both the corroboration tier (which may rely on local
-observation history) and the effective retirement timestamp for vanished keys
-are local determinations rather than origin-asserted values, this part of the
-ordering is local to each implementation; this is consistent with, and does not
-strengthen, the cross-server convergence limits described below. When new valid
-historical key material is learned, notaries and receiving servers MAY
-re-evaluate the retained retired-key set — including re-evaluating corroboration
-as new observations arrive — but such re-evaluation MUST apply the same
-deterministic pruning rule over the full locally known candidate set. This
-improves eventual convergence after observation gaps or network partitions, but
-does not guarantee identical real-time results across notaries. Implementations
-MUST rely on existing federation rate-limiting to discard junk traffic before
-allocating database records. In practice, legitimate servers publish
-single-digit numbers of active keys at any given time; a server claiming tens of
-thousands of key IDs is unambiguously hostile. A future Proof-of-Work gated
-proposal may mitigate the spurious bulk generation of keys behind Equihash or
-Cuckoo Cycle.
+the ceiling deeply enough to displace corroborated history is itself the flood
+signal, and costs nothing beyond the logging this MSC already requires for
+collisions. Because corroboration and effective retirement timestamps are local
+determinations rather than origin-asserted values, this ordering is local to
+each implementation; this is consistent with the cross-server convergence limits
+described below. When new valid historical key material is learned, notaries and
+receiving servers MAY re-evaluate the retained retired-key set — including
+re-evaluating corroboration as new observations arrive — but such re-evaluation
+MUST apply the same deterministic pruning rule over the full locally known
+candidate set. Implementations MUST rely on existing federation rate-limiting to
+discard junk traffic before allocating database records. Legitimate servers
+publish single-digit numbers of active keys at any given time; a server claiming
+tens of thousands of key IDs is unambiguously hostile. A future Proof-of-Work
+gated proposal may mitigate the spurious bulk generation of keys behind Equihash
+or Cuckoo Cycle.
 
 ### Digest-binding cap
 
-The digest binding described above is deliberately minimal: `key_id`, a 32-byte
-`SHA-256` digest of the key body, and a `first_seen` timestamp recording when
-the receiver itself established the binding — kept for operator forensics (e.g.
-diagnosing a collision report or a cap-related rejection against local
-observation history) and for a future proposal to build eviction or
-corroboration policy on top of without a schema change; this MSC's own rules do
-not read it — on the order of 60–80 bytes per record, far smaller than a
-retained verification entry. It exists to survive eviction of retired-key
-verification material so a future body reusing an evicted key ID is still
-checked against what was first seen, closing the collision-blind window that
-motivates permanent retention in the first place. Because that guarantee depends
-on the binding never being evicted for a genuinely-seen key ID, it MUST NOT be
-pruned the way retired-key verification material is — evicting a digest binding
-to make room for a new one reopens exactly the TOFU window this record exists to
-close.
+The digest binding is deliberately minimal: `key_id`, a 32-byte `SHA-256` digest
+of the key body, and a `first_seen` timestamp recording when the receiver itself
+established the binding — kept for operator forensics and for a future proposal
+to build eviction or corroboration policy on top of without a schema change;
+this MSC's own rules do not read it — on the order of 60–80 bytes per record,
+far smaller than a retained verification entry. It exists to survive eviction of
+retired-key verification material so a future body reusing an evicted key ID is
+still checked against what was first seen, closing the collision-blind window
+that motivates permanent retention in the first place. Because that guarantee
+depends on the binding never being evicted for a genuinely-seen key ID, it MUST
+NOT be pruned the way retired-key verification material is — evicting a digest
+binding to make room for a new one reopens exactly the TOFU window this record
+exists to close.
 
 That means the digest-binding set cannot be bounded by eviction; it MUST instead
 be bounded by refusing new entries once a fixed cap is reached. Implementations
@@ -950,31 +890,26 @@ accumulate for the full lifetime of a key ID even after its verification
 material is pruned, but still small and fixed (at ~70 bytes/record, roughly 2
 MiB per origin per bucket at the recommended cap). A different fixed value has
 no wire-visible effect as long as it is enforced deterministically and
-consistently by a given implementation; the requirement that matters for
-interoperability is that reaching _some_ fixed ceiling for a given
-`(origin, source category)` bucket is itself the anomaly signal described below,
-not the exact number. A key ID observed for the first time for a given
-`(origin, source category)` bucket after that bucket's digest-binding set is
-already at the cap MUST be rejected: no digest-binding record is created for it,
-and the key body it names MUST NOT be used to verify signatures, since without a
-recorded digest binding there is nothing to protect a later, colliding body for
-the same key ID from being silently accepted. This MUST be logged at warning
-level; the response containing it MUST otherwise still be processed normally
-(this is a per-key-ID rejection, not a payload-level one) — other key IDs in the
-same response that are still under the relevant cap are bound and usable as
-normal. Key IDs already bound before the cap was reached continue to be checked
-and enforced as normal. This cap is sized to accommodate legitimate bulk first
-contact — a peer joining federation late and backfilling a full 3,000-entry
-retired-key response in one exchange (see
-[Storage considerations](#storage-considerations) above, and the
-uncorroborated-binding case under
-[Recovery from key loss](#recovery-from-key-loss)) still lands an order of
-magnitude below the cap — so it does not need a companion rate limit on ordinary
-operation to be effective; reaching the cap for one origin/source bucket at all
-is itself the anomaly signal described elsewhere in this section ("unambiguously
-hostile"), consistent with this MSC's existing choice to leave rate-limiting of
-novel key-ID discovery to individual implementations rather than mandating one
-(see [Other considerations](#other-considerations)).
+consistently; the requirement that matters for interoperability is that reaching
+_some_ fixed ceiling for a given `(origin, source category)` bucket is itself
+the anomaly signal, not the exact number.
+
+A key ID observed for the first time for a given `(origin, source category)`
+bucket after that bucket's digest-binding set is already at the cap MUST be
+rejected: no digest-binding record is created for it, and the key body it names
+MUST NOT be used to verify signatures, since without a recorded digest binding
+there is nothing to protect a later, colliding body for the same key ID from
+being silently accepted. This MUST be logged at warning level; the response
+containing it MUST otherwise still be processed normally (this is a per-key-ID
+rejection, not a payload-level one) — other key IDs in the same response that
+are still under the relevant cap are bound and usable as normal. Key IDs already
+bound before the cap was reached continue to be checked and enforced as normal.
+The cap is sized to accommodate legitimate bulk first contact — a late-joining
+peer backfilling a full 3,000-entry retired-key response in one exchange still
+lands an order of magnitude below it — so it does not need a companion rate
+limit on ordinary operation to be effective; reaching the cap for one
+origin/source bucket at all is itself the anomaly signal described elsewhere in
+this section ("unambiguously hostile").
 
 **Cap accounting MUST be segregated by source.** A digest binding for origin `X`
 can be learned two ways: a direct fetch from `X`, or a notary response _about_
@@ -983,25 +918,20 @@ notary could serve enough synthetic key IDs attributed to a victim origin it
 does not control to exhaust that victim's cap on every peer that queries through
 it, and cause the victim's own subsequent genuine key IDs — learned later via
 direct fetch — to be rejected under the cap even though the victim never
-misbehaved. This inverts the anomaly signal above: reaching the cap would no
-longer mean the origin in question is hostile, only that something claiming to
-speak for it is. To prevent this, implementations MUST maintain the cap
-independently per `(remote server name, source category)`, where source category
-is direct-fetch or notary-observed: a notary-sourced flood against one origin
-exhausts only that origin's notary-sourced budget and MUST NOT consume or block
-that origin's direct-fetch budget, or vice versa. This source split applies only
-to cap accounting; the binding namespace is global per
+misbehaved. To prevent this, implementations MUST maintain the cap independently
+per `(remote server name, source category)`: a notary-sourced flood against one
+origin exhausts only that origin's notary-sourced budget and MUST NOT consume or
+block that origin's direct-fetch budget, or vice versa. This source split
+applies only to cap accounting; the binding namespace is global per
 `(server_name, algorithm, key_id)` tuple, so collision detection and lookup MUST
 consider every binding for that tuple regardless of which source budget it was
 counted against. When a provisional (notary-observed) binding is promoted to
-permanent (see Binding promotion, under
-[Key caching requirements](#key-caching-requirements)), its digest-binding
-record MUST thereafter count against the direct-fetch budget for that origin
-rather than the notary-sourced one, since promotion requires the same direct
-confirmation a direct-fetch binding would have. Because promotion does not add a
-new binding namespace entry, it MUST NOT fail solely because the direct-fetch
-budget is already at cap; implementations MUST transfer the accounting of the
-existing record.
+permanent, its digest-binding record MUST thereafter count against the
+direct-fetch budget for that origin rather than the notary-sourced one, since
+promotion requires the same direct confirmation a direct-fetch binding would
+have. Because promotion does not add a new binding namespace entry, it MUST NOT
+fail solely because the direct-fetch budget is already at cap; implementations
+MUST transfer the accounting of the existing record.
 
 ### Other considerations
 
@@ -1014,46 +944,30 @@ existing record.
   3,000-entry quota and push a legitimate historical key binding below the
   retention floor. The corroboration tier above closes the one-shot version of
   this: a freshly fabricated `key_id` that this receiver never independently
-  observed as active — through its own direct fetches or its own past
-  notary-relayed fetches — lands in the uncorroborated tier, where it can only
-  evict other uncorroborated entries; it cannot push out a corroborated,
+  observed as active lands in the uncorroborated tier, where it can only evict
+  other uncorroborated entries; it cannot push out a corroborated,
   legitimately-retired binding. Because corroboration is deliberately never
-  grantable by asking a notary to vouch after the fact (see
-  [Storage considerations](#storage-considerations)), a compromised notary
-  cannot shortcut this either. To evict a corroborated target, the attacker must
-  first get up to 3,000 fabricated `key_id`s independently observed as genuinely
-  active. This is bounded only by the existing 50-key active-key ceiling per
-  response and round-trip latency: a compromised or rogue origin can force up to
-  50 newly-corroborated `key_ids` per burst simply by rotating its `verify_keys`
-  and getting the receiver to authenticate against each new key ID in turn (e.g.
-  via signed federation traffic), accumulating the 3,000 entries needed in as
-  little as tens of such bursts — on the order of minutes to hours. This MSC
-  accepts that timeline rather than mandating a dedicated rate limiter to slow
-  it: because the 3,000-entry ceiling is enforced per remote `server_name`, this
-  flood can only accelerate eviction of that _same_ origin's own historical
-  retired-key bindings on a given receiver — it cannot be used to evict a
-  different domain's history. The prerequisite remains control of the origin's
-  current signing capability — as the legitimate operator gone rogue, or via a
-  full compromise — the same prerequisite as TOFU cache poisoning above, not the
-  narrower "possession of one historical private key" scenario that stolen
-  retired keys describes. An attacker who already controls an origin's current
-  signing capability gains only the ability to erase that same origin's own
-  historical record faster; this MSC treats that self-scoped outcome as the
-  accepted residual risk, and leaves any rate-limiting of novel key-ID discovery
-  to individual implementations to apply at their own discretion.
+  grantable by asking a notary to vouch after the fact, a compromised notary
+  cannot shortcut this either. This flood is self-scoped: because the ceiling is
+  enforced per remote `server_name`, it can only accelerate eviction of that
+  _same_ origin's own historical retired-key bindings on a given receiver, never
+  a different domain's history — and it requires control of the origin's current
+  signing capability, the same prerequisite as TOFU cache poisoning above, not
+  mere possession of one stolen historical key. This MSC accepts that residual
+  risk and leaves any rate-limiting of novel key-ID discovery to individual
+  implementations at their own discretion.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has retired, or whose own local promotion window has
-  elapsed, MUST NOT be overridden by a later direct fetch (see Notary fallback).
-  This is intentional: a direct fetch cannot attest anything about a key the
-  origin no longer serves, and allowing post-liveness rewrites would let an
-  attacker rewrite historical verification after the fact. The consequence is
-  that a notary-poisoned binding that retires or otherwise ages out before any
-  direct confirmation is frozen in that poisoned state permanently, recoverable
-  only through the manual eviction mechanism described under
-  [Recovery from key loss](#recovery-from-key-loss). This MSC accepts that trade
-  — auditability of historical verification over automated self-healing — as the
-  safer default.
+  elapsed, MUST NOT be overridden by a later direct fetch (see Notary fallback):
+  a direct fetch cannot attest anything about a key the origin no longer serves,
+  and allowing post-liveness rewrites would let an attacker rewrite historical
+  verification after the fact. The consequence is that a notary-poisoned binding
+  that retires or otherwise ages out before any direct confirmation is frozen in
+  that poisoned state permanently, recoverable only through the manual eviction
+  mechanism described under [Recovery from key loss](#recovery-from-key-loss).
+  This MSC accepts that trade — auditability of historical verification over
+  automated self-healing — as the safer default.
 
 ## Implementation and rollout notes
 
