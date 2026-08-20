@@ -628,8 +628,8 @@ and `state_hash_mismatch` are written under their eventual stable names for
 readability; unstable implementations MUST substitute the identifiers below in
 the wire format instead, with identical shapes and semantics.
 
-- The transaction payload key: `tk.nutra.msc4500.state_hashes` (replacing
-  `state_hashes` at the root of the `/send` request body)
+- The transaction payload key: `state_hashes` at the root of the `/send` request
+  body
 - The per-PDU mismatch result key: `tk.nutra.msc4500.state_hash_mismatch`
   (replacing `state_hash_mismatch` in the `/send` response body)
 
