@@ -748,6 +748,13 @@ The reconciliation mechanisms in this MSC use standard algebraic and
 combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
+- **Information-theoretic optimality.** By employing BCH-style syndrome decoding
+  over $GF(2^{64})$, the `algebraic_v1` profile compresses the symmetric
+  difference of the event sets to precisely $d \times 64$ bits. This approaches
+  the Shannon limit for theoretical error correction, operating at the
+  information-theoretic minimum without the probabilistic overhead of Bloom
+  filters or the padding requirements of Invertible Bloom Lookup Tables (IBLTs).
+
 - **Dynamic tree extraction and antichain invariants.** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
   $h_{64}(e)$, splitting the key space rather than a leaf sequence of arbitrary

@@ -525,6 +525,12 @@ evaluation, joins over arbitrary event fields, or a general-purpose query
 language MUST also define hard evaluation budgets and truncation behavior, since
 those features carry database-style recursive query execution risks.
 
+This graph query language is strictly sub-Turing by design to guarantee
+deterministic $O(N)$ bounds and prevent non-terminating traversals. Future MSCs
+are therefore strongly discouraged from introducing unbounded recursion or
+`while` loops to the topological walk, which would risk introducing the Halting
+Problem and unbounded execution times to state resolution requests.
+
 Computed queries only walk events which belong to the requested room and are
 visible to the requester. Hidden history-visibility branches are pruned, not
 replaced with opaque markers. If pruning affects the answer, the server sets
