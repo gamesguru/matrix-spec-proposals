@@ -576,23 +576,6 @@ can keep a sorted $h_{64}$ index and use binary-search range slicing to locate a
 node in $O(\log N)$ plus slice size, instead of maintaining a persistent
 partition tree.
 
-**Scale illustration.** These benchmark points are not protocol upper bounds;
-they show that a large population can still have a small difference and keep the
-core algorithm cost nearly flat while setup scales with the resident set size.
-The `Bookkeeping` column measures resident accumulator and strata work only; no
-extraction or decode occurs in these numbers.
-
-<!-- markdownlint-disable MD013 -->
-
-| Population | Difference        | Setup (ms) | Bookkeeping (ms) | Interpretation                         |
-| ---------- | ----------------- | ---------: | ---------------: | -------------------------------------- |
-| 50,000     | +2,100/-1,900     |       6.25 |             1.80 | small population, small absolute diff  |
-| 100,000    | +5,000/-4,000     |      12.89 |             1.44 | larger population, small absolute diff |
-| 1,000,000  | +10,000/-9,000    |     123.93 |             2.26 | large population, small absolute diff  |
-| 10,000,000 | +500,000/-400,000 |    1282.86 |             1.44 | very large population, setup dominates |
-
-<!-- markdownlint-enable MD013 -->
-
 ## Resident structure
 
 To make extraction deployable, implementations SHOULD maintain a resident
@@ -627,11 +610,6 @@ separate deletion path is needed.
 This update path is the operational side of the same BCH/PinSketch machinery and
 is why the profile remains fully additive while still supporting pre-decode
 sizing.
-
-**Measured cost.** The reference implementation measures about 618 ns per
-resident update with the portable multiply and about 52 ns with `PCLMULQDQ` on
-the benchmarked `x86-64` machine; the underlying $\mathbb{F}_{2^{64}}$ multiply
-measures about 77.25 ns portable and 6.50 ns with `PCLMULQDQ`.
 
 The strata estimator is an optimization; the consuming protocol can require all
 32 entries on its sketch-sizing preflight, while other consumers MAY treat it as
@@ -668,46 +646,25 @@ Populations with routinely large or heavy-tailed differences will hit the cap
 and trigger dynamic tree extraction more often than necessary. Unlike a rateless
 encoding, tree extraction requires no second decoder.
 
-**64-bit collisions.** Two distinct identifiers can share $h_{64}$. Among
-honest, randomly distributed inputs at the population sizes in scope, this is
-rare. However, an adversary can easily construct a collision: $h_{64}$ is only
-64 bits, so finding two inputs that collide requires approximately $2^{32}$
-evaluations. This is computationally trivial, unlike colliding $D(e)$ or the
-128-bit accumulator. Regardless of intent, the outcome is identical: an $h_{64}$
-collision corrupts the syndrome for the colliding node, the 128-bit verification
-step catches the resulting bad decode, and decoding fails cleanly rather than
-returning an incorrect result. Because colliding identifiers follow identical
-paths at every depth, splitting never separates them. Repeated residual-verified
-failure at depth 32 is a permanent ladder failure for that prefix;
-implementations MUST fall back to extremity or backfill for that prefix.
+**64-bit collisions.** Two distinct identifiers can share $h_{64}$. Because
+finding a collision requires only $\approx 2^{32}$ evaluations, an adversary can
+easily construct one. A collision corrupts the syndrome for the colliding node,
+which the 128-bit verification step catches, causing the decode to fail cleanly.
+Because colliding identifiers follow identical paths, splitting never separates
+them. Implementations MUST fall back to extremity or backfill for that prefix.
 Implementations MUST NOT interpret repeated verification failure at adequate
-capacity as evidence of peer misbehavior without further diagnosis, since a
-decode can also fail for reasons unrelated to capacity or to any collision.
+capacity as evidence of peer misbehavior, since decodes can fail for reasons
+unrelated to collisions.
 
-Because $h_{64}$ is deterministic from `D(e)` alone with no per-room or per-peer
-salt, a $\approx 2^{32}$-work collision found once against a given prefix is
-reusable against that same prefix on every server, for as long as it is
-remembered. An unscoped, permanent "MUST NOT re-enter the sketch ladder"
-therefore lets a single offline grind permanently disable $1/2^{32}$ of the key
-space for every peer, with no recovery path. To bound this, the fallback MUST be
-scoped and time-limited rather than permanent: implementations MUST cache a
-ladder-failed prefix keyed on the consuming protocol's population-context
-identity (this profile does not itself define frames or rooms; the consuming
-protocol supplies that identity) with a bounded TTL, RECOMMENDED to be no longer
-than the consuming protocol's own state/frame lifetime and in any case not
-persisted indefinitely, and MUST re-probe (re-enter the sketch ladder for that
-prefix) on population-context change or TTL expiry rather than treating the
-failure as permanent. This bounds a successful grind to one population and one
-context lifetime at a time, at the cost of the peer potentially re-encountering
-the same failed decode after re-probing.
-
-This residual risk is a consequence of $D(e)$ (and therefore $h_{64}$) being
-computed with no room-scoped input, so the same grind against a prefix works
-identically in every room. Mixing `room_id` into $D(e)$, or into the
-$D(e) \to h_{64}$ derivation, would scope a grind to a single room and defeat
-precomputation against rooms that do not exist yet, at no cost to the comparison
-contract since both sides already agree on the room. This MSC does not adopt
-that change — see [Open questions](#open-questions).
+Because $h_{64}$ is deterministic with no per-room salt, a collision found once
+is reusable across all servers. To prevent an adversary from permanently
+disabling $1/2^{32}$ of the key space with a single offline grind,
+implementations MUST NOT treat residual-verified failure as permanent.
+Implementations MUST cache a ladder-failed prefix with a bounded TTL
+(RECOMMENDED to be no longer than the consuming protocol's own state lifetime)
+and MUST re-probe the sketch ladder on TTL expiry. (Mixing `room_id` into $D(e)$
+would scope a grind to a single room and defeat precomputation; this MSC does
+not adopt that change — see [Open questions](#open-questions)).
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -958,8 +915,7 @@ contracts.
 - MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
   machinery for EDU entries.
 - MSC4500 (state accumulators) — over a room's resolved state map, via the
-  [State-map binding](#state-map-binding) profile, as an optional accelerant to
-  its bisection-based reconciliation path.
+  [State-map binding](#state-map-binding) profile.
 - MSC1442 / MSC4297 / MSC1759 — state-resolution lineage that defines the
   room-state problem this profile can help compare or repair, but not replace.
 
