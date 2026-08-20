@@ -28,12 +28,22 @@ exact same view of a room at a given point in the DAG.
 
 This proposal does not impose any verification requirements on PDU handling. It
 seeks to act as a secondary state convergence mechanism, while simultaneously
-**relegating state group transitions** and naive iterative BFS implementations
-to storage/retrieval with a cheap, bitwise, commutative, subtractable (supports
+making state identity a cheap, bitwise, commutative, subtractable (supports
 element removal), collision-resistant 2048-byte `LtHash16` accumulator function
-[^3], [^6]. Similar additive lattice accumulators are increasingly used in
-production blockchain architectures to compute real-time, incremental
-cryptographic state commitments under high transactional volume [^5], [^6].
+[^3], [^6]. The accumulator's O(1) update — subtract the old element, add the
+new, and collapse to a 32-byte digest — replaces the naive practice of
+re-deriving state by walking state-group transitions or breadth-first
+delta-chain traversals. Because accumulation is homomorphic and commutative,
+convergent branches that resolve to the same state collapse to the same digest,
+letting a server deduplicate branch-oblivious state groups that a local integer
+ID scheme would otherwise store twice. The accumulator is a commitment over the
+state map, not a store of its content: retrieving the actual
+`(type, state_key) -> event_id` mapping remains a storage concern, served
+locally by a persistent structure (e.g., a HAMT, cf. MSC00DC) that is
+deliberately kept behind the wire boundary. Similar additive lattice
+accumulators are increasingly used in production blockchain architectures to
+compute real-time, incremental cryptographic state commitments under high
+transactional volume [^5], [^6].
 
 Should this proposal be accepted, for the sake of federation clarity homeservers
 must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
