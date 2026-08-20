@@ -3,54 +3,48 @@
 State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
 a dictionary of tuples to event IDs, e.g.,
-`(state_key, event_type) -> event_id`.
+`(state_key, event_type) -> event_id`. Given implied assumptions about globally
+unique UUIDs, this dictionary can be converted to and from a set without loss of
+injectivity or meaning, e.g., `(state_key, event_type, event_id)`.
+
+Current implementations load the state map into memory, authenticate incoming
+PDUs against it and the room's resolved extremities, and finally persist the new
+state as a series of diffs, periodically compacting them into full checkpoints.
+Storing diffs and only persisting a new state group checkpoint every 100 hops
+bounds the runtime complexity by a constant factor (1/100), but it does not
+bound it asymptotically. The write-time complexity is still `O(S)`.
+
+Additionally, these local implementation methods have no way of communicating
+state equality over federation—Synapse's `state_groups` and the Conduit-based
+`shortstatehash` are both implementation details, not spec unified or agreed.
+
+This MSC, though insufficient on its own to reduce the state resolution
+algorithm to `O(log S)` writes per step, is a complementary and necessary
+component of schemes which do.
+
+Furthermore, this MSC, by placing a backwards compatible (safely ignored)
+`state_hashes` key alongside `txn` request bodies, allows for instant, passive
+state comparisons with federated peers. This is important because it allows
+efficient (basically free) confirmation that two servers agree on room state.
+This allows admins to be alerted and diagnose divergence early, if they choose;
+it also makes possible future automated remediation or reconciliation methods.
+
+The initial proposed scope is limited to `txn` payloads, but the 256-bit digest
+(of the full 2048-byte lattice) can be used to optimize the happy-path of other
+endpoints, too. For example, `/state_ids` requests can include the 256-bit
+BLAKE2 hash, and responding servers can omit the list and avoid loading it into
+JSON if the state digests agree. The case of small divergence has been loosely
+sketched out in MSC4521; the case of moderate divergence (>1000 events differ)
+may possibly be addressed by bloom filters and IBLTs (Kegan's idea), or, like
+large divergences, they may remain an open problem.
+
+The current `LtHash16` implementation, byte-for-byte compatible with Facebook
+researcher's specification[^6], is available, together with test vectors, as a
+near production-ready Rust library. A complementary Golang implementation is
+also supplied, with equally stable core functionality but lacking some
+performance optimizations and newer unit tests.
 
 <!-- Edit marker. -->
-
-Matrix servers replicate a room as a DAG of events and rely on state resolution
-to eventually converge on a shared state. When servers diverge, the result can
-be a serious nuisance. Matrix lacks an out-of-band or real-time mechanism for
-state verification or re-alignment; servers often only learn of
-de-synchronization once they disagree on a much later authorization failure
-(e.g., another user's join is incorrectly rejected).
-
-The absence of early detection is not merely a theoretical nuisance. A gap or
-omission in a server's `/get_missing_events` response — one that leaves a remote
-peer's DAG still dangling after the intended single-round-trip healing path —
-pushes that peer into progressively heavier fallback behavior: piecemeal
-`/state_ids` and per-event `/event/{eventId}` polling in place of one batched
-fetch. Because that stuck event blocks anything built on top of it, each
-subsequent event referencing it can independently trigger its own fallback
-cascade, and the resulting request volume lands back on the originating server
-as self-inflicted load, not merely on the requester. This is the case that
-actually motivated this proposal: once a receiver's view is resolvable, a
-genuine split-brain is caught on the very next transaction via a cheap digest
-comparison, instead of surfacing much later as a confusing downstream
-authorization failure that then triggers exactly the kind of heavy,
-ambiguity-driven fallback traffic described above.
-
-I present an "early-warning system" which rapidly confirms incremental state
-consensus, or signals that divergence exists, so servers know they share the
-exact same view of a room at a given point in the DAG.
-
-This proposal does not impose verification requirements on PDU handling. It is a
-secondary state convergence mechanism that makes state identity a cheap,
-commutative, subtractable (supports element removal), collision-resistant
-2048-byte `LtHash16` accumulator function [^3], [^6]. Its O(1) update — subtract
-the old element, add the new, collapse to a 32-byte digest — replaces the naive
-practice of re-deriving state by walking state-group transitions or
-breadth-first delta chains. Because accumulation is homomorphic and commutative,
-convergent branches resolving to the same state collapse to the same digest,
-letting a server deduplicate branch-oblivious state groups an integer ID scheme
-would store twice. The accumulator commits the state map; retrieving its actual
-`(type, state_key) -> event_id` content remains a local storage concern, served
-by a persistent structure (e.g., a HAMT, cf. MSC00DC) behind the wire boundary.
-Similar additive lattice accumulators underpin real-time incremental state
-commitments in production blockchain architectures [^5], [^6].
-
-Should this proposal be accepted, for the sake of federation clarity homeservers
-must embed a canonical `BLAKE2b-256` digest (of their 2048-byte room state
-accumulator) in the `PUT /_matrix/federation/v1/send/{txnId}` transaction body.
 
 ## Proposal
 
