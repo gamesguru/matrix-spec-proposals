@@ -699,6 +699,13 @@ collisions require probabilistic tolerance or a secondary verification pass.
 `algebraic_v1`'s BCH-style decode is exact, and its 128-bit accumulator exists
 only for fault detection, not for element recovery.
 
+Note that while rejected for the `algebraic_v1` baseline due to size constraints
+or secondary decoding passes, IBLTs, Rateless IBLTs, and Bloom/Cuckoo-family
+filters remain entirely valid candidates for future `digest_type` profiles. The
+profile boundary defined in this MSC (frame, hash mapping, field, and decoder
+contract) is specifically designed to allow swapping in these structures should
+the ecosystem's performance requirements shift.
+
 ## Theoretical models
 
 The reconciliation mechanisms in this MSC use standard algebraic and

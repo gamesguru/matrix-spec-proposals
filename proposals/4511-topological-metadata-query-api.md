@@ -1,4 +1,4 @@
-# MSC4511 Part A: Topological Metadata Query API
+# MSC4511: Topological Metadata Query API
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
@@ -26,10 +26,7 @@ weaker fallback: gap repair needs the full PDU at the end anyway in order to
 validate `content`, `auth_events`, event hashes, signatures, auth rules, and
 state resolution. The query response helps a server decide which event IDs and
 peer servers to try next, but accepting or repairing history still happens
-through the existing verified-event path. This proposal also sketches an opt-in
-future room-version extension for Merkleized event metadata, allowing selected
-metadata fields to be independently verified without fetching the full event
-payload.
+through the existing verified-event path.
 
 For a room version which defines State DAGs as in MSC4242, `prev_state_events`
 is an additional supported edge type. It is traversed with the same depth,
@@ -63,12 +60,8 @@ implement the topology query at all.
 }
 ```
 
-The `tk.nutra.msc4511.overlay_attestations` flag is advertised separately in
-[Part B](4511-part-b-merkle-overlay-backwards-compat.md) for overlay proofs. The
-`tk.nutra.msc4511.computed_graph_queries` flag advertises the optional `compute`
-extension in this part. Future room-version commitments described in
-[Part C](4511-part-c-merkleized-room-version-upgrade.md) are gated by
-room-version negotiation instead of a federation capability flag.
+The `tk.nutra.msc4511.computed_graph_queries` flag advertises the optional
+`compute` extension in this MSC.
 
 A server that does not advertise this flag SHOULD be treated as not supporting
 the `/topology_query` endpoint. Receivers SHOULD avoid repeated probes to
@@ -236,13 +229,6 @@ The initial sparse response fields returned as sidecar maps are:
   by edge type, then by target event ID to reason code.
 - `start_event_errors`: non-returned start events keyed by start event ID to
   reason code.
-- `proofs`: Merkle proof material, only for future room versions which opt into
-  split canonicalization as described in Part C. Requested via the `proof` field
-  name.
-- `overlay_proofs`: signed responder attestations for room-version-agnostic
-  metadata commitments as described in Part B. Requested via the `overlay_proof`
-  field name and only available when the responder advertises
-  `tk.nutra.msc4511.overlay_attestations` in `/_matrix/federation/v1/version`.
 
 Unrecognized `edge_types` entries cause the request to fail with
 `M_INVALID_PARAM`, because silently ignoring them would change traversal
@@ -287,15 +273,14 @@ returned event MAY be omitted entirely from `event_fields`, except for
 `event_id`. Servers MUST NOT rely on per-event object-key omission semantics in
 `events`.
 
-Fields expected to be highly sparse or bulky, such as `proof`, `overlay_proof`,
-`edge_errors`, and `start_event_errors`, are returned in sidecar maps (`proofs`,
-`overlay_proofs`, `edge_errors`, and `start_event_errors`) rather than in the
-positional `events` rows. This ensures servers do not have to emit explicit
-`null` slots for sparse data. A server MUST only include a sidecar map if the
-corresponding logical field was requested in `fields` (e.g. `proof` for
-`proofs`, or `overlay_proof` for `overlay_proofs`), and MUST only include
-entries with applicable data to return. A requester MUST ignore unrecognized
-field names while preserving positional alignment for fields it understands.
+Fields expected to be highly sparse or bulky, such as `edge_errors` and
+`start_event_errors`, are returned in sidecar maps (`edge_errors` and
+`start_event_errors`) rather than in the positional `events` rows. This ensures
+servers do not have to emit explicit `null` slots for sparse data. A server MUST
+only include a sidecar map if the corresponding logical field was requested in
+`fields`, and MUST only include entries with applicable data to return. A
+requester MUST ignore unrecognized field names while preserving positional
+alignment for fields it understands.
 
 The `rejected` and `soft_failed` fields describe the responding server's local
 event-processing result. They are hints only, may differ between servers, and
@@ -328,9 +313,7 @@ rather than re-parsing `sender` on every response, but the two fields MUST
 remain consistent: whenever both are returned for the same event,
 `sender_domain` MUST equal the domain component of `sender` under the splitting
 rule above. This split is purely a query-time convenience for current room
-versions; see
-[Part C: Split canonicalization and Merkleized metadata](4511-part-c-merkleized-room-version-upgrade.md)
-for the independently provable analogue in a future room version.
+versions.
 
 ### Traversal
 
@@ -543,8 +526,7 @@ a pair is unknown, wrong-room, or not visible to the requester, the result for
 that pair is `null`. This does not by itself set `limited`.
 
 These results are hints. They MUST NOT be used as proof that two branches are
-authentically related without fetching and verifying the relevant events, unless
-the room version provides Merkleized topology proofs for the path.
+authentically related without fetching and verifying the relevant events.
 
 ### Limits
 
@@ -716,7 +698,12 @@ trips and wasted full-PDU fetches.
 
 ## Future extensions
 
-Future extensions may add more computed graph facts or additional traversal
+Future extensions to this API or subsequent room versions may introduce
+cryptographically verifiable metadata (e.g., Merkleized event roots or signed
+responder attestations) to allow independent verification of topological hints.
+For current room versions, this API remains strictly hint-only.
+
+Future extensions may also add more computed graph facts or additional traversal
 relations while keeping this endpoint hint-only for current room versions.
 
 ### Forward recursive queries
@@ -764,15 +751,14 @@ quantified.
 For a traversal visiting `N` events:
 
 - full-event retrieval transfers `O(N * S_event)` bytes;
-- sparse topology query transfers `O(N * S_meta + P)` bytes, where `S_meta` is
-  the size of the requested metadata fieldset and `P` is the size of optional
-  proof material.
+- sparse topology query transfers `O(N * S_meta)` bytes, where `S_meta` is the
+  size of the requested metadata fieldset.
 
-When proofs are not requested, the bandwidth reduction approaches
-`1 - (S_meta / S_event)`. As an illustrative range, if a full event is 1 to 5
-KiB and the requested topology metadata is 80 to 300 bytes per event, the
-bandwidth reduction is roughly 70% to 98%. Implementations MUST NOT rely on
-these illustrative percentages as protocol guarantees.
+The bandwidth reduction approaches `1 - (S_meta / S_event)`. As an illustrative
+range, if a full event is 1 to 5 KiB and the requested topology metadata is 80
+to 300 bytes per event, the bandwidth reduction is roughly 70% to 98%.
+Implementations MUST NOT rely on these illustrative percentages as protocol
+guarantees.
 
 ### Storage overhead
 
@@ -878,9 +864,9 @@ The major risks are:
 - buggy or misrepresented topology output causing incorrect repair attempts.
 
 These are mitigated by hard local limits, normal federation authorization,
-rate-limiting, and treating responses as hints unless the room version provides
-verifiable Merkle topology proofs. A server should still fetch and verify full
-events before accepting them, repairing state, or considering a gap resolved.
+rate-limiting, and treating responses as hints. A server should still fetch and
+verify full events before accepting them, repairing state, or considering a gap
+resolved.
 
 ### Bandwidth consumption
 
@@ -904,30 +890,30 @@ limits, per-origin rate limits, and conservative defaults. If a deployment does
 not see federation repair value from this query shape, it can decline to expose
 the endpoint.
 
-### Hint validation and reputation
+### Hint validation and peer rate-limiting
 
 Because current room versions cannot independently verify topological hints
 without fetching the full event, requesting servers are exposed to potential
-misdirection from responding nodes. To mitigate this without strictly
-standardizing a global reputation system, implementations should rely on local
-heuristics.
+misdirection from responding nodes. Mitigation is local and concrete: the
+requester tracks which hints it later verifies against full events, and applies
+per-origin limits when a peer's hints are contradicted.
 
 Requesting servers SHOULD track topology hints they later verify against full
 events. If a responding server repeatedly returns metadata contradicted by
-verified event payloads, the requester MAY deprioritize that server for future
-topology queries, apply local rate limits, or ignore its topology hints for a
-limited period.
+verified event payloads, the requester MAY apply local rate limits to, or ignore
+the topology hints of, that peer for a bounded period (e.g. its per-origin
+topology-query rate-limit window).
 
 Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
 falsifiable when the full PDU is eventually fetched, and are therefore useful
-inputs to these heuristics. `candidate_servers` is not directly falsifiable in
-the same way; a poor candidate may simply be stale or unavailable rather than
+inputs to this tracking. `candidate_servers` is not directly falsifiable in the
+same way; a poor candidate may simply be stale or unavailable rather than
 provably false.
 
-Implementations should decay these penalties over time to prevent transient
-corruption or partial-state desyncs from permanently poisoning a peer. Such
-reputation data MUST NOT cause the requester to reject a valid event which
-passes normal Matrix authorization and event verification.
+Such per-origin limits MUST expire after a bounded window to prevent transient
+corruption or partial-state desyncs from permanently cutting off a peer, and
+MUST NOT cause the requester to reject a valid event which passes normal Matrix
+authorization and event verification.
 
 ## References
 

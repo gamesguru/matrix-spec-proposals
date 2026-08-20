@@ -229,13 +229,14 @@ specification should use an unstable room version ID prefixed with
 This proposal does not depend on any outstanding, unaccepted MSCs, but it is
 directly relevant to a couple of them:
 
-- [MSC4511 Part C](4511-part-c-merkleized-room-version-upgrade.md) sketches a
-  future room version and, for illustration, uses a placeholder identifier
-  (`tk.nutra.msc4511.12`) that does not follow the `vMMMM.NNNN.PPPP` format
-  mandated here. Any stable room version arising from that work MUST be assigned
-  an identifier compliant with this MSC before it ships as production-ready;
-  while in draft it falls under the "Unstable and Experimental Room Versions"
-  carve-out in section 4 above.
+- [MSC4511](4511-topological-metadata-query-api.md) notes in its Future
+  extensions that a subsequent room version may introduce Merkleized event
+  metadata; for illustration, the earlier draft of that work used a placeholder
+  identifier (`tk.nutra.msc4511.12`) that does not follow the `vMMMM.NNNN.PPPP`
+  format mandated here. Any stable room version arising from that work MUST be
+  assigned an identifier compliant with this MSC before it ships as
+  production-ready; while in draft it falls under the "Unstable and Experimental
+  Room Versions" carve-out in section 4 above.
 - This proposal is orthogonal to the historical sequence of stable room version
   identifiers (`"1"` through `"12"`, most recently
   [room version 12](https://spec.matrix.org/v1.12/rooms/v12/)) and to the

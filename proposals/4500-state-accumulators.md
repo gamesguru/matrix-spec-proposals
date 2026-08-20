@@ -229,15 +229,16 @@ bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
-split. The receiver can automatically trigger a background `/get_missing_events`
-with authoritative servers, while replying to the sender with the mismatched
-digest embedded in a `state_hash_mismatch` dictionary as part of the PDU's
-processing result and the `200 OK` response. Unknown keys in per-PDU result
-objects are silently ignored by existing implementations, so adding
-`state_hash_mismatch` is backwards-compatible. `state_hash_mismatch.algorithm`
-echoes back the algorithm identifier from the triggering transaction's
-`state_hashes.algorithm`, so a sender receiving the mismatch can tell which
-digest family the receiver evaluated against.
+split. The receiver can automatically trigger a rate-limited background
+`/get_missing_events` fetch with servers currently participating in the room's
+resolved state, while replying to the sender with the mismatched digest embedded
+in a `state_hash_mismatch` dictionary as part of the PDU's processing result and
+the `200 OK` response. Unknown keys in per-PDU result objects are silently
+ignored by existing implementations, so adding `state_hash_mismatch` is
+backwards-compatible. `state_hash_mismatch.algorithm` echoes back the algorithm
+identifier from the triggering transaction's `state_hashes.algorithm`, so a
+sender receiving the mismatch can tell which digest family the receiver
+evaluated against.
 
 ```json
 {
@@ -254,10 +255,10 @@ digest family the receiver evaluated against.
 ```
 
 Mismatch handling SHOULD be deduplicated per room (i.e. the first detection
-triggers logging, but subsequent mismatching transactions within a reasonable
-cooldown period are deprioritized to limit logger output and network activity).
-Note that if a receiving server **rejects** an incoming state event due to
-auth/power-level rules, their `after` hash will instantly (and correctly)
+triggers logging, but subsequent mismatching transactions MUST be subject to
+exponential backoff or local rate-limiting to limit logger output and network
+activity). Note that if a receiving server **rejects** an incoming state event
+due to auth/power-level rules, their `after` hash will instantly (and correctly)
 mismatch the sender's `after` hash. This mechanism instantly detects split-brain
 authorization failures.
 
@@ -317,8 +318,8 @@ mismatch is reported, MSC0501's `room_diff` / `room_events` reconcile the
 missing event set. The receiver admits verified events to its DAG and recomputes
 its resolved state locally; remote state digests and state maps are never write
 targets. Because MSC4500 gives active rooms free passive detection, MSC0501's
-periodic polling can back off significantly for rooms with recent inbound
-transactions.
+polling interval can be lengthened (rate-limited to a longer period) for rooms
+with recent inbound transactions.
 
 MSC4500 cannot detect omissions in messages, redactions, or other
 non-state-altering events; for that capability it fully defers to MSC0501.
@@ -408,16 +409,16 @@ digests in a transaction, it could trigger state resync loops for the receiver.
 **Mitigations:**
 
 1. **Rate-limiting:** Receiving servers implementing automated remediation
-   methods SHOULD rate-limit out-of-band state sync requests triggered by
-   mismatching hints. Repetitive warning logs are unnecessary and should be
-   subject to a cool-down period.
+   methods MUST rate-limit out-of-band state sync requests triggered by
+   mismatching hints (e.g. exponential backoff per room or per origin).
+   Repetitive warning logs should likewise be subject to a cooldown period.
 
-2. **Reputation:** Servers implementing Bandit-based peer scoring on manually
-   triggered or heavily federated endpoints SHOULD factor state accuracy into
-   their weighting. If a peer consistently transmits mismatched digests that do
-   not reflect the actual resolved state or differ too wildly from the perceived
-   majority or authoritative ground truth, the receiver should temporarily
-   decrement that peer's reputation score and the worthiness of their hints.
+2. **Peer deprioritization:** A malicious or malfunctioning peer could transmit
+   mismatched digests to trigger spurious state resyncs. Receiving servers MAY
+   locally rate-limit, deprioritize, or ignore transaction hashes from peers
+   that consistently provide unresolvable or malicious digests. Such local
+   treatment MUST NOT cause the receiver to reject a valid event that passes
+   normal Matrix authorization and event verification.
 
 ## Alternatives
 
