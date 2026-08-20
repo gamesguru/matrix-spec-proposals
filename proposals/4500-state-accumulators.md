@@ -67,28 +67,6 @@ accumulation of the room's state exactly at the DAG tip of each included PDU.
 It then collapses each PDU's vectorized state into a standard 32-byte digest and
 includes them in the transaction payload as a dictionary.
 
-### Capability discovery
-
-Servers advertise support for this MSC via `GET /_matrix/federation/v1/version`.
-Support is advertised in `unstable_features` so that backports and other
-pre-standard implementations can avoid probing unsupported peers.
-
-```json
-{
-  "unstable_features": {
-    "tk.nutra.msc4500.state_hashes": true
-  }
-}
-```
-
-A server that does not advertise this flag SHOULD be treated as not supporting
-the transaction state hashes. Receivers SHOULD avoid repeated probes to
-unsupported peers; a `501 Not Implemented` response, or a `404` response with
-`M_UNRECOGNIZED` or a non-Matrix body, SHOULD be cached as an unsupported signal
-for at least 24 hours unless an operator explicitly overrides the cache. The
-cache MUST be invalidated on any observed change to the peer's `/version`
-document.
-
 ### Algorithm specification
 
 To guarantee interoperability and collision resistance, the algorithm MUST be
@@ -703,8 +681,7 @@ For experimental implementations, the features should be referred to using the
 following unstable identifiers. Everywhere else in this document, `state_hashes`
 and `state_hash_mismatch` are written under their eventual stable names for
 readability; unstable implementations MUST substitute the identifiers below in
-the wire format instead, with identical shapes and semantics. The capability
-flag is `tk.nutra.msc4500.state_hashes`.
+the wire format instead, with identical shapes and semantics.
 
 - The transaction payload key: `tk.nutra.msc4500.state_hashes` (replacing
   `state_hashes` at the root of the `/send` request body)
