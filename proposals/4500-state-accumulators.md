@@ -1,5 +1,12 @@
 # MSC4500: State accumulator and transaction digests
 
+State is a derived property of the DAG, meaning it changes over time as events
+are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
+a dictionary of tuples to event IDs, e.g.,
+`(state_key, event_type) -> event_id`.
+
+<!-- Edit marker. -->
+
 Matrix servers replicate a room as a DAG of events and rely on state resolution
 to eventually converge on a shared state. When servers diverge, the result can
 be a serious nuisance. Matrix lacks an out-of-band or real-time mechanism for
