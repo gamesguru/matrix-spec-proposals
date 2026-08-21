@@ -104,8 +104,9 @@ implemented as follows:
    reinterpret the call as a replace, add, or remove.
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
 6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
-   2048-byte sum lattice $S$ using `BLAKE2b-256`, hex-encoded at 64 characters:
-   $$D = \text{BLAKE2b-256}(S)$$
+   2048-byte sum lattice $S$ using `BLAKE2b-256`, encoded as an unpadded
+   `base64url` string (43 characters), matching Matrix's event-ID convention:
+   $$D = \text{base64url}(\text{BLAKE2b-256}(S))$$
 
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
@@ -201,8 +202,8 @@ are equivalent.
   "state_hashes": {
     "algorithm": "lthash16-v1",
     "$sample_pduid_abc123def456": {
-      "before": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-      "after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
+      "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+      "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
       "n_before": 2,
       "n_after": 2
     }
@@ -246,8 +247,8 @@ evaluated against.
     "$sample_pduid_abc123def456": {
       "state_hash_mismatch": {
         "algorithm": "lthash16-v1",
-        "expected_after": "b85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104",
-        "received_after": "a85dfe1d480705482f37d582ffa27611117b577f8734532a5a6379bc666b2104"
+        "expected_after": "uF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
     }
   }
@@ -551,15 +552,15 @@ is the sole equality check.
 To assist implementers, the following test vectors are provided. They use the
 main accumulator: `SHAKE256` element expansion prefixed with the domain
 separation tag `msc4500_lthash16_v1\x00`, 16-bit little-endian wrapping lane
-addition/subtraction, and standard `BLAKE2b-256` collapse digest.
+addition/subtraction, and a `BLAKE2b-256` collapse digest encoded as unpadded
+`base64url` (the wire form).
 
 ### Empty state
 
 The starting lattice $S_0$ is 2048 bytes of all zeros.
 
 - Lattice $S_0$ prefix (first 16 bytes): `00000000000000000000000000000000`
-- Collapse digest:
-  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
+- Collapse digest: `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`
 
 **This collapse digest is a reserved sentinel, not room-specific evidence.**
 Every room shares this exact value before its `m.room.create` event is applied —
@@ -581,8 +582,7 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
   $SHAKE256(\text{tag} \parallel \text{el}_1)$):
   `c6a4f2e8f4016c9aaf9c52e67020f221`
 - Lattice $S_1$ prefix (first 16 bytes): `c6a4f2e8f4016c9aaf9c52e67020f221`
-- Collapse digest:
-  `d26472b7d70e5811b22aa575e1ada898b3c83891547d7d0b90972aa44db42db2`
+- Collapse digest: `0mRyt9cOWBGyKqV14a2omLPIOJFUfX0LkJcqpE20LbI`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -591,8 +591,7 @@ accumulator to the empty state.
 
 - Lattice $S_{\text{back}}$ prefix (first 16 bytes):
   `00000000000000000000000000000000`
-- Collapse digest:
-  `200823e5158b3774c11b5c61850ada762f8264144a9bebec3ebac5a2adde67b8`
+- Collapse digest: `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`
 
 ### Scenario 3: two elements
 
@@ -604,8 +603,7 @@ ID `$event_2`.
   $SHAKE256(\text{tag} \parallel \text{el}_2)$):
   `8107236052d1e6d7193cada70d85fa2c`
 - Lattice $S_2$ prefix (first 16 bytes): `47ac154946d35272c8d8ff8d7da5ec4e`
-- Collapse digest:
-  `687f1b5c3c5c4132b6fdc03c070e01287b01aec044e98560ccdfee501009cc0f`
+- Collapse digest: `aH8bXDxcQTK2_cA8Bw4BKHsBrsBE6YVgzN_uUBAJzA8`
 
 ### Scenario 4: instant replacement
 
@@ -619,8 +617,7 @@ event ID `$event_3`. This is performed by subtracting the expansion for
   $SHAKE256(\text{tag} \parallel \text{el}_3)$):
   `14e9b8900236b9d0d2e07dc6b392fa14`
 - Lattice $S_3$ prefix (first 16 bytes): `95f0dbf054079fa8eb1c2a6ec017f441`
-- Collapse digest:
-  `0c1eb97da39dcc2ab9cfa61c4da329dbcd8e230b892a70583857c934424927a9`
+- Collapse digest: `DB65faOdzCq5z6YcTaMp282OIwuJKnBYOFfJNEJJJ6k`
 
 ## Unstable prefix
 
