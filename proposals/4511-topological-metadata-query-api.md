@@ -13,7 +13,8 @@ This proposal seeks to reduce these inefficiencies and traversal failures by
 allowing homeservers to return routing hints as customized queries of highly
 granular metadata and bounded graph facts, including:
 
-- `prev_events` / `auth_events` edge event IDs, up to a recursion limit.
+- `prev_events` / `auth_events` / `relates_to` / `redacts` edge event IDs, up to
+  a recursion limit.
 - candidate servers which may have useful data for the returned event or branch.
 - whether a known edge target is outside the requested room, unavailable from
   this server, or not followed because the response was truncated.
@@ -171,7 +172,8 @@ The initial query fields are:
 
 - `room_id`: the room being queried.
 - `start_event_ids`: event IDs to start from.
-- `edge_types`: one or more of `prev_events`, `auth_events`, or
+- `edge_types`: one or more of the supported edge types. The initial set is
+  `prev_events`, `auth_events`, `relates_to`, and `redacts`, plus
   `prev_state_events` when defined by the room version.
 - `max_depth`: the maximum number of recursive hops requested.
 - `max_event_records`: the maximum number of event records returned.
@@ -204,6 +206,10 @@ The initial dense response fields available for the `events` rows are:
 - `auth_events`: known auth-event edges.
 - `prev_state_events`: known State DAG edges, only for room versions which
   define them.
+- `relates_to`: the relation target of the event's `m.relates_to`, if any,
+  expressed as the target `event_id` and its `rel_type`.
+- `redacts`: the target event ID the event redacts, if the event is an
+  `m.room.redaction`.
 - `sender`: the event sender, if known.
 - `sender_domain`: the server name (domain) portion of `sender`, if known. This
   field exists because, as of room version 11, the top-level `origin` property
@@ -222,6 +228,18 @@ The initial dense response fields available for the `events` rows are:
   known.
 - `soft_failed`: whether the responding server has locally soft-failed the
   event, if known.
+
+`relates_to` and `redacts` are derived from the event's stored relation and
+redaction references: `relates_to` from the event's `m.relates_to` content
+(taking the cleartext copy for encrypted events, per the spec's relationship
+handling), and `redacts` from the top-level `redacts` field of an
+`m.room.redaction`. Like `prev_events` and `auth_events`, these are edges stored
+on the event that point at a target event ID, so they are walked with the same
+depth, record, and visited-node limits as the other edge types. A requester MAY
+restrict `relates_to` traversal to one or more `rel_type` values; the response
+`relates_to` field always reports the target `event_id` and `rel_type` it found.
+Wrong-room relation or redaction targets are subject to the same `wrong_room`
+handling and disclosure restrictions as other edge targets.
 
 The initial sparse response fields returned as sidecar maps are:
 
@@ -508,11 +526,13 @@ evaluation, joins over arbitrary event fields, or a general-purpose query
 language MUST also define hard evaluation budgets and truncation behavior, since
 those features carry database-style recursive query execution risks.
 
-This graph query language is strictly sub-Turing by design to guarantee
-deterministic $O(N)$ bounds and prevent non-terminating traversals. Future MSCs
-are therefore strongly discouraged from introducing unbounded recursion or
-`while` loops to the topological walk, which would risk introducing the Halting
-Problem and unbounded execution times to state resolution requests.
+This graph query language — the Matrix Query Language (**MQL**) — is
+bounded-iteration: every walk and computed fact is a loop whose bound
+(`max_depth`, `max_nodes_visited`) is known before entry, primitive-recursive
+style and strictly sub-Turing, guaranteeing deterministic $O(N)$ bounds and
+preventing non-terminating traversals. Future MSCs must not introduce unbounded
+recursion or `while` loops to the topological walk, which would risk introducing
+the Halting Problem and unbounded execution times to state resolution requests.
 
 Computed queries only walk events which belong to the requested room and are
 visible to the requester. Hidden history-visibility branches are pruned, not
