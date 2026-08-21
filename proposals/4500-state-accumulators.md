@@ -52,7 +52,7 @@ performance optimizations and newer unit tests.
 ### Relationship to existing specification
 
 This MSC introduces a transaction-level state hash to the Matrix federation
-protocol: a new `state_hashes` dictionary in the
+protocol: a new `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
 their local, resolved state view alongside the events they are transmitting.
 
@@ -163,15 +163,15 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. Each value holds that PDU's `before` and `after` digests plus the
   `n_before` and `n_after` cardinality counts described below.
-- `before`: The 32-byte digest of the room state evaluated exactly at the given
-  PDU's `prev_events`, excluding and preceding the given event.
-- `after`: The 32-byte digest of the room state after the current PDU is
-  applied. (For non-state events, this will be identical to `before`).
-- `n_before`: An unsigned integer representing the exact number of elements in
-  the room's resolved state map at the `before` DAG point.
-- `n_after`: An unsigned integer representing the exact number of elements in
-  the room's resolved state map at the `after` DAG point (identical to
-  `n_before` for non-state events).
+  - `before`: The 32-byte digest of the room state evaluated exactly at the
+    given PDU's `prev_events`, excluding and preceding the given event.
+  - `after`: The 32-byte digest of the room state after the current PDU is
+    applied. (For non-state events, this will be identical to `before`).
+  - `n_before`: An unsigned integer representing the exact number of elements in
+    the room's resolved state map at the `before` DAG point.
+  - `n_after`: An unsigned integer representing the exact number of elements in
+    the room's resolved state map at the `after` DAG point (identical to
+    `n_before` for non-state events).
 
 **Sender-side partial state.** A server MUST NOT emit a guessed or approximated
 digest. If a sending or relaying server cannot compute the resolved state at a
@@ -285,8 +285,8 @@ next transaction instead of letting it surface later as a confusing downstream
 authorization failure.
 
 A mismatched or deferred hash does not block the PDU; it is still processed
-under standard rules. Whether homeservers implements an automated healing
-pipeline or merely log the divergence for admin intervention is left as an
+under standard rules. Whether a homeserver implements an automated healing
+pipeline or merely logs the divergence for admin intervention is left as an
 implementation detail.
 
 ### Other affected endpoints
