@@ -18,9 +18,10 @@ Additionally, these local implementation methods have no way of communicating
 state equality over federation—Synapse's `state_groups` and the Conduit-based
 `shortstatehash` are both implementation details, not spec unified or agreed.
 
-This MSC, though insufficient on its own to reduce the state resolution
-algorithm to `O(log S)` writes per step, is a complementary and necessary
-component of schemes which do.
+This MSC does not, on its own, reduce the state resolution algorithm to
+`O(log S)` writes per step. Combined with a HAMT that carries the delta itself,
+the homomorphic accumulator this MSC specifies is one ingredient of that scheme
+— the piece that collapses a state into a fixed-size, subtractable commitment.
 
 Furthermore, this MSC, by placing a backwards compatible (safely ignored)
 `state_hashes` key alongside `txn` request bodies, allows for instant, passive
@@ -128,16 +129,13 @@ or delta-decoder.
 
 ### Transaction payload
 
-Servers implementing this MSC MUST embed a `state_hashes` dictionary at the root
-of the `PUT /_matrix/federation/v1/send/{txnId}` request body. `state_hashes` is
-this field's eventual stable name; until stabilization, implementations MUST use
-the unstable key given in [Unstable prefix](#unstable-prefix) instead, with an
-identical shape. The examples in this section use the stable name for
-readability. It maps the IDs of the PDUs included in the transaction to their
-respective `before` and `after` digests, plus one sibling meta-key, `algorithm`
-(see below). Because PDU IDs are `$`-prefixed Matrix event IDs and `algorithm`
-is not, receivers can distinguish the meta-key from per-PDU entries by key shape
-and MUST skip it when iterating PDU results. The `state_hashes` values always
+Servers implementing this MSC MUST embed a `state_hashes` object at the root of
+the `PUT /_matrix/federation/v1/send/{txnId}` request body. It has two fields: a
+scalar `algorithm` identifying the digest algorithm used for every entry (see
+below), and a `hashes` dictionary mapping the IDs of the PDUs included in the
+transaction to their respective `before` and `after` digests. Namespacing both
+fields under `state_hashes` keeps them from occupying generic names at the
+transaction root that other MSCs might want. The `state_hashes` values always
 represent the transaction sender's local resolved state, not necessarily the
 origin server's (meaning relays forward their own view).
 
@@ -151,16 +149,20 @@ i.e. the same resolved state the server would use to authorize the PDU. The
 event; otherwise `after` equals `before`. If a server does not know about a PDU
 in the given `prev_events`, they shall omit it entirely from the dictionary.
 
-- `algorithm`: A single top-level string identifying the digest algorithm used
-  for every entry in this transaction's `state_hashes` (e.g. `lthash16-v1`, see
-  [Algorithm specification](#algorithm-specification)). One value governs the
-  whole transaction; mixing algorithms within a single transaction serves no
-  purpose and is not supported. A receiver that does not recognize the algorithm
-  MUST silently skip hash validation for the entire transaction, the same as any
-  other deferral case in the [Receiver contract](#receiver-contract) — this
-  preserves forward compatibility if a future revision introduces a new digest
-  family (e.g. a wider lattice or a different XOF) without causing receivers on
-  the old algorithm to raise false mismatch alarms against upgraded senders.
+- `algorithm`: A single string identifying the digest algorithm used for every
+  entry in this transaction's `state_hashes.hashes` dictionary (e.g.
+  `lthash16-v1`, see [Algorithm specification](#algorithm-specification)). One
+  value governs the whole transaction; mixing algorithms within a single
+  transaction serves no purpose and is not supported. A receiver that does not
+  recognize the algorithm MUST silently skip hash validation for the entire
+  transaction, the same as any other deferral case in the
+  [Receiver contract](#receiver-contract) — this preserves forward compatibility
+  if a future revision introduces a new digest family (e.g. a wider lattice or a
+  different XOF) without causing receivers on the old algorithm to raise false
+  mismatch alarms against upgraded senders.
+- `hashes`: A dictionary keyed by the IDs of the PDUs included in the
+  transaction. Each value holds that PDU's `before` and `after` digests plus the
+  `n_before` and `n_after` cardinality counts described below.
 - `before`: The 32-byte digest of the room state evaluated exactly at the given
   PDU's `prev_events`, excluding and preceding the given event.
 - `after`: The 32-byte digest of the room state after the current PDU is
@@ -175,15 +177,15 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
 digest. If a sending or relaying server cannot compute the resolved state at a
 given PDU's position — because it is itself operating under Partial State
 (MSC3706), is missing ancestry, or holds an unpersisted accumulator it declines
-to backfill on demand — it MUST omit that PDU's entry from `state_hashes`
+to backfill on demand — it MUST omit that PDU's entry from `state_hashes.hashes`
 entirely rather than emit a best-effort guess. An absent entry and an entry
 omitted for this reason are indistinguishable to the receiver, which is
 intentional: both mean "no assertion is made about this PDU's state," and the
 receiver's deferral rules in the [Receiver contract](#receiver-contract) already
-handle a PDU with no `state_hashes` entry. Transactions containing only
+handle a PDU with no `state_hashes.hashes` entry. Transactions containing only
 non-state-altering PDUs, or only PDUs a server declines to assert on, MAY
-therefore carry an empty (or entirely absent) `state_hashes` dictionary; the two
-are equivalent.
+therefore carry an empty `hashes` dictionary (or omit `state_hashes` entirely);
+the two are equivalent.
 
 ```json
 {
@@ -201,11 +203,13 @@ are equivalent.
   ],
   "state_hashes": {
     "algorithm": "lthash16-v1",
-    "$sample_pduid_abc123def456": {
-      "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-      "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-      "n_before": 2,
-      "n_after": 2
+    "hashes": {
+      "$sample_pduid_abc123def456": {
+        "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "n_before": 2,
+        "n_after": 2
+      }
     }
   }
 }
@@ -618,19 +622,6 @@ event ID `$event_3`. This is performed by subtracting the expansion for
   `14e9b8900236b9d0d2e07dc6b392fa14`
 - Lattice $S_3$ prefix (first 16 bytes): `95f0dbf054079fa8eb1c2a6ec017f441`
 - Collapse digest: `DB65faOdzCq5z6YcTaMp282OIwuJKnBYOFfJNEJJJ6k`
-
-## Unstable prefix
-
-For experimental implementations, the features should be referred to using the
-following unstable identifiers. Everywhere else in this document, `state_hashes`
-and `state_hash_mismatch` are written under their eventual stable names for
-readability; unstable implementations MUST substitute the identifiers below in
-the wire format instead, with identical shapes and semantics.
-
-- The transaction payload key: `state_hashes` at the root of the `/send` request
-  body
-- The per-PDU mismatch result key: `tk.nutra.msc4500.state_hash_mismatch`
-  (replacing `state_hash_mismatch` in the `/send` response body)
 
 ## Backwards compatibility
 
