@@ -132,7 +132,7 @@ or delta-decoder.
 Servers implementing this MSC MUST embed a `state_hashes` object at the root of
 the `PUT /_matrix/federation/v1/send/{txnId}` request body. It has two fields: a
 scalar `algorithm` identifying the digest algorithm used for every entry (see
-below), and a `hashes` dictionary mapping the IDs of the PDUs included in the
+below), and an `entries` dictionary mapping the IDs of the PDUs included in the
 transaction to their respective `before` and `after` digests. Namespacing both
 fields under `state_hashes` keeps them from occupying generic names at the
 transaction root that other MSCs might want. The `state_hashes` values always
@@ -150,7 +150,7 @@ event; otherwise `after` equals `before`. If a server does not know about a PDU
 in the given `prev_events`, they shall omit it entirely from the dictionary.
 
 - `algorithm`: A single string identifying the digest algorithm used for every
-  entry in this transaction's `state_hashes.hashes` dictionary (e.g.
+  entry in this transaction's `state_hashes.entries` dictionary (e.g.
   `lthash16-v1`, see [Algorithm specification](#algorithm-specification)). One
   value governs the whole transaction; mixing algorithms within a single
   transaction serves no purpose and is not supported. A receiver that does not
@@ -160,7 +160,7 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
   if a future revision introduces a new digest family (e.g. a wider lattice or a
   different XOF) without causing receivers on the old algorithm to raise false
   mismatch alarms against upgraded senders.
-- `hashes`: A dictionary keyed by the IDs of the PDUs included in the
+- `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. Each value holds that PDU's `before` and `after` digests plus the
   `n_before` and `n_after` cardinality counts described below.
 - `before`: The 32-byte digest of the room state evaluated exactly at the given
@@ -177,15 +177,15 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
 digest. If a sending or relaying server cannot compute the resolved state at a
 given PDU's position — because it is itself operating under Partial State
 (MSC3706), is missing ancestry, or holds an unpersisted accumulator it declines
-to backfill on demand — it MUST omit that PDU's entry from `state_hashes.hashes`
-entirely rather than emit a best-effort guess. An absent entry and an entry
-omitted for this reason are indistinguishable to the receiver, which is
-intentional: both mean "no assertion is made about this PDU's state," and the
-receiver's deferral rules in the [Receiver contract](#receiver-contract) already
-handle a PDU with no `state_hashes.hashes` entry. Transactions containing only
-non-state-altering PDUs, or only PDUs a server declines to assert on, MAY
-therefore carry an empty `hashes` dictionary (or omit `state_hashes` entirely);
-the two are equivalent.
+to backfill on demand — it MUST omit that PDU's entry from
+`state_hashes.entries` entirely rather than emit a best-effort guess. An absent
+entry and an entry omitted for this reason are indistinguishable to the
+receiver, which is intentional: both mean "no assertion is made about this PDU's
+state," and the receiver's deferral rules in the
+[Receiver contract](#receiver-contract) already handle a PDU with no
+`state_hashes.entries` entry. Transactions containing only non-state-altering
+PDUs, or only PDUs a server declines to assert on, MAY therefore carry an empty
+`entries` dictionary (or omit `state_hashes` entirely); the two are equivalent.
 
 ```json
 {
@@ -203,7 +203,7 @@ the two are equivalent.
   ],
   "state_hashes": {
     "algorithm": "lthash16-v1",
-    "hashes": {
+    "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
@@ -501,7 +501,7 @@ of scope for this proposal:
   histories does not reduce to a single earliest divergence event but to a
   frontier of candidates, undercutting the clean `git bisect` analogy.
 
-This MSC therefore confines itself to establishing a quantum-secure wire
+This MSC therefore confines itself to establishing a quantum-resistant wire
 agreement state hash in the transaction payload. If a future consumer needs
 historical resolved-state accumulator points, it can define a focused endpoint
 (e.g. on `/state_ids`) then.
