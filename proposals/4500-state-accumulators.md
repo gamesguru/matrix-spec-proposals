@@ -4,24 +4,29 @@ State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
 a dictionary of tuples to event IDs, e.g.,
 `(state_key, event_type) -> event_id`. Given implied assumptions about globally
-unique UUIDs, this dictionary can be converted to and from a set without loss of
-injectivity or meaning, e.g., `(state_key, event_type, event_id)`.
+unique UUIDs, this dictionary can be converted to and from a de-structured set
+without loss of injectivity or meaning, e.g.,
+`(state_key, event_type, event_id)`.
 
 Current implementations load the state map into memory, authenticate incoming
-PDUs against it and the room's resolved extremities, and finally persist the new
-state as a series of diffs, periodically compacting them into full checkpoints.
-Storing diffs and only persisting a new state group checkpoint every 100 hops
-bounds the runtime complexity by a constant factor (1/100), but it does not
-bound it asymptotically. The write-time complexity is still `O(S)`.
+PDUs against their `prevs` (or the room's extremities), and finally persist the
+new state as a series of diffs, periodically compacting them into full
+checkpoints. Storing diffs and only persisting a new state group checkpoint
+every 100 hops bounds the runtime complexity by a constant factor (1/100), but
+it does not bound it asymptotically. The write-time complexity is still `O(S)`
+per step and `O(S^2)` cumulatively.
 
 Additionally, these local implementation methods have no way of communicating
 state equality over federation—Synapse's `state_groups` and the Conduit-based
 `shortstatehash` are both implementation details, not spec unified or agreed.
+Going forward, this will be useful to diagnose divergence early, during the
+nominal `/send` transaction endpoint and preludes passive mesh or peer ranking.
 
 This MSC does not, on its own, reduce the state resolution algorithm to
 `O(log S)` writes per step. Combined with a HAMT that carries the delta itself,
-the homomorphic accumulator this MSC specifies is one ingredient of that scheme
-— the piece that collapses a state into a fixed-size, subtractable commitment.
+the cryptographic accumulator specified here is one ingredient of that scheme —
+the piece that collapses a state into a fixed-size homomorphic commitment,
+mapping state sets (with 128-bit security) into a globally unique 256-bit space.
 
 Furthermore, this MSC, by placing a backwards compatible (safely ignored)
 `state_hashes` key alongside `txn` request bodies, allows for instant, passive
