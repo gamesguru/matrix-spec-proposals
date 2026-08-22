@@ -45,9 +45,11 @@ idea), or, like large divergences, they may remain an open problem.
 
 The current `LtHash16` implementation, byte-for-byte compatible with Facebook
 researcher's specification[^6], is available, together with test vectors, as a
-near production-ready Rust library. A complementary Golang implementation is
-also supplied, with equally stable core functionality but lacking some
-performance optimizations and newer unit tests.
+near production-ready Rust library. It implements this draft's current domain
+separation tag (DST) and tuple encoding, which remain provisional as of
+2026-08-22. A complementary Golang implementation is also supplied, with equally
+stable core functionality but lacking some performance optimizations and newer
+unit tests.
 
 ## Proposal
 
