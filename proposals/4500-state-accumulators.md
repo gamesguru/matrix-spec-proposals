@@ -50,8 +50,6 @@ near production-ready Rust library. A complementary Golang implementation is
 also supplied, with equally stable core functionality but lacking some
 performance optimizations and newer unit tests.
 
-<!-- Edit marker. -->
-
 ## Proposal
 
 ### Relationship to existing specification
@@ -62,17 +60,23 @@ protocol: a new `state_hashes` object in the
 their local, resolved state view alongside the events they are transmitting.
 
 This mechanism is additive and does not alter existing room version consensus
-rules, nor does it modify the canonical structure of the signed PDU itself.
+rules, nor does it modify PDU structure or break legacy transaction parsers.
 
-Rather than attaching hashes to individual events (which are routinely stripped,
-rewritten, or relayed by intermediate servers), this proposal places the hashes
-in the body of the federation transaction.
+Rather than attaching hashes to the `unsigned` event dict (routinely stripped or
+rewritten during relays by intermediate servers), this proposal places them in
+the transaction body or payload.
 
-When a homeserver sends or relays a federated transaction, it calculates the sum
-accumulation of the room's state exactly at the DAG tip of each included PDU.
+When a homeserver sends or relays a federated transaction, it computes the
+accumulator of the room state exactly at the DAG tip of each referenced PDU. In
+State DAGs MSC4242, this is no longer relevant; digests need only be computed
+during state transitions, not against all resolved `prevs`.
 
-It then collapses each PDU's vectorized state into a standard 32-byte digest and
+It then collapses each PDU's vectorial state into a standard 32-byte digest and
 includes them in the transaction payload as a dictionary.
+
+The 32-byte digest may then, `base64url` encoded, serve as a globally unique ID
+for the given resolved state map. This has broad application across a variety of
+endpoints, use cases, and future MSCs.
 
 ### Algorithm specification
 
@@ -96,7 +100,6 @@ implemented as follows:
    essential for identical lane distribution. `SHAKE256` is natively supported
    across virtually all cryptographic libraries without custom parameter block
    requirements.
-
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
    lane-wise wrapping addition.
@@ -109,10 +112,13 @@ implemented as follows:
    closed with a panic, exception, or equivalent hard error, and MUST NOT
    reinterpret the call as a replace, add, or remove.
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
+
 6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
    2048-byte sum lattice $S$ using `BLAKE2b-256`, encoded as an unpadded
    `base64url` string (43 characters), matching Matrix's event-ID convention:
    $$D = \text{base64url}(\text{BLAKE2b-256}(S))$$
+
+**Reference implementations** are available in Rust[^2r] and Golang[^2g].
 
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
@@ -128,9 +134,11 @@ inbound accumulator is strictly a one-way _comparative_ tool; homeserver
 databases MUST remain responsible for _managing_ actual set element membership.
 Homeservers MUST therefore treat their local resolved state map — keyed by
 `(type, state_key)` — as the authoritative source of state membership,
-replacement, and deduplication. The accumulator is a cryptographic commitment of
-that map's current `(type, state_key, event_id)` assignments, not a set manager
-or delta-decoder.
+replacement, and deduplication. The accumulator is a non-invertible commitment
+of that map's current `(type, state_key, event_id)` assignments, not a set
+manager or delta-decoder.
+
+<!-- Edit marker. -->
 
 ### Transaction payload
 
@@ -675,6 +683,14 @@ not required to implement this proposal.
     **Lewi, K., Kim, W., Maykov, I., & Weis, S. (2019).** _Securing Update
     Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
     2019/227. Available at: <https://eprint.iacr.org/2019/227>
+
+[^2r]:
+    `rezzy/src/state/lthash.rs` at master · gamesguru/rezzy
+    <https://github.com/gamesguru/rezzy/blob/e74a5e8302192d922cd9535b69596a1f219fdfa9/src/state/lthash.rs#L146>
+
+[^2g]:
+    `lthash/lthash.go` · main · Wombat-Foundation / gomatrixcrypto · GitLab
+    <https://gitlab.com/wombat-foundation/gomatrixcrypto/-/blob/e64f500dd026ffbdd12e1f004093a54c26a4b8dd/lthash/lthash.go#L80>
 
 [^3]:
     **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
