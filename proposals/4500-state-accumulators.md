@@ -35,14 +35,13 @@ efficient (basically free) confirmation that two servers agree on room state.
 This allows admins to be alerted and diagnose divergence early, if they choose;
 it also makes possible future automated remediation or reconciliation methods.
 
-The initial proposed scope is limited to `txn` payloads, but the 256-bit digest
-(of the full 2048-byte lattice) can be used to optimize the happy-path of other
-endpoints, too. For example, `/state_ids` can use the digest as an HTTP cache
-validator, allowing a responding server to omit the response body when the
-requester's cached state agrees. The case of small divergence has been loosely
-sketched out in MSC4521; the case of moderate divergence (>1000 events differ)
-may possibly be addressed by bloom filters and IBLTs (Kegan's idea), or, like
-large divergences, they may remain an open problem.
+The proposed wire scope covers `txn` payloads and a backwards-compatible
+`/state_ids` HTTP cache validator. Both use the same 256-bit digest of the full
+2048-byte lattice; the latter allows a responding server to omit the response
+body when the requester's cached state agrees. The case of small divergence has
+been loosely sketched out in MSC4521; the case of moderate divergence (>1000
+events differ) may possibly be addressed by bloom filters and IBLTs (Kegan's
+idea), or, like large divergences, they may remain an open problem.
 
 The current `LtHash16` implementation, byte-for-byte compatible with Facebook
 researcher's specification[^6], is available, together with test vectors, as a
@@ -146,21 +145,18 @@ Servers implementing this MSC MUST embed a `state_hashes` object at the root of
 the `PUT /_matrix/federation/v1/send/{txnId}` request body. It has two fields: a
 scalar `algorithm` identifying the digest algorithm used for every entry (see
 below), and an `entries` dictionary mapping the IDs of the PDUs included in the
-transaction to their respective `before` and `after` digests. Namespacing both
-fields under `state_hashes` keeps them from occupying generic names at the
-transaction root that other MSCs might want. The `state_hashes` values always
-represent the transaction sender's local resolved state, not necessarily the
-origin server's (meaning relays forward their own view).
-
-Network overhead for duplicate digests (e.g. across multiple non-state PDUs in a
-batch) is collapsed by standard federation HTTP compression (gzip/brotli).
+transaction to their respective state assertions. Every PDU in the transaction,
+including every non-state PDU, MUST have an entry. Namespacing both fields under
+`state_hashes` keeps them from occupying generic names at the transaction root
+that other MSCs might want. The `state_hashes` values always represent the
+transaction sender's local resolved state, not necessarily the origin server's
+(meaning relays forward their own view).
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of
 state resolution (v2/v2.1) applied across the states at each of those events —
 i.e. the same resolved state the server would use to authorize the PDU. The
 `after` state is `before` with the PDU applied, if it is an accepted state
-event; otherwise `after` equals `before`. If a server does not know about a PDU
-in the given `prev_events`, they shall omit it entirely from the dictionary.
+event; otherwise `after` equals `before`.
 
 - `algorithm`: A single string identifying the digest algorithm used for every
   entry in this transaction's `state_hashes.entries` dictionary (e.g.
@@ -174,31 +170,29 @@ in the given `prev_events`, they shall omit it entirely from the dictionary.
   different XOF) without causing receivers on the old algorithm to raise false
   mismatch alarms against upgraded senders.
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
-  transaction. Each value holds that PDU's `before` and `after` digests plus the
-  `n_before` and `n_after` cardinality counts described below.
+  transaction. It MUST contain exactly one entry for every PDU in `pdus`. Each
+  value either asserts that PDU's `before` and `after` digests, or explicitly
+  marks the assertion as limited.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
-    given PDU's `prev_events`, excluding and preceding the given event.
+    given PDU's `prev_events`, excluding and preceding the given event. This is
+    JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
+    point.
   - `after`: The 32-byte digest of the room state after the current PDU is
-    applied. (For non-state events, this will be identical to `before`).
-  - `n_before`: An unsigned integer representing the exact number of elements in
-    the room's resolved state map at the `before` DAG point.
-  - `n_after`: An unsigned integer representing the exact number of elements in
-    the room's resolved state map at the `after` DAG point (identical to
-    `n_before` for non-state events).
+    applied. For non-state events, this is identical to `before`. This field
+    MUST be omitted when `limited` is `true`.
+  - `limited`: The boolean `true` when the sender cannot resolve the state at
+    all of the PDU's `prev_events` and therefore makes no digest assertion. It
+    MUST be omitted or `false` when both digests are present.
 
 **Sender-side partial state.** A server MUST NOT emit a guessed or approximated
 digest. If a sending or relaying server cannot compute the resolved state at a
 given PDU's position — because it is itself operating under Partial State
 (MSC3706), is missing ancestry, or holds an unpersisted accumulator it declines
-to backfill on demand — it MUST omit that PDU's entry from
-`state_hashes.entries` entirely rather than emit a best-effort guess. An absent
-entry and an entry omitted for this reason are indistinguishable to the
-receiver, which is intentional: both mean "no assertion is made about this PDU's
-state," and the receiver's deferral rules in the
-[Receiver contract](#receiver-contract) already handle a PDU with no
-`state_hashes.entries` entry. Transactions containing only non-state-altering
-PDUs, or only PDUs a server declines to assert on, MAY therefore carry an empty
-`entries` dictionary (or omit `state_hashes` entirely); the two are equivalent.
+to backfill on demand — its entry MUST contain `"limited": true` and
+`"before": null`, and MUST omit `after`. Receivers MUST treat such an entry as
+an explicit deferral, not as a mismatch. An implementation MUST NOT use an empty
+string in place of JSON `null`: retaining one representation keeps the wire
+format type-safe and canonical.
 
 ```json
 {
@@ -219,9 +213,7 @@ PDUs, or only PDUs a server declines to assert on, MAY therefore carry an empty
     "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "n_before": 2,
-        "n_after": 2
+        "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
     }
   }
@@ -234,8 +226,8 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Adding both `before` and `after` digests plus both cardinality counts consumes
-approximately 200 bytes of JSON overhead per PDU in the transaction.
+Only the two collapsed digests and their field names are added per resolvable
+PDU; the 2048-byte lattice is never duplicated on the wire.
 
 ### Receiver contract
 
@@ -245,6 +237,11 @@ When a server catches a `/send` transaction containing the `state_hashes`
 payload, it collapses its own local lattice at that exact DAG point using fast
 bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
 If the local digest matches the incoming one, all systems are nominal.
+
+For each entry with `limited: true`, the receiver MUST defer validation for that
+PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
+provide both digests; transaction and PDU processing continue under the standard
+federation rules.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a rate-limited background
@@ -570,11 +567,6 @@ this structurally: the input is a resolved state _map_, which holds exactly one
 `event_id` per `(type, state_key)` key — every element has multiplicity 1,
 regardless of total room size. Total state cardinality ($N$) is _not_ bounded by
 $2^{16}$; massive rooms are fully supported.
-
-The `n_before` and `n_after` payload fields are diagnostic only — they help a
-receiver gauge the magnitude of a divergence when choosing between full resync
-and inaction. They MUST NOT be used as a validation shortcut: digest comparison
-is the sole equality check.
 
 ## Test vectors
 
