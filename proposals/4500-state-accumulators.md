@@ -37,9 +37,9 @@ it also makes possible future automated remediation or reconciliation methods.
 
 The initial proposed scope is limited to `txn` payloads, but the 256-bit digest
 (of the full 2048-byte lattice) can be used to optimize the happy-path of other
-endpoints, too. For example, `/state_ids` requests can include the 256-bit
-BLAKE2 hash, and responding servers can omit the list and avoid loading it into
-JSON if the state digests agree. The case of small divergence has been loosely
+endpoints, too. For example, `/state_ids` can use the digest as an HTTP cache
+validator, allowing a responding server to omit the response body when the
+requester's cached state agrees. The case of small divergence has been loosely
 sketched out in MSC4521; the case of moderate divergence (>1000 events differ)
 may possibly be addressed by bloom filters and IBLTs (Kegan's idea), or, like
 large divergences, they may remain an open problem.
@@ -312,14 +312,26 @@ Server-Server APIs.
   **`GET /_matrix/federation/v1/state_ids/{roomId}`**, and
   **`/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must
   fully materialize the room state to serve these endpoints, which is an
-  expensive $O(S)$ operation for large rooms. These endpoints become instantly
-  cacheable via standard HTTP semantics. Servers SHOULD include the digest as an
-  `ETag` header on `200 OK` responses so standard conditional-request semantics
-  hold end-to-end. Requesters SHOULD include the 32-byte accumulator digest in
-  the `If-None-Match` header. The receiving server simply compares this against
-  its own local LRU cache of the requested state digest. If they match, the
-  server immediately returns `304 Not Modified`, bypassing the legacy database
-  traversal and JSON serialization of tens of thousands of state events.
+  expensive $O(S)$ operation for large rooms.
+
+#### Backwards-compatible `/state_ids` validation
+
+A server which has completely resolved the state and auth chain for the exact
+`event_id` requested by `GET /_matrix/federation/v1/state_ids/{roomId}` SHOULD
+include an entity-tag of the form `ETag: "lthash16-v1:<digest>"` on its `200 OK`
+response, where `<digest>` is the unpadded base64url-encoded collapse digest of
+that resolved state. The algorithm identifier is part of the opaque entity-tag;
+validators from different accumulator versions MUST NOT compare equal.
+
+A requester which has cached that response MAY send its entity-tag verbatim in
+`If-None-Match`. If the responder can reproduce the same validator for the same
+request target, it MAY return `304 Not Modified` with no response body. It MUST
+NOT return `304` merely because a digest supplied by the requester matches a
+remote or otherwise unverified accumulator: the validator MUST be derived from
+the responder's own resolved state at the requested DAG point. Unsupported,
+unknown, or malformed validators MUST be ignored, yielding the existing `200`
+response and JSON body. Thus this extension changes neither the endpoint's URL
+nor its JSON schema, and implementations unaware of it remain interoperable.
 
 ## Synergy with MSC0501 (event set reconciliation)
 
