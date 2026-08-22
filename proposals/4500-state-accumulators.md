@@ -154,11 +154,30 @@ that other MSCs might want. The `state_hashes` values always represent the
 transaction sender's local resolved state, not necessarily the origin server's
 (meaning relays forward their own view).
 
-When a PDU lists multiple `prev_events`, the `before` state is the output of
-state resolution (v2/v2.1) applied across the states at each of those events —
-i.e. the same resolved state the server would use to authorize the PDU. The
-`after` state is `before` with the PDU applied, if it is an accepted state
-event; otherwise `after` equals `before`.
+When a PDU lists multiple `prev_events`, the `before` state is the output of the
+room version's state resolution algorithm applied across the states after each
+predecessor. This includes the auth-chain difference, reverse-topological
+ordering and iterative authorization of conflicted power events (including power
+levels, kicks, bans, and join rules), followed by mainline ordering and
+iterative authorization of the remaining conflicted state. Thus `before` is the
+state at the PDU's own DAG position used for the state-before-event
+authorization check; it is not necessarily the receiver's current state resolved
+across all of its forward extremities.
+
+If the PDU is a non-rejected state event, `after` is that DAG-position state
+with the PDU's `(type, state_key)` binding replaced by the PDU's event ID. For a
+non-state or rejected event, `after` equals `before`. This replacement is not a
+shortcut around state resolution: when this branch is later resolved with other
+branches, the room version's complete state resolution algorithm decides whether
+the PDU survives into the resulting state.
+
+In particular, a PDU can name a sole, old predecessor from before a ban or join
+rule change and pass authorization at its own DAG position. A receiver that has
+newer extremities separately checks the PDU against its current resolved state
+and can soft-fail it. Soft-failed state events still participate in state
+resolution if later events reference them, so the resulting current-state
+accumulator MUST be computed from the resolution result, not by unconditionally
+applying that stale branch's `after` delta to the receiver's current lattice.
 
 - `algorithm`: A single string identifying the digest algorithm used for every
   entry in this transaction's `state_hashes.entries` dictionary (e.g.
