@@ -60,7 +60,7 @@ idea is already in use by various platforms: Ethereum, Facebook's RocksDB
 
 This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
-the `/state_ids` endpoint.
+the `/state_ids` endpoint, plus an optional causal redaction overlay validator.
 
 The proposal is purely additive and does not break change PDU structure or
 authorization rules. Such changes are left to the discretion of future
@@ -69,10 +69,11 @@ proposals.
 Rather than attaching hashes to the `unsigned` event dict (often stripped or
 rewritten), this proposal places them in the transaction body or payload.
 
-When a homeserver sends or relays a federated transaction, it computes the
-accumulator of the room state exactly at the DAG tip of each referenced PDU. In
-State DAGs MSC4242, this is no longer relevant; digests need only be computed
-during state transitions, not against all resolved `prevs`.
+When a homeserver sends or relays a federated transaction containing a state
+event, or an effective redaction of a state event selected at that DAG point, it
+computes the accumulator of the room state exactly at the DAG tip of each
+referenced PDU. In State DAGs MSC4242, this is no longer relevant; digests need
+only be computed during state transitions, not against all resolved `prevs`.
 
 It then collapses each PDU's vectorial state into a standard 32-byte digest and
 includes them in the transaction payload as a dictionary.
@@ -127,6 +128,29 @@ Golang[^1.2.go].
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
 
+**Causal redaction overlay.** Redaction visibility is represented by a separate
+overlay accumulator, not by changing the primary element tuple. The overlay uses
+the same element encoding `(type, state_key, event_id)` and the same lattice
+parameters, but expands elements under the domain separation tag
+`msc4500_lthash16_redactions_v1\x00`. At a DAG point `E`, the overlay contains
+only those entries from the resolved state map at `E` whose selected event has
+an effective redaction in `past(E)`. Multiple accepted redactions of the same
+selected event still contribute one overlay element. Redactions of timeline
+events, and redactions of state events not selected in the resolved state at
+`E`, contribute nothing.
+
+This overlay answers a narrower question than history-wide reconciliation: do
+the peers agree about redactions that affect the presentation of the selected
+state at this DAG point? It intentionally does not accumulate every redaction in
+the room. Servers legitimately have different retained history horizons, so an
+unframed room-global redaction digest would not be comparable. History-wide
+redaction gaps belong to framed MSC0501 / MSC4521 reconciliation instead.
+
+Hash-failure redaction of a locally corrupt event is also excluded. It is a
+local, reversible repair condition, not consensus state. A server may use it for
+local telemetry or refetch decisions, but MUST NOT include it in federated
+overlay digests.
+
 **NOTE:** It is the caller's responsibility to ensure the input is really a set
 [^1.2.n2]. The digest allows deducting elements which were never added, and it
 allows adding the same element twice (producing different digests). Due to the
@@ -147,15 +171,18 @@ a set manager or delta-decoder.
 ### Transaction payload
 
 Servers implementing this MSC MUST embed a `state_hashes` object at the root of
-the `PUT /_matrix/federation/v1/send/{txnId}` request body. It has two fields: a
-scalar `algorithm` identifying the digest algorithm used for every entry (see
-below), and an `entries` dictionary mapping the IDs of the PDUs included in the
-transaction to their respective state assertions. Every PDU in the transaction,
-including every non-state PDU, MUST have an entry. Namespacing both fields under
-`state_hashes` keeps them from occupying generic names at the transaction root
-that other MSCs might want. The `state_hashes` values always represent the
-transaction sender's local resolved state, not necessarily the origin server's
-(meaning relays forward their own view).
+the `PUT /_matrix/federation/v1/send/{txnId}` request body when the transaction
+contains a state event or an effective redaction targeting a state event
+selected at that DAG point. Such a transaction MUST have an entry for every PDU
+in the transaction, including every non-state PDU. Other transactions MAY
+include `state_hashes`, but are not required to do so. The object has two
+fields: a scalar `algorithm` identifying the digest algorithm used for every
+entry (see below), and an `entries` dictionary mapping the IDs of the PDUs
+included in the transaction to their respective state assertions. Namespacing
+both fields under `state_hashes` keeps them from occupying generic names at the
+transaction root that other MSCs might want. The `state_hashes` values always
+represent the transaction sender's local resolved state, not necessarily the
+origin server's (meaning relays forward their own view).
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of the
 room version's state resolution algorithm applied across the states after each
@@ -169,10 +196,13 @@ across all of its forward extremities.
 
 If the PDU is a non-rejected state event, `after` is that DAG-position state
 with the PDU's `(type, state_key)` binding replaced by the PDU's event ID. For a
-non-state or rejected event, `after` equals `before`. This replacement is not a
-shortcut around state resolution: when this branch is later resolved with other
-branches, the room version's complete state resolution algorithm decides whether
-the PDU survives into the resulting state.
+non-state or rejected event, `after` equals `before`. If the PDU is an effective
+redaction whose target is selected in that DAG-position state,
+`redactions_after` adds the target's `(type, state_key, event_id)` overlay
+element even though `after` equals `before`. This replacement is not a shortcut
+around state resolution: when this branch is later resolved with other branches,
+the room version's complete state resolution algorithm decides whether the PDU
+survives into the resulting state.
 
 In particular, a PDU can name a sole, old predecessor from before a ban or join
 rule change and pass authorization at its own DAG position. A receiver that has
@@ -194,9 +224,10 @@ applying that stale branch's `after` delta to the receiver's current lattice.
   different XOF) without causing receivers on the old algorithm to raise false
   mismatch alarms against upgraded senders.
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
-  transaction. It MUST contain exactly one entry for every PDU in `pdus`. Each
-  value either asserts that PDU's `before` and `after` digests, or explicitly
-  marks the assertion as limited.
+  transaction. It MUST contain exactly one entry for every PDU in `pdus` when
+  `state_hashes` is present. Each value either asserts that PDU's primary and
+  overlay `before` and `after` digests, or explicitly marks the assertion as
+  limited.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -204,19 +235,25 @@ applying that stale branch's `after` delta to the receiver's current lattice.
   - `after`: The 32-byte digest of the room state after the current PDU is
     applied. For non-state events, this is identical to `before`. This field
     MUST be omitted when `limited` is `true`.
+  - `redactions_before`: The 32-byte causal redaction overlay digest evaluated
+    over the selected state at the same DAG point as `before`. This is JSON
+    `null` when `limited` is `true`.
+  - `redactions_after`: The 32-byte causal redaction overlay digest after the
+    current PDU is applied. This field MUST be omitted when `limited` is `true`.
   - `limited`: The boolean `true` when the sender cannot resolve the state at
     all of the PDU's `prev_events` and therefore makes no digest assertion. It
-    MUST be omitted or `false` when both digests are present.
+    MUST be omitted or `false` when all four digests are present.
 
 **Sender-side partial state.** A server MUST NOT emit a guessed or approximated
 digest. If a sending or relaying server cannot compute the resolved state at a
 given PDU's position — because it is itself operating under Partial State
 (MSC3706), is missing ancestry, or holds an unpersisted accumulator it declines
 to backfill on demand — its entry MUST contain `"limited": true` and
-`"before": null`, and MUST omit `after`. Receivers MUST treat such an entry as
-an explicit deferral, not as a mismatch. An implementation MUST NOT use an empty
-string in place of JSON `null`: retaining one representation keeps the wire
-format type-safe and canonical.
+`"before": null` and `"redactions_before": null`, and MUST omit `after` and
+`redactions_after`. Receivers MUST treat such an entry as an explicit deferral,
+not as a mismatch. An implementation MUST NOT use an empty string in place of
+JSON `null`: retaining one representation keeps the wire format type-safe and
+canonical.
 
 ```json
 {
@@ -237,7 +274,9 @@ format type-safe and canonical.
     "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
+        "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "redactions_before": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g"
       }
     }
   }
@@ -250,22 +289,23 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Only the two collapsed digests and their field names are added per resolvable
-PDU; the 2048-byte lattice is never duplicated on the wire.
+Only the collapsed primary and overlay digests and their field names are added
+per resolvable PDU; the 2048-byte lattices are never duplicated on the wire.
 
 ### Receiver contract
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
 When a server catches a `/send` transaction containing the `state_hashes`
-payload, it collapses its own local lattice at that exact DAG point using fast
-bitmap operations, hashing it down to a canonical 32-byte `BLAKE2b-256` digest.
-If the local digest matches the incoming one, all systems are nominal.
+payload, it collapses its own local primary and causal-redaction-overlay
+lattices at that exact DAG point using fast bitmap operations, hashing each down
+to a canonical 32-byte `BLAKE2b-256` digest. If the local digests match the
+incoming ones, all systems are nominal.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
-provide both digests; transaction and PDU processing continue under the standard
-federation rules.
+provide all four primary and overlay digests; transaction and PDU processing
+continue under the standard federation rules.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a rate-limited background
@@ -286,7 +326,9 @@ evaluated against.
       "state_hash_mismatch": {
         "algorithm": "lthash16-v1",
         "expected_after": "uF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
+        "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "expected_redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "received_redactions_after": "gQgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g"
       }
     }
   }
@@ -300,6 +342,16 @@ activity). Note that if a receiving server **rejects** an incoming state event
 due to auth/power-level rules, their `after` hash will instantly (and correctly)
 mismatch the sender's `after` hash. This mechanism instantly detects split-brain
 authorization failures.
+
+Primary and overlay mismatches SHOULD be reported separately. A primary mismatch
+means the servers disagree about the selected state event IDs. An overlay
+mismatch with a matching primary digest means the servers agree on selected
+state IDs but disagree about whether one of those selected events has been
+effectively redacted in the causal past; operationally, this most often points
+at missing redaction or target ancestry and is a fetch/reconciliation signal. If
+both digests mismatch, the primary state disagreement is the first condition to
+investigate, because redaction effectiveness itself depends on authorized state
+such as power levels.
 
 Homeservers operating under Partial State (MSC3706) MUST silently defer hash
 validation for that room. They cannot compare state to emit warnings (until the
@@ -325,17 +377,23 @@ implementation detail.
 
 ### Other affected endpoints
 
-The state digest also allows optimizing the client state endpoint.
-
 The introduction of a cryptographically verifiable state accumulator enables
 several zero-cost optimizations across the existing Matrix Client-Server and
 Server-Server APIs.
 
 - **`GET /_matrix/federation/v1/state/{roomId}`**,
   **`GET /_matrix/federation/v1/state_ids/{roomId}`**, and
-  **`/_matrix/client/v3/rooms/{roomId}/state`** Currently, homeservers must
+  **`/_matrix/client/v3/rooms/{roomId}/state`**. Currently, homeservers must
   fully materialize the room state to serve these endpoints, which is an
   expensive $O(S)$ operation for large rooms.
+
+The primary digest is an ID-set validator only. Endpoints that return full event
+objects, including the client `/state` endpoint, can be affected by redaction of
+selected state events even when the selected event IDs are unchanged. A
+client-facing validator for those representations would therefore need to bind
+both the primary digest and a redaction overlay digest in its own extension;
+this MSC only specifies the backwards-compatible federation `/state_ids`
+validator.
 
 #### Backwards-compatible `/state_ids` optimization
 
@@ -346,6 +404,15 @@ response, where `<digest>` is the unpadded base64url-encoded collapse digest of
 that resolved state. The algorithm identifier is part of the opaque entity-tag;
 validators from different accumulator versions MUST NOT compare equal.
 
+The same response SHOULD also include a causal redaction overlay validator of
+the form `X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
+`<digest>` is evaluated at the same requested `event_id`. This header is not a
+substitute for the entity-tag: the ETag validates the endpoint's ID-only JSON
+body, while the overlay header lets peers cheaply detect disagreement over
+effective redactions of the selected state at that DAG point. A redaction MUST
+NOT invalidate the primary `/state_ids` ETag unless it changes the selected
+state event IDs.
+
 A requester which has cached that response MAY send its entity-tag verbatim in
 `If-None-Match`. If the responder can reproduce the same validator for the same
 request target, it MAY return `304 Not Modified` with no response body. It MUST
@@ -354,15 +421,18 @@ remote or otherwise unverified accumulator: the validator MUST be derived from
 the responder's own resolved state at the requested DAG point. Unsupported,
 unknown, or malformed validators MUST be ignored, yielding the existing `200`
 response and JSON body. Thus this extension changes neither the endpoint's URL
-nor its JSON schema, and implementations unaware of it remain interoperable.
+nor its JSON schema, and implementations unaware of it remain interoperable. The
+overlay header is likewise advisory and backwards-compatible: unaware
+implementations ignore it, and aware implementations compare it only when they
+have independently resolved the same requested DAG point.
 
 ## Synergy with MSC0501 (event set reconciliation)
 
 This proposal and MSC0501 (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4500's accumulator covers the room's _current resolved state
-set_ at arbitrary DAG positions. MSC0501's algebraic digest and bounded
-extremity fallback cover the _known event set_ (accepted events and retained
-rejection tombstones across the frame).
+different sets. MSC4500's accumulator covers the room's _resolved state set_ at
+arbitrary DAG positions. MSC0501's algebraic digest and bounded extremity
+fallback cover the _known event set_ (accepted events and retained rejection
+tombstones across the frame).
 
 Because state divergence implies event-set divergence (with the converse _often_
 also holding true), the two proposals complement each other: MSC4500 provides
@@ -374,8 +444,10 @@ targets. Because MSC4500 gives active rooms free passive detection, MSC0501's
 polling interval can be lengthened (rate-limited to a longer period) for rooms
 with recent inbound transactions.
 
-MSC4500 cannot detect omissions in messages, redactions, or other
-non-state-altering events; for that capability it fully defers to MSC0501.
+MSC4500 does not detect omissions in ordinary messages or history-wide
+redactions. Its causal overlay detects only redactions that affect state events
+selected at the asserted DAG point. Broader timeline reconciliation remains the
+domain of MSC0501.
 
 ## Synergy with MSC4521 (state-set sketch reconciliation)
 
@@ -396,12 +468,29 @@ primitive.
 The following is advisory storage and indexing guidance for implementers, not
 part of the wire contract.
 
-The natural storage model is one 2048-byte lattice per state group, with an
-option to also persist the 256-bit digest. Care and creativity may need to be
+The natural storage model is one 2048-byte primary lattice per state group, with
+an option to also persist the 256-bit digest. Care and creativity may need to be
 applied to the redesign of Synapse's `event_to_state_groups`, for example by
 handling total rewrites with a single pointer flip or by computing the set
 partitions (for partial or heterogeneous rewrites) in SIMD and L1 cache before
 issuing any database commands.
+
+The causal redaction overlay SHOULD be represented as a pointer-shared lattice
+value, not as a mandatory 2048-byte copy on every state group. Most rooms have
+no currently selected redacted state events, so the all-zero overlay lattice is
+a global sentinel. Even in rooms with such redactions, the overlay changes only
+when an effective redaction targets a state event selected at that DAG point, or
+when state resolution selects a different redacted/non-redacted state event for
+a binding. Implementations can therefore store many state groups pointing at the
+same overlay value.
+
+At multi-predecessor events, neither the primary nor the overlay lattice can be
+computed by directly combining parent lattices; both follow from the room
+version's state resolution result. The overlay's marginal work is checking
+redaction status for selected state events already enumerated to construct the
+primary lattice. Implementations SHOULD colocate that status with the selected
+state row, short event ID, or equivalent state-map metadata. Storing it in a
+separate table can turn merge construction into an avoidable extra scan.
 
 Creating a new state group ID (digest) from a singular delta is one subtraction
 plus one addition. A bundle of 100 deltas is 100 additions and 100 subtractions.
