@@ -9,24 +9,27 @@ without loss of injectivity or meaning, e.g.,
 `(state_key, event_type, event_id)`.
 
 Current implementations load the state map into memory, authenticate incoming
-PDUs against their `prevs` (or the room's extremities), and finally persist the
-new state as a series of diffs, periodically compacting them into full
-checkpoints. Storing diffs and only persisting a new state group checkpoint
-every 100 hops bounds the runtime complexity by a constant factor (1/100), but
-it does not bound it asymptotically. The write-time complexity is still `O(S)`
-per step and `O(S^2)` cumulatively.
+PDUs against their `prevs` (or the room's extremities and possibly
+`prev_state_events` in a future room version[^0.a]), and finally persist the new
+state as a series of diffs, periodically compacting them into full checkpoints.
+Storing diffs and only persisting a new state group checkpoint every 100 hops
+bounds the runtime complexity by a constant factor ($1/100$), but it does not
+bound it asymptotically. The write-time complexity is still $O(S)$ per step and
+$O(S^2)$ cumulatively over the room history or state DAG.
 
 Additionally, these local implementation methods have no way of communicating
 state equality over federation—Synapse's `state_groups` and the Conduit-based
-`shortstatehash` are both implementation details, not spec unified or agreed.
-Going forward, this will be useful to diagnose divergence early, during the
-nominal `/send` transaction endpoint and preludes passive mesh or peer ranking.
+`shortstatehash` are both implementation-based, not universal specifications.
+Going forward, this will be useful to diagnose divergence early, during `/send`
+transactions or `/state_ids` requests.
 
-This MSC does not, on its own, reduce the state resolution algorithm to
-`O(log S)` writes per step. Combined with a HAMT that carries the delta itself,
-the cryptographic accumulator specified here is one ingredient of that scheme —
-the piece that collapses a state into a fixed-size homomorphic commitment,
-mapping state sets (with 128-bit security) into a globally unique 256-bit space.
+This MSC does not, on its own, profoundly reduce the state resolution algorithm
+runtime. Combined with a HAMT[^0.b] that carries the delta itself, the `LtHash`
+accumulator specified here is one ingredient of the future speedup — the piece
+that collapses state into a fixed-size commitment[^0.c], mapping state groups
+(with 128-bit security) into the globally unique 256-bit space, and allowing
+near instant state group de-duplication, equivocation, or identifier generation,
+regardless of the magnitude of the input stream.
 
 Furthermore, this MSC, by placing a backwards compatible (safely ignored)
 `state_hashes` key alongside `txn` request bodies, allows for instant, passive
@@ -44,28 +47,27 @@ events differ) may possibly be addressed by bloom filters and IBLTs (Kegan's
 idea), or, like large divergences, they may remain an open problem.
 
 The current `LtHash16` implementation, byte-for-byte compatible with Facebook
-researcher's specification[^6], is available, together with test vectors, as a
-near production-ready Rust library. It implements this draft's current domain
-separation tag (DST) and tuple encoding, which remain provisional as of
-2026-08-22. A complementary Golang implementation is also supplied, with equally
-stable core functionality but lacking some performance optimizations and newer
-unit tests.
+researcher's specification[^0.d], is available, together with test vectors, as a
+Rust library (suitable for testing but pending final wire format adoption). A
+complementary Golang implementation is also supplied, whose production-readiness
+is also contingent upon wire format (algorithm) finalization. The underlying
+idea is already in use by various platforms: Ethereum, Facebook's RocksDB
+`folly`, and others[^0.e].
 
 ## Proposal
 
 ### Relationship to existing specification
 
-This MSC introduces a transaction-level state hash to the Matrix federation
-protocol: a new `state_hashes` object in the
-`PUT /_matrix/federation/v1/send/{txnId}` payload, allowing servers to embed
-their local, resolved state view alongside the events they are transmitting.
+This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
+`PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
+the `/state_ids` endpoint.
 
-This mechanism is additive and does not alter existing room version consensus
-rules, nor does it modify PDU structure or break legacy transaction parsers.
+The proposal is purely additive and does not break change PDU structure or
+authorization rules. Such changes are left to the discretion of future
+proposals.
 
-Rather than attaching hashes to the `unsigned` event dict (routinely stripped or
-rewritten during relays by intermediate servers), this proposal places them in
-the transaction body or payload.
+Rather than attaching hashes to the `unsigned` event dict (often stripped or
+rewritten), this proposal places them in the transaction body or payload.
 
 When a homeserver sends or relays a federated transaction, it computes the
 accumulator of the room state exactly at the DAG tip of each referenced PDU. In
@@ -119,25 +121,26 @@ implemented as follows:
    `base64url` string (43 characters), matching Matrix's event-ID convention:
    $$D = \text{base64url}(\text{BLAKE2b-256}(S))$$
 
-**Reference implementations** are available in Rust[^2r] and Golang[^2g].
+**Reference implementations** are available in Rust[^1.2.rust] and
+Golang[^1.2.go].
 
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
 
 **NOTE:** It is the caller's responsibility to ensure the input is really a set
-[^3]. The digest allows deducting elements which were never added, and it allows
-adding the same element twice (producing different digests). Due to the wrapping
-math of the 16-bit lanes, adding the exact same element $2^{16}$ ($65,536$)
-times will roll the accumulator's lanes back to zero, returning to the starting
-digest. This degenerate state is materially unattainable when the input domain
-is a resolved state map (a set whose elements all have a multiplicity of 1). The
-inbound accumulator is strictly a one-way _comparative_ tool; homeserver
-databases MUST remain responsible for _managing_ actual set element membership.
-Homeservers MUST therefore treat their local resolved state map — keyed by
-`(type, state_key)` — as the authoritative source of state membership,
-replacement, and deduplication. The accumulator is a non-invertible commitment
-of that map's current `(type, state_key, event_id)` assignments, not a set
-manager or delta-decoder.
+[^1.2.n2]. The digest allows deducting elements which were never added, and it
+allows adding the same element twice (producing different digests). Due to the
+wrapping math of the 16-bit lanes, adding the exact same element $2^{16}$
+($65,536$) times will roll the accumulator's lanes back to zero, returning to
+the starting digest. This degenerate state is materially unattainable when the
+input domain is a resolved state map (a set whose elements all have a
+multiplicity of 1). The inbound accumulator is strictly a one-way _comparative_
+tool; homeserver databases MUST remain responsible for _managing_ actual set
+element membership. Homeservers MUST therefore treat their local resolved state
+map — keyed by `(type, state_key)` — as the authoritative source of state
+membership, replacement, and deduplication. The accumulator is a non-invertible
+commitment of that map's current `(type, state_key, event_id)` assignments, not
+a set manager or delta-decoder.
 
 <!-- Edit marker. -->
 
@@ -322,6 +325,8 @@ implementation detail.
 
 ### Other affected endpoints
 
+The state digest also allows optimizing the client state endpoint.
+
 The introduction of a cryptographically verifiable state accumulator enables
 several zero-cost optimizations across the existing Matrix Client-Server and
 Server-Server APIs.
@@ -332,7 +337,7 @@ Server-Server APIs.
   fully materialize the room state to serve these endpoints, which is an
   expensive $O(S)$ operation for large rooms.
 
-#### Backwards-compatible `/state_ids` validation
+#### Backwards-compatible `/state_ids` optimization
 
 A server which has completely resolved the state and auth chain for the exact
 `event_id` requested by `GET /_matrix/federation/v1/state_ids/{roomId}` SHOULD
@@ -389,18 +394,24 @@ primitive.
 ## Implementation notes (non-normative)
 
 The following is advisory storage and indexing guidance for implementers, not
-part of the wire contract. None of it is required to interoperate with this MSC;
-servers MAY choose any storage layout that yields the same wire-visible digests.
+part of the wire contract.
 
-The natural storage model is one 2048-byte lattice per state group. Creating a
-new state group from a delta is one subtraction plus one addition against the
-parent's lattice — `O(1)`, no chain walk and no full state materialization.
+The natural storage model is one 2048-byte lattice per state group, with an
+option to also persist the 256-bit digest. Care and creativity may need to be
+applied to the redesign of Synapse's `event_to_state_groups`, for example by
+handling total rewrites with a single pointer flip or by computing the set
+partitions (for partial or heterogeneous rewrites) in SIMD and L1 cache before
+issuing any database commands.
+
+Creating a new state group ID (digest) from a singular delta is one subtraction
+plus one addition. A bundle of 100 deltas is 100 additions and 100 subtractions.
 
 Servers without persisted lattices can compute them on demand per-event during
-naive delta chain traversals or iterative BFS sweeps (accumulating the already
-materialized state in CPU cache and persisting the accumulator, thereby
-obviating any need for traversals of that delta chain during future point
-lookups or state group transitions).
+delta chain traversals or state resolution.
+
+Homeservers who do not yet support large customers (millions of rooms or users)
+may elect for a monolithic database migration once the wire format is
+stabilized.
 
 ### State identifiers and local storage optimizations
 
@@ -408,7 +419,7 @@ The following are local-only indexing optimizations with no wire-visible effect.
 They are advisory; a server MAY implement none, some, or all of them.
 
 Locally, an accumulator makes state identity path-independent instead of
-path-dependent (cf. Solana's "Accounts Lattice Hash" [^5], which computes
+path-dependent (cf. Solana's "Accounts Lattice Hash" [^3.1.a], which computes
 rolling `O(1)` state-root identities the same way). Today's homeservers trade
 read-time CPU against write-time I/O: Synapse's incrementing "state group" IDs
 need cache-heavy comparisons or graph traversal to tell two groups apart, and
@@ -709,30 +720,56 @@ not required to implement this proposal.
     Propagation with Homomorphic Hashing._ IACR Cryptology ePrint Archive,
     2019/227. Available at: <https://eprint.iacr.org/2019/227>
 
-[^2r]:
+[^0.a]: See MSC4242 (State DAGs).
+
+[^0.b]:
+    Hash array mapped trie: a persistent data structure with properties of an
+    in-memory set or dictionary, achieving efficient read/write requirements via
+    "structural sharing."
+
+[^0.c]:
+    In cryptography, a _commitment_ is an opaque value (typically encrypted or
+    hashed, and unalterable) which one party generates, shares, or signs
+    (without fully revealing) that another party can later verify or
+    independently reconstruct.
+
+[^0.d]:
+    **Meta Platforms, Inc.** _folly::crypto::LtHash — Homomorphic hash using
+    lattice-based cryptography._ Facebook Folly Library. Available at:
+    <https://github.com/facebook/folly/blob/main/folly/crypto/LtHash.h>
+
+[^0.e]:
+    Forum discussion and example commercial use case for an `LtHash16` function.
+
+    _What shared state do ACS commitments cover? - App Development - Canton
+    Network Forum_
+    <https://forum.canton.network/t/what-shared-state-do-acs-commitments-cover/5012>
+
+[^1.1.a]:
+    _Cryptographic_ here means "secure" (collision resistant and/or
+    non-invertible). SHA, BLAKE; AES — these are cryptographic hashes (AES is an
+    encryption scheme, not a hash). MD5; XXH3; Poseidon; Zobrist — these are
+    **non-**cryptographic hashes.
+
+[^1.2.rust]:
     `rezzy/src/state/lthash.rs` at master · gamesguru/rezzy
     <https://github.com/gamesguru/rezzy/blob/e74a5e8302192d922cd9535b69596a1f219fdfa9/src/state/lthash.rs#L146>
 
-[^2g]:
+[^1.2.go]:
     `lthash/lthash.go` · main · Wombat-Foundation / gomatrixcrypto · GitLab
     <https://gitlab.com/wombat-foundation/gomatrixcrypto/-/blob/e64f500dd026ffbdd12e1f004093a54c26a4b8dd/lthash/lthash.go#L80>
 
-[^3]:
+[^1.2.n2]:
     **Digital Asset (Canton).** _LtHash16 Scala Documentation._ Available at:
     <https://docs.digitalasset.com/operate/3.5/scaladoc/com/digitalasset/canton/crypto/LtHash16.html>
+
+[^3.1.a]:
+    **Solana Labs (2025).** _SIMD-0215: Accounts Lattice Hash._ Solana
+    Improvement Documents. Available at:
+    <https://github.com/solana-foundation/solana-improvement-documents/pull/215>
 
 [^4]:
     **Micciancio, D. (2002).** _Generalized Compact Knapsacks, Cyclic Lattices,
     and Efficient One-Way Functions._ Proceedings of the 43rd Annual IEEE
     Symposium on Foundations of Computer Science (FOCS '02). Available at:
     <https://cseweb.ucsd.edu/~daniele/papers/Cyclic.pdf>
-
-[^5]:
-    **Solana Labs (2025).** _SIMD-0215: Accounts Lattice Hash._ Solana
-    Improvement Documents. Available at:
-    <https://github.com/solana-foundation/solana-improvement-documents/pull/215>
-
-[^6]:
-    **Meta Platforms, Inc.** _folly::crypto::LtHash — Homomorphic hash using
-    lattice-based cryptography._ Facebook Folly Library. Available at:
-    <https://github.com/facebook/folly/blob/main/folly/crypto/LtHash.h>

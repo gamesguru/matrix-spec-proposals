@@ -43,6 +43,9 @@ pdf:
 	SOURCE_DATE_EPOCH="$(SOURCE_DATE_EPOCH)" FORCE_SOURCE_DATE=1 \
 	pandoc "$(f)" -o "$$raw_pdf" \
 	  --pdf-engine=xelatex \
+	  --lua-filter=pdf-headings.lua \
+	  --include-in-header=pdf-header.tex \
+	  --number-sections \
 	  -V geometry:margin=0.65in \
 	  -V colorlinks=true \
 	  -V urlcolor=blue \
