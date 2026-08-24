@@ -474,11 +474,11 @@ the responder's own resolved state at the requested DAG point. Unsupported,
 unknown, or malformed validators MUST be ignored, yielding the existing `200`
 response and JSON body. Thus this extension changes neither the endpoint's URL
 nor its JSON schema, and implementations unaware of it remain interoperable. The
-The overlay header remains backwards-compatible: unaware implementations ignore
-it. Aware implementations compare it only when they have independently resolved
-the same requested DAG point. If an advertising responder omits it, the
-requester MUST treat the overlay check as unavailable, not successful, and
-SHOULD report the protocol violation.
+overlay header remains backwards-compatible: unaware implementations ignore it.
+Aware implementations compare it only when they have independently resolved the
+same requested DAG point. If an advertising responder omits it, the requester
+MUST treat the overlay check as unavailable, not successful, and SHOULD report
+the protocol violation.
 
 Conditional requests are a steady-state polling optimization only. Once state
 divergence is known or suspected, a requester MUST issue `/state_ids`
