@@ -60,7 +60,7 @@ idea is already in use by various platforms: Ethereum, Facebook's RocksDB
 
 This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
-the `/state_ids` endpoint, plus an optional causal redaction overlay validator.
+the `/state_ids` endpoint, plus a causal redaction overlay validator.
 
 The proposal is purely additive and does not break change PDU structure or
 authorization rules. Such changes are left to the discretion of future
@@ -175,6 +175,26 @@ a set manager or delta-decoder.
 
 <!-- Edit marker. -->
 
+### Capability discovery
+
+Servers advertise causal redaction overlay support through
+`GET /_matrix/federation/v1/version`:
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc4500.redaction_overlay": true
+  }
+}
+```
+
+Once a server advertises this flag, it MUST emit the complete overlay wherever
+this MSC requires `state_hashes`, and MUST emit the overlay validator on a
+resolvable `/state_ids` response. Absence from an advertising server means no
+assertion was made; it MUST NOT be interpreted as the empty-overlay sentinel or
+as agreement. Servers that do not advertise the flag remain compatible with
+legacy federation behavior.
+
 ### Transaction payload
 
 Servers implementing this MSC MUST embed a `state_hashes` object at the root of
@@ -238,7 +258,9 @@ applying that stale branch's `after` delta to the receiver's current lattice.
   explicitly marks the assertion as limited. A supporting sender MUST emit all
   four digest fields for a non-limited entry; omission is malformed, not an
   assertion that the overlay is empty. The empty overlay is represented by its
-  defined sentinel digest.
+  defined sentinel digest. A receiver that observed the sender advertise
+  `tk.nutra.msc4500.redaction_overlay` SHOULD report an omitted overlay as a
+  protocol violation, while continuing ordinary PDU processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -433,8 +455,9 @@ therefore equal selected state event IDs also imply equal auth-chain IDs. A
 future room version or endpoint semantics that break this derivation MUST use a
 validator that commits to both response sets instead.
 
-The same response SHOULD also include a causal redaction overlay validator of
-the form `X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
+A responder advertising `tk.nutra.msc4500.redaction_overlay` MUST also include a
+causal redaction overlay validator of the form
+`X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
 `<digest>` is evaluated at the same requested `event_id`. This header is not a
 substitute for the entity-tag: the ETag validates the endpoint's ID-only JSON
 body, while the overlay header lets peers cheaply detect disagreement over
@@ -451,9 +474,11 @@ the responder's own resolved state at the requested DAG point. Unsupported,
 unknown, or malformed validators MUST be ignored, yielding the existing `200`
 response and JSON body. Thus this extension changes neither the endpoint's URL
 nor its JSON schema, and implementations unaware of it remain interoperable. The
-overlay header is likewise advisory and backwards-compatible: unaware
-implementations ignore it, and aware implementations compare it only when they
-have independently resolved the same requested DAG point.
+The overlay header remains backwards-compatible: unaware implementations ignore
+it. Aware implementations compare it only when they have independently resolved
+the same requested DAG point. If an advertising responder omits it, the
+requester MUST treat the overlay check as unavailable, not successful, and
+SHOULD report the protocol violation.
 
 Conditional requests are a steady-state polling optimization only. Once state
 divergence is known or suspected, a requester MUST issue `/state_ids`
