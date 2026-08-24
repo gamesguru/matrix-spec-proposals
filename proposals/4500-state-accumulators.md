@@ -17,11 +17,12 @@ bounds the runtime complexity by a constant factor ($1/100$), but it does not
 bound it asymptotically. The write-time complexity is still $O(S)$ per step and
 $O(S^2)$ cumulatively over the room history or state DAG.
 
-Additionally, these local implementation methods have no way of communicating
-state equality over federation—Synapse's `state_groups` and the Conduit-based
-`shortstatehash` are both implementation-based, not universal specifications.
-Going forward, this will be useful to diagnose divergence early, during `/send`
-transactions or `/state_ids` requests.
+Additionally, these local implementations have no way of sharing state group IDs
+over federation; they effectively speak different languages—neither Synapse's
+`state_groups` nor Conduit's `shortstatehash` are universally specified—they are
+implementation-specific. Going forward, the ability to speak the same language
+and verify set equality may allow diagnosing divergence early, during `/send`
+transactions or fast-pathing nominal (equal) `/state_ids` requests.
 
 This MSC does not, on its own, profoundly reduce the state resolution algorithm
 runtime. Combined with a HAMT[^0.b] that carries the delta itself, the `LtHash`
@@ -50,9 +51,10 @@ The current `LtHash16` implementation, byte-for-byte compatible with Facebook
 researcher's specification[^0.d], is available, together with test vectors, as a
 Rust library (suitable for testing but pending final wire format adoption). A
 complementary Golang implementation is also supplied, whose production-readiness
-is also contingent upon wire format (algorithm) finalization. The underlying
-idea is already in use by various platforms: Ethereum, Facebook's RocksDB
-`folly`, and others[^0.e].
+is also contingent upon wire format (algorithm) finalization.
+
+The underlying techniques are already used by multiple large enterprises with
+larger economic stakes: Ethereum, Facebook's RocksDB `folly`, and others[^0.e].
 
 ## Proposal
 
@@ -60,7 +62,7 @@ idea is already in use by various platforms: Ethereum, Facebook's RocksDB
 
 This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
-the `/state_ids` endpoint, plus a causal redaction overlay validator.
+the `/state_ids` endpoint, and a secondary redaction accumulator.
 
 The proposal is purely additive and does not break change PDU structure or
 authorization rules. Such changes are left to the discretion of future
