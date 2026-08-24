@@ -109,9 +109,9 @@ implemented as follows:
    lane-wise wrapping addition.
 4. **Removal and replacement.** Removing an element is lane-wise wrapping
    subtraction of its expansion. Replacing the event for a `(type, state_key)`
-   pair is one subtraction (old element) followed by one addition (new element)
-   — the `O(1)` update at the heart of this proposal. A replace operation MUST
-   only be accepted when the removed and added entries refer to the same
+   pair is one subtraction (old element) and one addition (new element) — the
+   `O(1)` update at the heart of this proposal. A replace operation MUST only be
+   accepted when the removed and added entries refer to the same
    `(type, state_key)` tuple. If the tuples differ, implementations MUST fail
    closed with a panic, exception, or equivalent hard error, and MUST NOT
    reinterpret the call as a replace, add, or remove.
@@ -837,8 +837,8 @@ not required to implement this proposal.
 [^1.1.a]:
     _Cryptographic_ here means "secure" (collision resistant and/or
     non-invertible). SHA, BLAKE; AES — these are cryptographic hashes (AES is an
-    encryption scheme, not a hash). MD5; XXH3; Poseidon; Zobrist — these are
-    **non-**cryptographic hashes.
+    encryption scheme, not hash). MD5; XXH3; Poseidon; Zobrist —
+    **non-**cryptographic hashes (Poseidon is _pseudo_-cryptographic).
 
 [^1.2.rust]:
     `rezzy/src/state/lthash.rs` at master · gamesguru/rezzy
@@ -860,5 +860,5 @@ not required to implement this proposal.
 [^4]:
     **Micciancio, D. (2002).** _Generalized Compact Knapsacks, Cyclic Lattices,
     and Efficient One-Way Functions._ Proceedings of the 43rd Annual IEEE
-    Symposium on Foundations of Computer Science (FOCS '02). Available at:
+    Symposium on Foundations of Computer Science (FOCS '02).
     <https://cseweb.ucsd.edu/~daniele/papers/Cyclic.pdf>
