@@ -276,9 +276,20 @@ Replacing legacy delta chains with a persistent HAMT introduces specific costs:
   notice first, independent of read/write latency — treat the two digest
   variants (see Security considerations) as distinct memory budgets, not one
   number.
-- **Garbage collection:** Because nodes are structurally shared across multiple
-  state groups, pruning old history requires implementing reference counting or
-  mark-and-sweep garbage collection over the trie nodes.
+- **Garbage collection:** Because nodes are structurally shared across arbitrary
+  live state-group roots, a node MUST NOT be deleted until it is unreachable
+  from every retained root. A pairwise old-root/new-root delta is sufficient to
+  reclaim nodes only on a strict linear chain where the old root has no other
+  live descendants; Matrix forks and unconverged forward extremities violate
+  that assumption. Implementations therefore need either multi-root
+  mark-and-sweep, or branch-safe reference counting based on live-root pins and
+  persisted parent-to-child edges. In the latter model, publishing or retiring a
+  root changes its root pin, while deleting a zero-reference node recursively
+  releases its child edges. An occasional multi-root reachability audit remains
+  useful for detecting bookkeeping or crash-recovery errors, but need not be the
+  normal reclamation path. This is logical reclamation only: compacting sparse
+  pages, tombstones, append-only segments, or LSM levels is a separate backing-
+  store responsibility.
 - **Auth-chain sorting:** While this structure optimizes state resolution delta
   extraction, implementations must still fetch the auth-chain to topologically
   sort the isolated $\Delta$; the auth-chain difference is a DAG problem, not a
