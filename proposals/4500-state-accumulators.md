@@ -132,12 +132,19 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 overlay accumulator, not by changing the primary element tuple. The overlay uses
 the same element encoding `(type, state_key, event_id)` and the same lattice
 parameters, but expands elements under the domain separation tag
-`msc4500_lthash16_redactions_v1\x00`. At a DAG point `E`, the overlay contains
-only those entries from the resolved state map at `E` whose selected event has
-an effective redaction in `past(E)`. Multiple accepted redactions of the same
-selected event still contribute one overlay element. Redactions of timeline
-events, and redactions of state events not selected in the resolved state at
-`E`, contribute nothing.
+`msc4500_lthash16_redactions_v1\x00`. Its normative input at a DAG point `E` is
+the following derived set:
+
+$$
+R(E) = \{\operatorname{tuple}(s) \mid s \in \operatorname{resolved\_state}(E)
+\land \operatorname{effectively\_redacted\_in\_past}(E, s)\}.
+$$
+
+An incrementally maintained overlay lattice is only a cache of this function; it
+MUST NOT be treated as an independent source of redaction or state membership.
+Multiple accepted redactions of the same selected event still contribute one
+overlay element. Redactions of timeline events, and redactions of state events
+not selected in the resolved state at `E`, contribute nothing.
 
 This overlay answers a narrower question than history-wide reconciliation: do
 the peers agree about redactions that affect the presentation of the selected
@@ -212,22 +219,26 @@ resolution if later events reference them, so the resulting current-state
 accumulator MUST be computed from the resolution result, not by unconditionally
 applying that stale branch's `after` delta to the receiver's current lattice.
 
-- `algorithm`: A single string identifying the digest algorithm used for every
-  entry in this transaction's `state_hashes.entries` dictionary (e.g.
-  `lthash16-v1`, see [Algorithm specification](#algorithm-specification)). One
-  value governs the whole transaction; mixing algorithms within a single
-  transaction serves no purpose and is not supported. A receiver that does not
-  recognize the algorithm MUST silently skip hash validation for the entire
-  transaction, the same as any other deferral case in the
-  [Receiver contract](#receiver-contract) — this preserves forward compatibility
-  if a future revision introduces a new digest family (e.g. a wider lattice or a
-  different XOF) without causing receivers on the old algorithm to raise false
-  mismatch alarms against upgraded senders.
+- `algorithm`: A single string identifying the complete digest profile used for
+  every entry in this transaction's `state_hashes.entries` dictionary. This MSC
+  defines `lthash16-v1+redactions-v1`, comprising the primary `lthash16-v1`
+  accumulator and the causal redaction overlay with its separate DST (see
+  [Algorithm specification](#algorithm-specification)). One value governs the
+  whole transaction; mixing algorithms within a single transaction serves no
+  purpose and is not supported. A receiver that does not recognize the algorithm
+  MUST silently skip hash validation for the entire transaction, the same as any
+  other deferral case in the [Receiver contract](#receiver-contract) — this
+  preserves forward compatibility if a future revision introduces a new digest
+  family (e.g. a wider lattice or a different XOF) without causing receivers on
+  the old algorithm to raise false mismatch alarms against upgraded senders.
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. It MUST contain exactly one entry for every PDU in `pdus` when
-  `state_hashes` is present. Each value either asserts that PDU's primary and
-  overlay `before` and `after` digests, or explicitly marks the assertion as
-  limited.
+  `state_hashes` is present. Under `lthash16-v1+redactions-v1`, each value
+  either asserts that PDU's primary and overlay `before` and `after` digests, or
+  explicitly marks the assertion as limited. A supporting sender MUST emit all
+  four digest fields for a non-limited entry; omission is malformed, not an
+  assertion that the overlay is empty. The empty overlay is represented by its
+  defined sentinel digest.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -255,6 +266,13 @@ not as a mismatch. An implementation MUST NOT use an empty string in place of
 JSON `null`: retaining one representation keeps the wire format type-safe and
 canonical.
 
+This payload deliberately carries no state-cardinality fields. A count cannot
+establish set equality or reliably estimate symmetric-difference magnitude, and
+no recovery choice in this MSC consumes such an estimate. This differs from
+MSC4521, whose counts and strata estimates provision and verify a bounded decode
+operation; those values have a specified consumer and are not substitutes for
+MSC4500's equality commitment.
+
 ```json
 {
   "origin": "example.com",
@@ -270,7 +288,7 @@ canonical.
     }
   ],
   "state_hashes": {
-    "algorithm": "lthash16-v1",
+    "algorithm": "lthash16-v1+redactions-v1",
     "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
@@ -324,7 +342,7 @@ evaluated against.
   "pdus": {
     "$sample_pduid_abc123def456": {
       "state_hash_mismatch": {
-        "algorithm": "lthash16-v1",
+        "algorithm": "lthash16-v1+redactions-v1",
         "expected_after": "uF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "expected_redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
@@ -404,6 +422,17 @@ response, where `<digest>` is the unpadded base64url-encoded collapse digest of
 that resolved state. The algorithm identifier is part of the opaque entity-tag;
 validators from different accumulator versions MUST NOT compare equal.
 
+Unlike an ordinary server-issued opaque ETag, this validator is globally
+derived: a requester MAY compute and send it without having received it from
+that responder, and honest servers derive identical values for identical
+resolved state at the same request target. Responses carrying it SHOULD include
+`Cache-Control: private` so a shared HTTP cache does not reuse one federation
+peer's authenticated response for another peer. The response body's
+`auth_chain_ids` are the transitive authorization closure of its `pdu_ids`;
+therefore equal selected state event IDs also imply equal auth-chain IDs. A
+future room version or endpoint semantics that break this derivation MUST use a
+validator that commits to both response sets instead.
+
 The same response SHOULD also include a causal redaction overlay validator of
 the form `X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
 `<digest>` is evaluated at the same requested `event_id`. This header is not a
@@ -425,6 +454,11 @@ nor its JSON schema, and implementations unaware of it remain interoperable. The
 overlay header is likewise advisory and backwards-compatible: unaware
 implementations ignore it, and aware implementations compare it only when they
 have independently resolved the same requested DAG point.
+
+Conditional requests are a steady-state polling optimization only. Once state
+divergence is known or suspected, a requester MUST issue `/state_ids`
+unconditionally and MUST NOT allow a peer-supplied `304` response to suppress a
+state transfer on the recovery path.
 
 ## Synergy with MSC0501 (event set reconciliation)
 
@@ -475,14 +509,24 @@ handling total rewrites with a single pointer flip or by computing the set
 partitions (for partial or heterogeneous rewrites) in SIMD and L1 cache before
 issuing any database commands.
 
-The causal redaction overlay SHOULD be represented as a pointer-shared lattice
-value, not as a mandatory 2048-byte copy on every state group. Most rooms have
-no currently selected redacted state events, so the all-zero overlay lattice is
-a global sentinel. Even in rooms with such redactions, the overlay changes only
+The causal redaction overlay is normatively the function $R(E)$ defined above,
+not independently maintained state. Implementations MAY cache its lattice
+incrementally and SHOULD represent cached values as pointer-shared immutable
+roots, not mandatory 2048-byte copies on every state group. Most rooms have no
+currently selected redacted state events, so the all-zero overlay lattice is a
+global sentinel. Even in rooms with such redactions, the overlay changes only
 when an effective redaction targets a state event selected at that DAG point, or
 when state resolution selects a different redacted/non-redacted state event for
 a binding. Implementations can therefore store many state groups pointing at the
 same overlay value.
+
+An implementation that caches the overlay MUST retain a path to recompute it
+from authoritative resolved-state membership and causal redaction data. Before
+classifying an overlay mismatch as peer divergence, it MUST verify or recompute
+the local derived value. A full recomputation is $O(S)$ in selected-state size;
+colocated redaction status, a compact status bitmap, or an index of selected
+redacted events can reduce its practical cost without changing the normative
+set.
 
 At multi-predecessor events, neither the primary nor the overlay lattice can be
 computed by directly combining parent lattices; both follow from the room
@@ -665,10 +709,12 @@ mismatch is an implementation's own discretion.
 
 **State-isolation assurance:** Even a successful collision attack cannot corrupt
 room state. Because remote digests are never used to construct, modify, or
-authorize local state maps, the worst outcome of a forged digest is a missed
-mismatch alarm — the adversary fools the receiver into believing sync is nominal
-when it is not. No state is injected, no auth decisions are affected, and the
-receiver's local database remains unaffected.
+authorize local state maps, a forged transaction digest can at worst suppress a
+mismatch alarm. A dishonest `/state_ids` responder can additionally return a
+false `304` and delay refresh of a requester's steady-state cache; this is why
+conditional requests are forbidden once divergence is known or suspected. No
+state is injected, no auth decisions are affected, and an unconditional recovery
+request still returns the ordinary authenticated response body.
 
 **"Honest hash" bypass:** It is important to contextualize the threat model. If
 a malicious server wishes to hide a split-brain partition, it does not need to
