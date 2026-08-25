@@ -1,10 +1,10 @@
-# MSC4511 Part C: Merkleized Metadata Room-Version Sketch
+# MSC4511 Part C: Merkleized Metadata and Causal Search Tree
 
-This companion to [Part A](4511-part-a-topological-metadata-query-api.md)
-sketches how a future room version could make selected topology metadata
-independently provable by committing it into event identity. Current room
-versions should use Part A as hint-only; Part B provides responder-scoped
-attestations without a room-version change.
+This companion to [Part A](4511-topological-metadata-query-api.md) sketches how
+a future room version could make selected topology metadata independently
+provable by committing it into event identity. Current room versions should use
+Part A as hint-only; archived Part B provides responder-scoped attestations
+without a room-version change.
 
 ## Unstable prefix
 
@@ -26,6 +26,9 @@ A compatible future room version modifies event hashing to generate an
 
 - `prev_events_hash`: canonical hash of the event's `prev_events`;
 - `auth_events_hash`: canonical hash of the event's `auth_events`;
+- `prev_state_events_hash`: canonical hash of the event's `prev_state_events`,
+  when the room version defines State DAGs; otherwise this component is the
+  canonical hash of `null`;
 - `event_header_root`: Merkle root over routing and authorship fields:
   `room_id`, `sender_localpart`, `sender_domain`, `type`, `state_key`,
   `redacts`, `depth`, and `origin_server_ts`;
@@ -39,6 +42,10 @@ A compatible future room version modifies event hashing to generate an
   and `unsigned` dictionaries;
 - `event_root`: the root hash committing to the above components.
 
+The event also contains a required signed `causal_set` field, described below.
+It is included in `other_signed_fields_hash`, and is therefore committed by
+`event_root` and the event ID without changing the partition above.
+
 The future room version MUST define this partition so every signed,
 identity-relevant event field is committed to exactly once. Two events which
 differ in any signed field that contributes to event identity, including
@@ -47,7 +54,7 @@ differ in any signed field that contributes to event identity, including
 `sender_localpart` and `sender_domain` MUST be committed as two independent
 header leaves rather than one combined `sender` leaf, using the same
 first-`:`-boundary split defined in
-[Part A](4511-part-a-topological-metadata-query-api.md) for the hint-mode
+[Part A](4511-topological-metadata-query-api.md) for the hint-mode
 `sender_domain` field: the local part is everything between the leading `@` and
 the first `:`, and the domain is everything after it. A room version adopting
 this format MUST reject events whose `sender` does not parse under that grammar
@@ -140,6 +147,161 @@ how the root signature interacts with, or replaces, existing event authorization
 and verification rules. This keeps the proposal focused on the topology query
 API and defers signature migration mechanics to the room-version proposal.
 
+### Causal sparse Merkle sum trie
+
+Every event `E` MUST commit to the set of event IDs in its strict causal past.
+For a room version with State DAGs, `prev_state_events` are additional causal
+predecessor edges and are included in the same set-union recurrence:
+
+$$
+C(E) = \bigcup_{P \in \operatorname{prev\_events}(E) \cup
+                 \operatorname{prev\_state\_events}(E)}
+       \left(C(P) \cup \{P\}\right).
+$$
+
+The current event is excluded, avoiding self-reference: its event ID can commit
+to the root of `C(E)` because every member ID is already known. At a merge, the
+population is the set union of the predecessor populations, not concatenation or
+arithmetic addition; an event reachable through multiple predecessors occurs
+once.
+
+`C(E)` is represented as a persistent 256-level sparse Merkle trie. The search
+key is the 32-byte digest encoded by a room-version event ID, interpreted from
+most-significant bit to least-significant bit. A key's bit at depth `d` selects
+the left (`0`) or right (`1`) child. This makes the structure a Merkle search
+tree without imposing chronological order on the Matrix DAG.
+
+Each node also commits to its exact subtree cardinality, making the structure a
+Merkle sum trie. Counts are unsigned 64-bit integers. An implementation MUST
+reject construction if an addition overflows; it MUST NOT wrap or saturate. The
+hashes are:
+
+```text
+causal_leaf(key) =
+  SHA3-256("msc4511:causal-leaf:v1" || key)
+
+causal_node(depth, left_hash, left_count, right_hash, right_count) =
+  SHA3-256("msc4511:causal-node:v1" || u16be(depth) ||
+           left_hash || u64be(left_count) ||
+           right_hash || u64be(right_count))
+```
+
+`depth` ranges from 0 at the root to 255 above the leaves. Empty hashes are
+defined recursively from a distinguished empty leaf:
+
+```text
+empty[256] = SHA3-256("msc4511:causal-empty-leaf:v1")
+empty[d] = causal_node(d, empty[d+1], 0, empty[d+1], 0)
+```
+
+An occupied leaf has count 1. An internal node's count is exactly
+`left_count + right_count`. The empty set has root `empty[0]` and count 0.
+Implementations MAY omit empty children physically and share unchanged nodes
+between event roots; these storage choices do not alter the canonical root.
+
+The event carries:
+
+```json
+"causal_set": {
+  "algorithm": "msc4511.sparse_merkle_sum_v1",
+  "root": "unpadded_base64url_sha3_256_hash",
+  "count": 1234
+}
+```
+
+The declared `count` MUST equal the count committed at the root. It is redundant
+for integrity but allows population sizing without opening the root node.
+
+The counts in this structure have deliberately narrow meanings. The root and
+every internal node count the distinct event IDs in the causal-set population;
+they do not count edges, paths, or predecessor references. `depth` remains the
+event's scalar topological metadata and is committed in `event_header_root`; it
+is not a population count. The cardinalities of `prev_events`, `auth_events`,
+and, where applicable, `prev_state_events` are already bound by hashing their
+canonical JSON arrays, whose lengths are part of the encoded values. Separate
+cardinality fields for those lists would be redundant. An LtHash or other
+commutative digest of the causal set is also not included: the sparse Merkle
+root already supplies equality, search, proofs, and recursive diff, while the
+sum counts supply authenticated cardinality. A future optimization MAY add a
+domain-separated commutative digest, but it would be an auxiliary equality hint,
+not a replacement for the root or its proof rules.
+
+#### Room-version validity
+
+Committing an arbitrary root does not prove that it represents the event's
+causal past. A room version adopting this structure MUST make the recurrence for
+`C(E)` an event-validity rule:
+
+- an event with no `prev_events` commits the empty root and count zero;
+- an event with one predecessor commits that predecessor's causal set after
+  inserting the predecessor event ID;
+- an event with multiple predecessors commits the exact set union of every
+  predecessor causal set and every predecessor event ID.
+
+A receiver MUST recompute this transition from locally held trie nodes or verify
+an authenticated transition/union witness against every predecessor root. A
+signature over `event_root` does not replace this check. If required predecessor
+roots or witness nodes are unavailable, validation is deferred while they are
+fetched, just as event processing already waits for required event and auth
+data; the receiver MUST NOT accept an unchecked `causal_set` root as valid.
+
+For a linear transition, the witness is a standard sparse-trie update path for
+inserting the predecessor ID. For a merge, a witness recursively supplies nodes
+where predecessor roots differ and permits equal roots to short-circuit. Every
+opened branch is rehashed to each predecessor root and to the claimed union
+root. The witness MUST demonstrate set union and duplicate elimination; merely
+listing predecessor roots proves neither.
+
+#### Search and proof operations
+
+Part A MAY request proofs relative to a named anchor event `E`. A responder can
+provide:
+
+- **inclusion:** the event ID is a leaf in `C(E)`;
+- **non-inclusion:** the key-directed path terminates in a canonical empty
+  subtree;
+- **prefix range:** a subtree root and count at a requested key-prefix;
+- **recursive diff:** two holders compare corresponding subtree hashes and
+  descend only where they differ;
+- **multiproof:** shared siblings for several inclusion, non-inclusion, or
+  prefix queries are transmitted once.
+
+Every proof MUST identify the anchor event, algorithm, expected root, and root
+count. Sibling entries carry both hash and count. Verifiers recompute every
+internal hash and count to the anchor's committed root. Runs of canonical empty
+siblings MAY be compressed as `(start_depth, length)`; decompression MUST yield
+the exact `empty[d]` values above. A responder MUST NOT claim completeness from
+a truncated proof.
+
+The sum is not a substitute for search or hashing. It provides authenticated
+cardinality for subtrees, useful for sizing reconciliation work and rejecting a
+malformed proof whose child counts do not sum to its parent. Equal counts do not
+imply equal populations; equality still requires the root hash.
+
+#### Construction and merge cost
+
+Adding one causal predecessor to an existing linear history path-copies at most
+256 trie nodes, independent of population size. A multi-predecessor event must
+compute the exact set union of its predecessor tries before inserting the
+predecessor IDs. Equal subtree roots short-circuit; work is proportional to the
+unequal structure visited, not necessarily to the number of predecessors or to
+the symmetric difference in adversarially shaped cases. Implementations MUST NOT
+derive a merge root by hashing predecessor roots together, because that would
+commit to history shape and multiplicity rather than the causal event set.
+
+The root authenticates a population; it does not guarantee that a server still
+stores every witness node or PDU needed to answer a proof. A server unable to
+materialize a requested proof returns the ordinary Part A limited/unavailable
+result. Authorization and history-visibility checks still apply before revealing
+event IDs or proof paths.
+
+Requiring this root changes room-creation and federation availability. A server
+cannot create or fully validate a merge event while lacking the predecessor trie
+material needed to establish the union. Implementations should retain trie nodes
+or compressed union witnesses alongside events for at least as long as they
+expect to serve the corresponding history. This is a deliberate room-version
+trade-off, not a backwards-compatible optimization for existing rooms.
+
 ### Draft test vectors
 
 The following vectors are non-normative implementation regression vectors for
@@ -149,6 +311,12 @@ included to make the `msc4511:*:v1` domain-separation strings, Matrix Canonical
 JSON inputs, RFC 6962 tree shape, component ordering, missing optional header
 fields, and unpadded base64url event ID encoding easy to cross-check while this
 MSC is still unstable.
+
+These vectors predate the required `causal_set` field and test only the
+split-canonicalization primitive. They are not complete conforming event vectors
+for this revision; complete vectors MUST also commit `causal_set` through
+`other_signed_fields_hash` and exercise empty, single-predecessor, merge-union,
+inclusion, and non-inclusion trie cases.
 
 The sample inputs are:
 
@@ -374,7 +542,7 @@ or withholds each independently provable field.
 
 The shared bandwidth and benchmarking analysis for the topology query endpoint
 is defined in
-[Part A, Performance characteristics and benchmarking](4511-part-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
+[Part A, Performance characteristics and benchmarking](4511-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
 This part documents only what the split-canonicalization sketch adds on top of
 that baseline.
 
@@ -392,6 +560,15 @@ event size; for a 5 KiB event, it is approximately 3.8%. Implementations can
 recompute proof paths on demand; caching intermediate Merkle nodes or proof
 indexes is optional and would increase this overhead.
 
+The causal trie adds up to 256 fresh path nodes for a linear insertion, though
+persistent structural sharing reuses every untouched subtree and canonical empty
+node. A naive 32-byte hash plus 8-byte count per level is therefore roughly 10
+KiB of raw new path material per event before node encoding or deduplication.
+Implementations SHOULD use compressed paths or another canonical sparse-node
+encoding, but compression MUST preserve the root construction and proof
+semantics above. Multi-predecessor union can write more than one path and must
+be benchmarked separately from the linear case.
+
 ### Cacheability
 
 The base topology-query cacheability analysis from Part A applies unchanged to
@@ -402,14 +579,13 @@ advances.
 ## Relationship to other proposals
 
 This room-version sketch is the native-verifiability counterpart to Part A's
-sparse query endpoint. It does not define push gossip, session state, set
-digests, or bulk event repair; it only defines how a future room version could
-make selected metadata independently provable once a query response chooses to
-carry proof material.
+sparse query endpoint. It defines event-intrinsic field proofs and a causal-set
+search root, but not push gossip, session state, or bulk event repair.
 
-Part B's signed overlay is the deployable, responder-scoped alternative for
-current room versions. This Part C sketch is stronger but requires a future room
-version because the metadata commitment must participate in event identity.
+Archived [Part B](archive/4511-part-b-merkle-overlay-backwards-compat.md)'s
+signed overlay is the deployable, responder-scoped alternative for current room
+versions. This Part C sketch is stronger but requires a future room version
+because the metadata commitment must participate in event identity.
 
 [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
 changes the room model by adding state-DAG edges and authorization semantics in
@@ -436,7 +612,7 @@ MSC defines a narrower operation that requires only the proven metadata.
 
 The bandwidth surface of the topology query endpoint and its mitigations are
 covered in
-[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations);
+[Part A, Security considerations](4511-topological-metadata-query-api.md#security-considerations);
 the response-size limits, per-origin rate limits, and conservative defaults
 described there apply unchanged. This proof profile's specific cost is the
 sibling-hash material in `proofs`, which scales with the number of proven fields
@@ -445,7 +621,7 @@ and proven events.
 ### Hint validation and reputation
 
 The hint-reputation heuristics defined in
-[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations)
+[Part A, Security considerations](4511-topological-metadata-query-api.md#security-considerations)
 apply unchanged. Two proof-specific notes apply:
 
 - Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
