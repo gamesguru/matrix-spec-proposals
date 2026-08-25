@@ -56,6 +56,8 @@ is also contingent upon wire format (algorithm) finalization.
 The underlying techniques are already used by multiple large enterprises with
 larger economic stakes: Ethereum, Facebook's RocksDB `folly`, and others[^0.e].
 
+<!-- Edit marker. -->
+
 ## Proposal
 
 ### Relationship to existing specification
@@ -175,8 +177,6 @@ membership, replacement, and deduplication. The accumulator is a non-invertible
 commitment of that map's current `(type, state_key, event_id)` assignments, not
 a set manager or delta-decoder.
 
-<!-- Edit marker. -->
-
 ### Capability discovery
 
 Servers advertise causal redaction overlay support through
@@ -241,13 +241,13 @@ resolution if later events reference them, so the resulting current-state
 accumulator MUST be computed from the resolution result, not by unconditionally
 applying that stale branch's `after` delta to the receiver's current lattice.
 
-A soft-failed state event is not rejected for these assertions. Its
-DAG-position `after` state includes the event normally, and subsequent events
-that reference it compute their accumulators through ordinary state resolution
-with that event participating. Soft-failure affects whether the receiving
-server advances its forward extremities and immediately relays the event to
-clients; it does not remove the event from the federated room DAG or change its
-`before` or `after` digest at that DAG position.
+A soft-failed state event is not rejected for these assertions. Its DAG-position
+`after` state includes the event normally, and subsequent events that reference
+it compute their accumulators through ordinary state resolution with that event
+participating. Soft-failure affects whether the receiving server advances its
+forward extremities and immediately relays the event to clients; it does not
+remove the event from the federated room DAG or change its `before` or `after`
+digest at that DAG position.
 
 - `algorithm`: A single string identifying the complete digest profile used for
   every entry in this transaction's `state_hashes.entries` dictionary. This MSC
