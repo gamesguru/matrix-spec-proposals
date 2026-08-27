@@ -1,4 +1,4 @@
-# MSC4511: Topological Metadata Query API
+# MSC4511A: Topological Metadata Query API
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know
