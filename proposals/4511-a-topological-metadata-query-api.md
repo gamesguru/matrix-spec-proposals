@@ -1,4 +1,4 @@
-# MSC4511A: Topological Metadata Query API and Filtered Room State
+# MSC4511A: Efficient Room State and Event History Queries
 
 Currently the Matrix protocol relies on fetching entire events to perform
 backfills or otherwise retrieve previous or missing events. Often we do not know

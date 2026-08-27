@@ -1,12 +1,19 @@
 # MSC4500: State accumulator and transaction digests
 
+This MSC introduces a incremental hasher which tracks state map entries by ID as
+well as `m.room.redaction` events (since they can affect state content). This
+brings a universal, over-the-wire spec allowing for globally unique
+fingerprinting of state sets in a single `17 us` function call. The underlying
+techniques are already used by multiple large enterprises with larger economic
+stakes: Ethereum, Facebook's RocksDB `folly`, and others[^0.e].
+
 State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
 a dictionary of tuples to event IDs, e.g.,
 `(state_key, event_type) -> event_id`. Given implied assumptions about globally
 unique UUIDs, this dictionary can be converted to and from a de-structured set
 without loss of injectivity or meaning, e.g.,
-`(state_key, event_type, event_id)`.
+`(state_key, event_type, event_id)`. Redactions add a subtle complication here.
 
 Current implementations load the state map into memory, authenticate incoming
 PDUs against their `prevs` (or the room's extremities and possibly
@@ -21,40 +28,24 @@ Additionally, these local implementations have no way of sharing state group IDs
 over federation; they effectively speak different languages—neither Synapse's
 `state_groups` nor Conduit's `shortstatehash` are universally specified—they are
 implementation-specific. Going forward, the ability to speak the same language
-and verify set equality may allow diagnosing divergence early, during `/send`
-transactions or fast-pathing nominal (equal) `/state_ids` requests.
+and verify set equality may allow diagnosing divergence early in an exchange.
 
-This MSC does not, on its own, profoundly reduce the state resolution algorithm
-runtime. Combined with a HAMT[^0.b] that carries the delta itself, the `LtHash`
-accumulator specified here is one ingredient of the future speedup — the piece
-that collapses state into a fixed-size commitment[^0.c], mapping state groups
-(with 128-bit security) into the globally unique 256-bit space, and allowing
-near instant state group de-duplication, equivocation, or identifier generation,
-regardless of the magnitude of the input stream.
+This MSC does not, on its own, solve the state resolution bottleneck. Combined
+with a HAMT[^0.b] that carries the delta itself, `LtHash` is one ingredient of
+the future speedup — the piece that collapses state into a fixed-size, secure
+commitment[^0.c].
 
 Furthermore, this MSC, by placing a backwards compatible (safely ignored)
 `state_hashes` key alongside `txn` request bodies, allows for instant, passive
 state comparisons with federated peers. This is important because it allows
 efficient (basically free) confirmation that two servers agree on room state.
-This allows admins to be alerted and diagnose divergence early, if they choose;
-it also makes possible future automated remediation or reconciliation methods.
-
 The proposed wire scope covers `txn` payloads and a backwards-compatible
-`/state_ids` HTTP cache validator. Both use the same 256-bit digest of the full
-2048-byte lattice; the latter allows a responding server to omit the response
-body when the requester's cached state agrees. The case of small divergence has
-been loosely sketched out in MSC4521; the case of moderate divergence (>1000
-events differ) may possibly be addressed by bloom filters and IBLTs (Kegan's
-idea), or, like large divergences, they may remain an open problem.
+`/state_ids` cache component. Both use the 256-bit BLAKE digest.
 
-The current `LtHash16` implementation, byte-for-byte compatible with Facebook
-researcher's specification[^0.d], is available, together with test vectors, as a
-Rust library (suitable for testing but pending final wire format adoption). A
-complementary Golang implementation is also supplied, whose production-readiness
-is also contingent upon wire format (algorithm) finalization.
-
-The underlying techniques are already used by multiple large enterprises with
-larger economic stakes: Ethereum, Facebook's RocksDB `folly`, and others[^0.e].
+The current `LtHash16` specification is byte-for-byte compatible with Facebook
+researcher's specification[^0.d] and is available, together with test vectors,
+as a Rust library. A Golang project is also linked. Their production-readiness
+is only waiting on final wire format (algorithm specification).
 
 <!-- Edit marker. -->
 
@@ -82,7 +73,7 @@ only be computed during state transitions, not against all resolved `prevs`.
 It then collapses each PDU's vectorial state into a standard 32-byte digest and
 includes them in the transaction payload as a dictionary.
 
-The 32-byte digest may then, `base64url` encoded, serve as a globally unique ID
+The 32-byte digest may then, `base64url` encoded, serve as a compact identifier
 for the given resolved state map. This has broad application across a variety of
 endpoints, use cases, and future MSCs.
 

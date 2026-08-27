@@ -1,4 +1,4 @@
-# MSC4511C: Merkle trees, searches, proofs, sums, and metadata
+# MSC4511C: Verifiable Room State and Event Metadata
 
 This companion to [Part A](4511-a-topological-metadata-query-api.md) sketches
 how a future room version could make selected topology metadata independently

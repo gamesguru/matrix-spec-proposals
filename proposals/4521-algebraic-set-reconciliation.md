@@ -1,12 +1,12 @@
 # MSC4521: Adaptive Set Reconciliation via PinSketch
 
 Several federation mechanisms need to know whether two servers contain the same
-set of identifiers. With a lot of work, this MSC lets them compute the exact
-symmetric difference between large populations, conditional on successful decode
-verification (the accumulator is non-binding and $h_{64}$ collisions can make
-distinct identifiers indistinguishable to the decoder, so verification cannot
-unconditionally detect every incorrect decode; see
-[Decode and verification](#decode-and-verification)). This MSC helps ensure
+set of identifiers. With a lot of work, this MSC lets them decode candidate
+64-bit fingerprints for the symmetric difference between large populations,
+conditional on successful decode verification (the accumulator is non-binding
+and $h_{64}$ collisions can make distinct identifiers indistinguishable to the
+decoder, so verification cannot unconditionally detect every incorrect decode;
+see [Decode and verification](#decode-and-verification)). This MSC helps ensure
 network synchronization.
 
 Some consumers need that over a room's known event or resolved state set; others
@@ -22,9 +22,9 @@ It collapses 256-bit integers (ID values) over the 64-bit Galois field, encodes
 them into a syndrome of about $d \cdot \log_2 q$ bits for a size-$d$ difference,
 which is order-optimal for set reconciliation over a field of size $q = 2^{64}$,
 and performs syndrome decoding on the receiver side to recover candidate missing
-IDs. The decode result is not self-authenticating: an over-capacity decode can
-spuriously return the wrong set, so every successful decode MUST be checked
-against the accompanying 128-bit accumulator before it is trusted. That
+fingerprints. The decode result is not self-authenticating: an over-capacity
+decode can spuriously return the wrong set, so every successful decode MUST be
+checked against the accompanying 128-bit accumulator before it is trusted. That
 accumulator check is itself non-binding, with residual collision probability,
 and $h_{64}$ collisions can make distinct identifiers indistinguishable to the
 decoder — so verification cannot unconditionally catch every incorrect decode.
@@ -60,6 +60,14 @@ decode-and-verify contract, capacity budgets, and the resident structure.
 This profile does **not** define frames, negotiation, scheduling, endpoints, or
 authorization; those belong to the consuming MSC. Consumers MUST still verify
 that both sides digest the same population before comparing them.
+
+The decoder returns $h_{64}$ fingerprints, not the original elements. A consumer
+MUST define a mapping from recovered fingerprints to elements. It can resolve
+fingerprints for elements it already holds locally; for remote-only elements,
+the consumer MUST define an authenticated follow-up that supplies or looks up
+the original identifiers. The digest exchange alone cannot recover a remote
+event ID from its fingerprint. This profile therefore does not, by itself,
+define an event-repair protocol.
 
 The 128-bit accumulator doesn't prove the two sides are even comparing the same
 thing. Before subtracting strata or extraction sketches, a consuming protocol
@@ -159,18 +167,22 @@ not use auxiliary hash functions (e.g., `XXH3`).
 
 For resolved room state (as used by state-set consumers such as MSC4500), each
 element is one occupied `(type, state_key)` slot in the resolved state map at a
-given DAG point. `D(e)` is the `SHA-256` digest of the UTF-8 encoding of
-`type + "\x00" + state_key + "\x00" + event_id`, where `event_id` is the ID of
-the event currently occupying that slot, taken as its literal ID string (e.g.
-`$abc123...`) for every room version — not the decoded binary payload used in
-[Matrix event-ID binding](#matrix-event-id-binding), which does not concatenate
-cleanly as UTF-8 text alongside `type` and `state_key`. Including `event_id` in
-the digest means a slot that changes occupant — not just a slot that appears or
-disappears — is itself a distinct element from the consuming set's point of
-view; the symmetric difference $S_A \triangle S_B$ therefore recovers both
-structural drift (a `(type, state_key)` present on one side only) and mutation
-drift (the same slot occupied by different events on each side) as a single
-element pair.
+given DAG point. `D(e)` is the `SHA-256` digest of the following injective
+encoding, using UTF-8 bytes and unsigned 16-bit little-endian byte lengths:
+
+```text
+u16le(len(type)) || type ||
+u16le(len(state_key)) || state_key ||
+event_id
+```
+
+Here `event_id` is the literal ID string of the event occupying that slot (for
+example, `$abc123...`) for every room version, rather than the decoded binary
+payload used in [Matrix event-ID binding](#matrix-event-id-binding). Length
+prefixes make the `(type, state_key)` portion unambiguous; `event_id` is final
+and therefore needs no length prefix. Including `event_id` means a slot
+replacement is represented by a removal and an addition in the symmetric
+difference, while insertion and deletion remain single-element changes.
 
 This profile operates over the resolved state at one DAG point at a time. Both
 sides MUST compute it over the identical `before`/`after` position for a
