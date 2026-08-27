@@ -162,8 +162,9 @@ profile.
 
 For room versions adopting this format, a future room-version MSC MUST specify
 how the root signature interacts with, or replaces, existing event authorization
-and verification rules. This keeps the proposal focused on the topology query
-API and defers signature migration mechanics to the room-version proposal.
+and verification rules; see "Signature migration" under "Adopting room version
+sketch" below for a concrete answer under the illustrative room version used
+throughout this document.
 
 ### Causal sparse Merkle sum trie
 
@@ -553,19 +554,20 @@ If you prefer Mermaid, the same comparison can be rendered as two separate
 subgraphs, but the ASCII layout above is the least ambiguous when the goal is a
 literal left-right comparison.
 
-Redaction execution semantics are still deferred to the future room-version MSC
-that adopts split canonicalization: that room version MUST define exactly which
-event body fields are `redacted_content` versus `ephemeral_content` under its
-redaction algorithm. The commitment shape itself is not deferred: `content_hash`
-is always the combination of `redacted_content_hash` and
-`ephemeral_content_hash` defined above, so that a server executing a redaction
-can drop the ephemeral plaintext while retaining the 32-byte
-`ephemeral_content_hash` value, and `event_root`/the event ID remain verifiable
-from the surviving `redacted_content` plus the retained `ephemeral_content_hash`
-after redaction. This topology proof format only proves the selected metadata
-leaves and their inclusion in `event_root`; it does not by itself authorize
-disclosure of redacted content or change which fields Matrix redaction rules
-strip.
+Redaction execution semantics are defined by whichever room version adopts split
+canonicalization: that room version MUST define exactly which event body fields
+are `redacted_content` versus `ephemeral_content` under its redaction algorithm;
+see "Redacted/ephemeral content partition" under "Adopting room version sketch"
+below for a concrete answer under the illustrative room version used throughout
+this document. The commitment shape itself is not deferred: `content_hash` is
+always the combination of `redacted_content_hash` and `ephemeral_content_hash`
+defined above, so that a server executing a redaction can drop the ephemeral
+plaintext while retaining the 32-byte `ephemeral_content_hash` value, and
+`event_root`/the event ID remain verifiable from the surviving
+`redacted_content` plus the retained `ephemeral_content_hash` after redaction.
+This topology proof format only proves the selected metadata leaves and their
+inclusion in `event_root`; it does not by itself authorize disclosure of
+redacted content or change which fields Matrix redaction rules strip.
 
 A server serving a proof for a redacted event includes the retained
 `ephemeral_content_hash` in `top_level_hashes` (or a dedicated `content_proofs`
@@ -600,6 +602,77 @@ Those use cases need their own room-version work before they can become
 normative.
 
 ---
+
+## Adopting room version sketch
+
+The previous sections defer three decisions to "a future room-version MSC": the
+redacted/ephemeral content partition, signature migration, and State DAG
+interaction. This section pins down a concrete answer for each, under the
+illustrative unstable identifier `tk.nutra.msc4511.12` from the table above. The
+adopting room version inherits room version 12 (event format, auth rules, room
+ID derivation, and state resolution) except where this section overrides it.
+
+### Redacted/ephemeral content partition
+
+The adopting room version reuses room version 12's existing redaction algorithm
+(the v11-redactions content-key-preservation rules, since v12 inherits them
+verbatim) as the partition, rather than defining a new one:
+
+- `redacted_content` is exactly what that algorithm's key-preservation step
+  produces for the event's `type`: the full `content` for `m.room.create`, the
+  listed preserved keys (including the `third_party_invite.signed` nested path)
+  for `m.room.member`/`m.room.power_levels`/`m.room.join_rules`/
+  `m.room.history_visibility`/`m.room.redaction`, and an empty object for every
+  other event type, including `m.room.message`.
+- `ephemeral_content` is every remaining `content` key: the complement needed to
+  recover `content` in full from `redacted_content` plus `ephemeral_content`.
+- When an event type has no redaction-protected fields (an ordinary
+  `m.room.message`, for example), `redacted_content` is `{}` and
+  `ephemeral_content` is the entire `content` object; the reverse holds for
+  `m.room.create`.
+
+This reuses room version 12's redaction key tables unchanged instead of
+introducing a second, competing definition of what a redaction preserves; a room
+version adopting this sketch MUST keep the two in sync if it later changes its
+redaction algorithm. Reference implementations of this split ship in
+`gomatrixcrypto` (`merkle.SplitRedactionContent`) and `rezzy`
+(`split_redaction_content`).
+
+### Signature migration
+
+The legacy per-event `hashes` and `signatures` blocks over the full event JSON
+are replaced entirely by the envelope signature over
+`{room_id, room_version, event_root}` defined under "Event IDs and signatures"
+above. Concretely:
+
+- Room version 12's `hashes` field is removed; `content_hash` (see above) is its
+  replacement for content integrity, already covered by `event_root`.
+- Existing auth rules that reference an event by ID are unchanged in substance:
+  they now receive `"$" || unpadded_base64url(event_root)` instead of the legacy
+  SHA-256 event ID, and auth-rule signature checks verify the envelope signature
+  instead of the legacy full-event signature.
+- A server MUST reject an event whose envelope signature does not verify for the
+  sending server's current key, using the same key-fetch and validity rules room
+  version 12 already uses for event signatures; no new key distribution
+  mechanism is introduced.
+- `signatures` remains excluded from the signed hash input (see "Cryptographic
+  proof responses" above), so intermediaries can still add or strip signatures
+  without changing the event ID, exactly as in room version 12.
+
+### State DAG interaction
+
+The adopting room version also adopts
+[MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
+so `prev_state_events_hash` (already scaffolded in the `event_root` partition
+above) is populated rather than fixed to the hash of `null`, and
+`prev_state_events` edges are included in the causal-set recurrence exactly as
+already specified under "Causal sparse Merkle sum trie": a state-DAG edge is an
+additional causal predecessor, not a new kind of leaf. No additional
+`event_header_root` leaf is added for state-DAG edges; `prev_state_events_hash`
+already commits them at the top level. State resolution otherwise runs MSC4242's
+v2.2 algorithm unchanged, operating on `event_root`-derived event IDs instead of
+legacy ones; this sketch does not alter which state wins, only how the events
+participating in resolution are identified and proven.
 
 ## Future extensions
 
@@ -663,9 +736,9 @@ because the metadata commitment must participate in event identity.
 
 [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
 changes the room model by adding state-DAG edges and authorization semantics in
-a new room version. A room version adopting this sketch would need to define
-whether state-DAG edges are additional independently provable metadata leaves,
-and how they interact with state resolution.
+a new room version; see "State DAG interaction" under "Adopting room version
+sketch" above for how a room version adopting both this sketch and MSC4242
+commits and proves those edges.
 
 The room-version naming format used for illustration here follows the
 lexicographic room-version convention defined elsewhere in the proposals set;
