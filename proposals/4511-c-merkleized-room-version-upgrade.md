@@ -608,18 +608,19 @@ literal left-right comparison.
 
 Redaction execution semantics are defined by whichever room version adopts split
 canonicalization: that room version MUST define exactly which event body fields
-are `redacted_content` versus `redactable_content` under its redaction algorithm;
-see "Redacted/redactable content partition" under "Adopting room version sketch"
-below for a concrete answer under the illustrative room version used throughout
-this document. The commitment shape itself is not deferred: `content_hash` is
-always the combination of `redacted_content_hash` and `redactable_content_hash`
-defined above, so that a server executing a redaction can drop the redactable
-plaintext while retaining the 32-byte `redactable_content_hash` value, and
-`event_root`/the event ID remain verifiable from the surviving
-`redacted_content` plus the retained `redactable_content_hash` after redaction.
-This topology proof format only proves the selected metadata leaves and their
-inclusion in `event_root`; it does not by itself authorize disclosure of
-redacted content or change which fields Matrix redaction rules strip.
+are `redacted_content` versus `redactable_content` under its redaction
+algorithm; see "Redacted/redactable content partition" under "Adopting room
+version sketch" below for a concrete answer under the illustrative room version
+used throughout this document. The commitment shape itself is not deferred:
+`content_hash` is always the combination of `redacted_content_hash` and
+`redactable_content_hash` defined above, so that a server executing a redaction
+can drop the redactable plaintext while retaining the 32-byte
+`redactable_content_hash` value, and `event_root`/the event ID remain verifiable
+from the surviving `redacted_content` plus the retained
+`redactable_content_hash` after redaction. This topology proof format only
+proves the selected metadata leaves and their inclusion in `event_root`; it does
+not by itself authorize disclosure of redacted content or change which fields
+Matrix redaction rules strip.
 
 A server serving a proof for a redacted event includes the retained
 `redactable_content_hash` in `top_level_hashes` (or a dedicated `content_proofs`
@@ -676,8 +677,9 @@ verbatim) as the partition, rather than defining a new one:
   for `m.room.member`/`m.room.power_levels`/`m.room.join_rules`/
   `m.room.history_visibility`/`m.room.redaction`, and an empty object for every
   other event type, including `m.room.message`.
-- `redactable_content` is every remaining `content` key: the complement needed to
-  recover `content` in full from `redacted_content` plus `redactable_content`.
+- `redactable_content` is every remaining `content` key: the complement needed
+  to recover `content` in full from `redacted_content` plus
+  `redactable_content`.
 - When an event type has no redaction-protected fields (an ordinary
   `m.room.message`, for example), `redacted_content` is `{}` and
   `redactable_content` is the entire `content` object; the reverse holds for
@@ -836,27 +838,6 @@ event still apply exactly as in Part A.
 
 ## References
 
-- [Matrix Server-Server API](https://spec.matrix.org/latest/server-server-api/)
-  for `/event`, `/backfill`, `/get_missing_events`, `/state_ids`, federation
-  authorization, and the existing PDU flow this proposal tries to avoid
-  overusing.
-- [Matrix room version 12](https://spec.matrix.org/latest/rooms/v12/) for the
-  current default room-version baseline, including event format behavior
-  inherited from room version 11, event IDs inherited from room versions 3 and
-  later, and v12-specific room ID and state-resolution changes.
-- [MSC4186: Simplified Sliding Sync](4186-simplified-sliding-sync.md), as prior
-  art for selective, client-chosen field/query shapes in Matrix.
-- [MSC2836: Twitter-style Threading](https://github.com/matrix-org/matrix-spec-proposals/pull/2836),
-  as prior art for bounded traversal of Matrix event relationships over
-  federation.
-- [MSC2716: Incrementally Importing History](https://github.com/matrix-org/matrix-spec-proposals/pull/2716),
-  as related background for historical DAG gaps and inserted history chunks.
-- [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242),
-  as related work for representing state progression separately from the message
-  event DAG.
-- [MSC4311: Ensuring the create event is available on invites](4311-stripped-state-create-event.md),
-  as nearby room-version/state work for making stripped-state content available
-  when room-version transitions need extra validation context.
 - [Polkadot Fellowship RFC-0078: Merkleized Metadata][polkadot-rfc-0078] as
   prior art for committing to metadata with a root hash while revealing only the
   pieces needed by the verifier.
