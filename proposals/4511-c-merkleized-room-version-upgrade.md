@@ -55,23 +55,13 @@ identity-relevant event field is committed to exactly once. Two events which
 differ in any signed field that contributes to event identity, including
 `redacts`, MUST NOT derive the same `event_root` or event ID.
 
-`sender_localpart` and `sender_domain` MUST be committed as two independent
-header leaves rather than one combined `sender` leaf, using the same
-first-`:`-boundary split defined in
-[Part A](4511-a-topological-metadata-query-api.md) for the hint-mode
-`sender_domain` field: the local part is everything between the leading `@` and
-the first `:`, and the domain is everything after it. A room version adopting
-this format MUST reject events whose `sender` does not parse under that grammar
-before deriving `event_root`, since an unparsable `sender` would otherwise have
-no defined split. Splitting the leaf this way is required, not merely
-convenient: with a single `sender` leaf, any proof that discloses authorship
-information necessarily discloses the full MXID, including the localpart. With
-`sender_domain` committed separately, a prover can disclose and prove only the
-sending server's identity, and a verifier can check signature entitlement,
-without either party handling the sender's localpart at all. The sender's full
-MXID remains recoverable and provable by disclosing both leaves together as
-`"@" || sender_localpart || ":" || sender_domain`, so no authorship information
-is lost, only made separable.
+`sender_localpart` and `sender_domain` MUST be committed as independent header
+leaves instead of a combined `sender` leaf, using the first-`:`-boundary split
+defined in [Part A](4511-a-topological-metadata-query-api.md). Events with an
+unparsable `sender` MUST be rejected before deriving `event_root`. This split
+ensures that authorship proofs do not inadvertently leak the full MXID: a prover
+can disclose just the `sender_domain` to verify signature entitlement without
+exposing the localpart.
 
 The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
 
@@ -178,11 +168,10 @@ C(E) = \bigcup_{P \in \operatorname{prev\_events}(E) \cup
        \left(C(P) \cup \{P\}\right).
 $$
 
-The current event is excluded, avoiding self-reference: its event ID can commit
-to the root of `C(E)` because every member ID is already known. At a merge, the
-population is the set union of the predecessor populations, not concatenation or
-arithmetic addition; an event reachable through multiple predecessors occurs
-once.
+The current event is excluded to avoid self-reference, allowing its event ID to
+safely commit to the root of `C(E)`. At a merge, the population is the strict
+set union of the predecessor populations (not a concatenation or arithmetic
+addition), ensuring events reachable through multiple paths only occur once.
 
 `C(E)` is represented as a persistent 256-level sparse Merkle trie. The search
 key is the 32-byte digest encoded by a room-version event ID, interpreted from
@@ -292,10 +281,10 @@ siblings MAY be compressed as `(start_depth, length)`; decompression MUST yield
 the exact `empty[d]` values above. A responder MUST NOT claim completeness from
 a truncated proof.
 
-The sum is not a substitute for search or hashing. It provides authenticated
-cardinality for subtrees, useful for sizing reconciliation work and rejecting a
-malformed proof whose child counts do not sum to its parent. Equal counts do not
-imply equal populations; equality still requires the root hash.
+The sum does not replace search or hashing. It provides authenticated subtree
+cardinality—useful for sizing reconciliation work and rejecting malformed proofs
+where child counts fail to sum to the parent. Equal counts do not imply equal
+populations; proving equality still requires the root hash.
 
 Of the operations above, inclusion and non-inclusion proof generation and
 verification are implemented in both reference implementations (see "Draft

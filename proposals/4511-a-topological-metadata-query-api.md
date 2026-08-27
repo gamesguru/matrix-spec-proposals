@@ -23,11 +23,10 @@ granular metadata and bounded graph facts, including:
 
 For room versions 3 and later, returned metadata remains a hint that must be
 verified by fetching full events. This is the intended security model, not a
-weaker fallback: gap repair needs the full PDU at the end anyway in order to
-validate `content`, `auth_events`, event hashes, signatures, auth rules, and
-state resolution. The query response helps a server decide which event IDs and
-peer servers to try next, but accepting or repairing history still happens
-through the existing verified-event path.
+fallback: gap repair requires the full PDU to validate `content`, event hashes,
+signatures, auth rules, and state resolution. The query response helps servers
+prioritize which event IDs and peers to try next, while history repair continues
+to use the existing verified-event path.
 
 For a room version which defines State DAGs as in MSC4242, `prev_state_events`
 is an additional supported edge type. It is traversed with the same depth,
@@ -192,9 +191,8 @@ The initial query fields are:
   operates on.
 
 The `fields` list MUST include `event_id` and MUST NOT contain duplicate field
-names. A server MUST reject a request which omits `event_id` from `fields`, or
-which contains duplicate `fields` entries, with `M_INVALID_PARAM` before
-traversal.
+names. A server MUST reject requests missing `event_id` or containing duplicate
+`fields` entries with `M_INVALID_PARAM` before traversal.
 
 The initial dense response fields available for the `events` rows are:
 
@@ -211,13 +209,12 @@ The initial dense response fields available for the `events` rows are:
 - `redacts`: the target event ID the event redacts, if the event is an
   `m.room.redaction`.
 - `sender`: the event sender, if known.
-- `sender_domain`: the server name (domain) portion of `sender`, if known. This
-  field exists because, as of room version 11, the top-level `origin` property
-  is no longer protected from redaction and is not committed event metadata in
-  any modern room version
-  ([room version 11 redaction changes](https://spec.matrix.org/latest/rooms/v11/#redactions));
-  a requester that only wants the sending server's domain, not the full MXID,
-  can request `sender_domain` instead of `sender`. See below for the split rule.
+- `sender_domain`: the server name (domain) portion of `sender`, if known. Since
+  room version 11, the top-level `origin` property is no longer protected from
+  redaction or committed as event metadata
+  ([room version 11 redaction changes](https://spec.matrix.org/latest/rooms/v11/#redactions)).
+  Requesters needing only the server domain can request `sender_domain` instead
+  of the full `sender` MXID. See below for the split rule.
 - `type`: the event type, if known.
 - `state_key`: the event state key, if the event is a state event.
 - `candidate_servers`: a list of server names which the responding server
@@ -363,15 +360,13 @@ The server applies limits in this order:
   maximum number of distinct events;
 - stop before exceeding the server's response-size or processing-time limits.
 
-If a traversal, response-size, time, or work budget prevents the server from
-returning data it otherwise would have walked, it sets `limited` to `true`. If
-several such conditions apply, `limited` is still just `true`. Unknown,
-inaccessible, hidden, and wrong-room edge targets do not by themselves set
-`limited` when `edge_errors` is requested; those conditions are represented by
-the applicable edge error code. If `edge_errors` was not requested and an
-unknown, inaccessible, hidden, or wrong-room edge target causes a row to be
-omitted, the server MUST set `limited` to `true` to signal that the response is
-not a complete walk.
+If a limit, timeout, or work budget prevents the server from returning data it
+otherwise would have walked, it sets `limited` to `true`. If multiple conditions
+apply, `limited` remains `true`. When `edge_errors` is requested, unknown,
+inaccessible, hidden, or wrong-room targets are represented by error codes and
+do not independently set `limited`. However, if `edge_errors` is _not_
+requested, omitting those targets MUST set `limited` to `true` to signal an
+incomplete walk.
 
 When requested via `fields`, a server SHOULD include `edge_errors` explaining
 why certain edge targets were not followed. Servers MUST omit `edge_errors`
@@ -414,14 +409,12 @@ the edge target is treated as unknown and omitted. Without this restriction, the
 label would disclose whether the responding server holds an arbitrary event ID
 from an unrelated, possibly private, room.
 
-For in-room edge targets, the server SHOULD return `not_available` rather than
-silently omitting the edge target when it cannot or will not return that target
-to the requester. The code intentionally does not distinguish local absence from
-history-visibility denial or other access restrictions. The requester learns
-only that this branch is unproductive from this responding server. The edge
-target's event ID was already disclosed by a visible source event's
-`prev_events` or `auth_events` list, so this does not disclose a new unrelated
-room identifier.
+For in-room targets, the server SHOULD return `not_available` rather than
+silently omitting targets it cannot or will not return. This intentionally
+conflates local absence with access restrictions, informing the requester that
+the branch is unproductive without leaking history-visibility state. Since the
+target's event ID was already disclosed by a visible source event, this
+introduces no new room identifiers.
 
 Servers SHOULD return `truncated` for edge targets which would otherwise have
 been eligible for traversal but were not inspected because an effective limit or
