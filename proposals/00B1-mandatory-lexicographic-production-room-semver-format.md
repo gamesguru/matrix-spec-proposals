@@ -229,7 +229,7 @@ specification should use an unstable room version ID prefixed with
 This proposal does not depend on any outstanding, unaccepted MSCs, but it is
 directly relevant to a couple of them:
 
-- [MSC4511](4511-topological-metadata-query-api.md) notes in its Future
+- [MSC4511](4511-a-topological-metadata-query-api.md) notes in its Future
   extensions that a subsequent room version may introduce Merkleized event
   metadata; for illustration, the earlier draft of that work used a placeholder
   identifier (`tk.nutra.msc4511.12`) that does not follow the `vMMMM.NNNN.PPPP`

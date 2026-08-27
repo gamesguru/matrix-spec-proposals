@@ -36,7 +36,7 @@ suffer from systemic trade-offs:
    is.)
 
 [MSC4500](4500-state-accumulators.md) introduces `LtHash16` as a wire-facing
-state accumulator. [MSC4511](4511-topological-metadata-query-api.md) sketches
+state accumulator. [MSC4511](4511-a-topological-metadata-query-api.md) sketches
 Merkleized metadata as future work. This proposal bridges the two by defining a
 local indexing structure: an **Augmented HAMT**.
 

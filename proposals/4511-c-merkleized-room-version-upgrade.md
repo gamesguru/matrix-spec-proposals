@@ -1,7 +1,7 @@
 # MSC4511C: Merkle trees, searches, proofs, sums, and metadata
 
-This companion to [Part A](4511-topological-metadata-query-api.md) sketches how
-a future room version could make selected topology metadata independently
+This companion to [Part A](4511-a-topological-metadata-query-api.md) sketches
+how a future room version could make selected topology metadata independently
 provable by committing it into event identity. Current room versions should use
 Part A as hint-only; archived Part B provides responder-scoped attestations
 without a room-version change.
@@ -58,7 +58,7 @@ differ in any signed field that contributes to event identity, including
 `sender_localpart` and `sender_domain` MUST be committed as two independent
 header leaves rather than one combined `sender` leaf, using the same
 first-`:`-boundary split defined in
-[Part A](4511-topological-metadata-query-api.md) for the hint-mode
+[Part A](4511-a-topological-metadata-query-api.md) for the hint-mode
 `sender_domain` field: the local part is everything between the leading `@` and
 the first `:`, and the domain is everything after it. A room version adopting
 this format MUST reject events whose `sender` does not parse under that grammar
@@ -740,7 +740,7 @@ or withholds each independently provable field.
 
 The shared bandwidth and benchmarking analysis for the topology query endpoint
 is defined in
-[Part A, Performance characteristics and benchmarking](4511-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
+[Part A, Performance characteristics and benchmarking](4511-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
 This part documents only what the split-canonicalization sketch adds on top of
 that baseline.
 
@@ -813,7 +813,7 @@ MSC defines a narrower operation that requires only the proven metadata.
 
 The bandwidth surface of the topology query endpoint and its mitigations are
 covered in
-[Part A, Security considerations](4511-topological-metadata-query-api.md#security-considerations);
+[Part A, Security considerations](4511-a-topological-metadata-query-api.md#security-considerations);
 the response-size limits, per-origin rate limits, and conservative defaults
 described there apply unchanged. This proof profile's specific cost is the
 sibling-hash material in `proofs`, which scales with the number of proven fields
@@ -822,7 +822,7 @@ and proven events.
 ### Hint validation and reputation
 
 The hint-reputation heuristics defined in
-[Part A, Security considerations](4511-topological-metadata-query-api.md#security-considerations)
+[Part A, Security considerations](4511-a-topological-metadata-query-api.md#security-considerations)
 apply unchanged. Two proof-specific notes apply:
 
 - Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are

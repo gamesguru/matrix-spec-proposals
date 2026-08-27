@@ -1,8 +1,8 @@
 # MSC4511 Part B: Signed Overlay Metadata Attestations
 
-This companion to [Part A](4511-part-a-topological-metadata-query-api.md)
-defines a backwards-compatible signed attestation sidecar for sparse topology
-query responses. It does not change event IDs or room-version event hashing; it
+This companion to [Part A](../4511-a-topological-metadata-query-api.md) defines
+a backwards-compatible signed attestation sidecar for sparse topology query
+responses. It does not change event IDs or room-version event hashing; it
 provides transferable evidence of what a responder asserted.
 
 ## Proposal
@@ -277,7 +277,7 @@ domain-separation strings together, and verifiers MUST reject unknown versions.
 
 The shared bandwidth and benchmarking analysis for the topology query endpoint
 is defined in
-[Part A, Performance characteristics and benchmarking](4511-part-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
+[Part A, Performance characteristics and benchmarking](../4511-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
 This part documents only what the overlay profile adds on top of that baseline.
 
 ### Storage overhead
@@ -350,7 +350,7 @@ repairing state, or considering a gap resolved.
 
 The bandwidth surface of the topology query endpoint and its mitigations are
 covered in
-[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations);
+[Part A, Security considerations](../4511-a-topological-metadata-query-api.md#security-considerations);
 the response-size limits, per-origin rate limits, and conservative defaults
 described there apply unchanged. The overlay profile's specific cost is the
 proof material in `overlay_proofs`, which scales with the number of attested
@@ -361,7 +361,7 @@ signature per returned event.
 ### Hint validation and reputation
 
 The hint-reputation heuristics defined in
-[Part A, Security considerations](4511-part-a-topological-metadata-query-api.md#security-considerations)
+[Part A, Security considerations](../4511-a-topological-metadata-query-api.md#security-considerations)
 apply unchanged to overlay-bearing responses. What the overlay adds is
 transferable evidence: a requester that obtains an `overlay_proofs` entry can
 show a third party that the responding server signed a response root containing
