@@ -716,16 +716,14 @@ trips and wasted full-PDU fetches.
 
 ### Client-facing room-state filter
 
-This MSC also defines an optional filter for the client-server state endpoint,
-addressing the use case where an integration needs several state events but not
-the room's complete state. It does not change the authorization or the event
-representation returned by the existing endpoint:
+To avoid transferring unrelated state, clients MAY filter the existing
+client-server state endpoint:
 
 ```http
 GET /_matrix/client/v3/rooms/{roomId}/state?filter={url-encoded-json}
 ```
 
-Homeservers advertise support in `GET /_matrix/client/versions`:
+Support is advertised in `GET /_matrix/client/versions`:
 
 ```json
 {
@@ -735,9 +733,8 @@ Homeservers advertise support in `GET /_matrix/client/versions`:
 }
 ```
 
-A client which sees this feature flag MAY include the `filter` query parameter.
-The parameter is a URL-encoded Matrix Canonical JSON object with the following
-members:
+The URL-encoded Matrix Canonical JSON `filter` object contains optional,
+non-empty string arrays `types` and `state_keys`:
 
 ```json
 {
@@ -746,62 +743,35 @@ members:
 }
 ```
 
-Both members are optional. `types` and `state_keys`, when present, MUST be
-non-empty arrays of strings. A filter matches an event when its type matches at
-least one value in `types` (if supplied) and its state key matches at least one
-value in `state_keys` (if supplied). The two conditions are combined with AND,
-while values within either array are combined with OR. An omitted member matches
-every value for that dimension. An empty filter object is equivalent to omitting
-`filter`.
+Values within each array are ORed; `types` and `state_keys` are ANDed. An
+omitted member matches everything, and `{}` is equivalent to omitting `filter`.
 
-Type values are either an exact event type or a prefix pattern ending in one `*`
-character. The `*` matches zero or more characters and MUST occur only at the
-end of a value. For example, `uk.half-shot.hookshot.github.*` matches all event
-types beginning with `uk.half-shot.hookshot.github.`, but does not match
-`uk.half-shot.hookshot.other`. A type value of `*` matches every event type. The
-`*` character has no wildcard meaning in `state_keys`; a client that needs all
-state keys omits `state_keys`.
+Each type is exact or a prefix ending in `*`; `*` matches all types. State keys
+are always exact, so omitting `state_keys` requests all keys.
 
-For example, this requests all Hookshot GitHub state events and the room name,
-regardless of state key:
+For example, this requests room names and all Hookshot GitHub state events:
 
 ```http
 GET /_matrix/client/v3/rooms/%21room%3Aexample.org/state?filter=%7B%22types%22%3A%5B%22m.room.name%22%2C%22uk.half-shot.hookshot.github.%2A%22%5D%7D
 ```
 
-The response has exactly the same JSON shape and event ordering as an unfiltered
-`GET /_matrix/client/v3/rooms/{roomId}/state` response, with only non-matching
-state events removed. In particular, the response remains the existing top-level
-JSON array of client events; the filter does not introduce pagination, a new
-envelope, or sparse event representations. A successful filter which matches no
-events returns an empty array with HTTP 200.
+The response is the existing top-level array of client events, in the same
+order, with non-matching events removed. No pagination or new envelope is
+introduced; no matches returns `[]` with HTTP 200.
 
-Filtering is performed before serializing the response. Homeservers SHOULD use
-state indexes to avoid loading or serializing non-matching events, but the
-filter is an optimization and does not require a new storage format. The server
-MUST preserve the endpoint's normal state visibility checks and MUST NOT use a
-filter to reveal whether an otherwise inaccessible state event exists.
+Filtering MUST preserve normal authorization and visibility checks. Homeservers
+SHOULD apply it before serializing the response; no new storage format is
+required.
 
-If `filter` is present, a homeserver which does not advertise
-`tk.nutra.msc4511.client_state_filter` SHOULD reject the request with
-`M_UNRECOGNIZED` rather than silently returning the complete state. This lets a
-client safely fall back to the existing endpoint only when it explicitly chooses
-to pay the larger response cost. A server which advertises the feature MUST
-reject malformed URL encoding, invalid JSON, non-object filters, empty arrays,
-non-string array values, or invalid trailing-wildcard patterns with
-`M_INVALID_PARAM`.
+An implementation which does not advertise the feature SHOULD reject a request
+containing `filter` with `M_UNRECOGNIZED`, rather than returning unfiltered
+state. An implementation which advertises it MUST reject invalid JSON, a
+non-object filter, empty or non-string arrays, and invalid wildcard patterns
+with `M_INVALID_PARAM`.
 
-The filter is a query parameter rather than a request body so this remains a
-read-only extension of the existing GET endpoint and works with ordinary HTTP
-caches. Clients SHOULD URL-encode the complete JSON value and SHOULD keep
-filters small enough to fit the deployment's request-target limit. A client
-which needs a very large allow-list SHOULD make several filtered requests or use
-the unfiltered endpoint; this MSC does not define a POST replacement.
-
-The filter applies only to the current room state selected by this endpoint. It
-does not search historical state, event relations, or the event graph. The
-federation topology query defined above remains the appropriate primitive for
-those operations.
+Clients MAY fall back to the unfiltered request when the feature is unavailable.
+The filter applies only to the current state returned by this endpoint, not to
+historical state or event relations.
 
 ---
 
