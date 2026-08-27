@@ -1,11 +1,11 @@
 # MSC4521: Adaptive Set Reconciliation via PinSketch
 
 Several federation mechanisms need to know whether two servers contain the same
-set of identifiers. This MSC allows servers to decode 64-bit fingerprints for
-the symmetric difference between large populations, conditional on successful
-decode verification (the accumulator is non-binding and $h_{64}$ collisions can
-make distinct identifiers indistinguishable to the decoder, so verification
-cannot unconditionally detect every incorrect decode; see
+set of identifiers. This MSC allows servers to decode candidate 64-bit
+fingerprints for the symmetric difference between large populations, conditional
+on successful decode verification (the accumulator is non-binding and $h_{64}$
+collisions can make distinct identifiers indistinguishable to the decoder, so
+verification cannot unconditionally detect every incorrect decode; see
 [Decode and verification](#decode-and-verification)). This MSC helps ensure
 network synchronization.
 
@@ -71,10 +71,11 @@ the original identifiers. The digest exchange alone cannot recover a remote
 event ID from its fingerprint. This profile therefore does not, by itself,
 define an event-repair protocol.
 
-The 128-bit accumulator does not prove frame agreement. A consuming protocol
-MUST verify both sides are comparing the same frame, snapshot, population kind,
-digest profile, and element canonicalization before subtracting sketches. If
-agreement cannot be established, the comparison MUST abort.
+The 128-bit accumulator does not prove frame agreement. Before subtracting
+strata or extraction sketches, a consuming protocol MUST verify both sides are
+comparing the same frame, snapshot, population kind, digest profile, and
+element canonicalization. If agreement cannot be established, the comparison
+MUST abort.
 
 ## Summary of protocol bounds and recommendations
 

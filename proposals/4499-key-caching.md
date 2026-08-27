@@ -14,8 +14,8 @@ by last-write-wins (an upsert keyed on `(server_name, key_id)`), the opposite of
 the First Seen Wins rule this MSC introduces. The protocol itself remains
 underspecified and does not give clear guidance on this matter.
 
-This ambiguity allows key collisions to cause room state divergence and
-introduces undefined behavior when servers attempt to gracefully handle them via
+This ambiguity allows key collisions to cause room state divergence between
+servers, and introduces undefined behavior when attempting to handle them via
 trial verification.
 
 This MSC standardizes signing key caching requirements, introduces a strict

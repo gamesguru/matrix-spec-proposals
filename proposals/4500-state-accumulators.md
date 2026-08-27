@@ -2,9 +2,9 @@
 
 This MSC introduces an incremental hasher which tracks state map entries by ID
 as well as `m.room.redaction` events (since they can affect state content). This
-standardizes a wire format for uniquely fingerprinting state sets in
-microseconds. The underlying lattice hashing techniques (LtHash) are established
-in distributed systems and state synchronization tooling[^0.e].
+standardizes a wire format for uniquely fingerprinting state sets. Similar
+techniques are used in production by Ethereum, Facebook's RocksDB `folly`, and
+others[^0.e].
 
 State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
