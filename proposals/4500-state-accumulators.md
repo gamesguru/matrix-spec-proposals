@@ -1,11 +1,11 @@
 # MSC4500: State accumulator and transaction digests
 
-This MSC introduces a incremental hasher which tracks state map entries by ID as
-well as `m.room.redaction` events (since they can affect state content). This
-brings a universal, over-the-wire spec allowing for globally unique
-fingerprinting of state sets in a single `17 us` function call. The underlying
-techniques are already used by multiple large enterprises with larger economic
-stakes: Ethereum, Facebook's RocksDB `folly`, and others[^0.e].
+This MSC introduces an incremental hasher which tracks state map entries by ID
+as well as `m.room.redaction` events (since they can affect state content). This
+standardizes a wire format for uniquely fingerprinting state sets in
+microseconds. The underlying techniques are already used by multiple large
+enterprises with larger economic stakes: Ethereum, Facebook's RocksDB `folly`,
+and others[^0.e].
 
 State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
