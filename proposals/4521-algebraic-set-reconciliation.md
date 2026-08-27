@@ -37,12 +37,14 @@ saturated exchange at 32 KiB of unencoded syndrome data (~42.7 KiB wire-encoded
 as base64url), excluding object payloads. Here $q = 2^{64}$ is the size of the
 finite field used by the syndrome coordinates, so $\log_2 q = 64$. Decoding a
 capacity-$k$ node costs $O(k^2 \log_2 q)$. A difference of size $d$ spread over
-$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log_2 q\right)$. Quadratic
-complexity means that invertible bloom filters will outscale this MSC
-asymptotically, but at smaller deltas, this MSC wins (nearly all typical use
-cases). Larger differences are a frame problem, not a reconciliation problem
-(see [Scalability](#scalability)). More capacity extends a round; it does not
-restart it.
+$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log_2 q\right)$. While
+invertible Bloom lookup tables (IBLTs) achieve linear decode scaling for massive
+symmetric differences, PinSketch minimizes wire footprint and provides
+deterministic arithmetic capacity extensions without false-positive decode loops
+for differences within the target bound. Larger differences indicate frame
+misalignment rather than frontier reconciliation (see
+[Scalability](#scalability)). More capacity extends a round; it does not restart
+it.
 
 These bounds are load-bearing protocol invariants, not tuning guidance: the
 $k \le 32$ per-node cap constrains single-node CPU cost, while the 4,096-element
@@ -372,8 +374,9 @@ partition would require (see "Resident structure") — and unlike that structure
 it serves every depth, not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
-architecture used by Erlay.[^4] Keep the field math fixed, size the exchange
-before decoding, and split only when the current capacity is not enough.
+architecture used by Erlay.[^4] The dynamic tree design adheres to a fixed
+finite field, sizes exchanges before decoding, and splits nodes only when
+capacity is exceeded.
 
 This split is a localization step, not a proof that the peer is wrong: it only
 narrows the candidate population to the prefix that still overflows.

@@ -184,12 +184,12 @@ to substitute the first-seen key body: mutating `verify_keys` or
 `old_verify_keys` invalidates the origin's `signatures` entry for that payload,
 so a patched response fails verification for any downstream client checking the
 origin's own signature, regardless of any additional signature the notary itself
-appends. Implementations instead satisfy this requirement by declining to update
-their served cache entry for that origin when a fetch contains a rejected
-collision, continuing to serve the last self-signed payload consistent with the
-bindings they actually accepted. This also familiarizes developers with the
-inescapable future where key _bodies_ (values as opposed to IDs) become close to
-~1 KB (prohibitively large for a "unique identifier" in a relational database).
+appends. Implementations instead satisfy this requirement by declining to update their
+served cache entry for that origin when a fetch contains a rejected collision,
+continuing to serve the last self-signed payload consistent with the bindings they
+actually accepted. Indexing by digest also accommodates wider or post-quantum key
+formats where raw key bodies are significantly larger than traditional public key
+fields.
 This forensic index is an implementation-private log of rejected material; it is
 not part of the notary's served binding set and is therefore outside the scope
 of the 3,000-key retention ceiling described under
@@ -289,17 +289,15 @@ key `A` is now associated with a different public key `B`, the receiving server:
    the new observation is a direct fetch, in which case the two-tier override
    rule applies (see Notary fallback). In all other cases, the conflicting
    response MUST NOT replace it.
-2. **SHOULD log the collision.** It helps forensically to log the key ID
-   collision at warning level, including the remote server name, the key ID, and
-   the SHA-256 fingerprints of both the cached and conflicting public keys. This
-   alerts the operator to a potential misconfiguration or compromise on the
-   remote server and may aid in community forensic or reconciliation efforts.
-3. **MUST NOT perform trial verification.** The server SHOULD NOT cache multiple
-   key bodies under the same key ID and MUST NOT attempt extra signature
-   verification other than against the single bound key body. Notaries are the
-   exception: they may index historical bodies internally for forensics, as
-   described above. See [Security considerations](#security-considerations) for
-   the vulnerabilities and general annoyances this would introduce.
+2. **SHOULD log the collision.** Servers SHOULD log the key ID collision at
+   warning level, including the remote server name, the key ID, and the SHA-256
+   fingerprints of both the cached and conflicting public keys. This alerts the
+   operator to a potential misconfiguration or compromise on the remote server
+   and aids in forensic reconciliation.
+3. **MUST NOT perform trial verification.** The server MUST NOT cache multiple
+   active key bodies under the same key ID and MUST NOT attempt multi-key trial
+   verification. (Notaries may index rejected bodies for internal forensics as
+   described above; see [Security considerations](#security-considerations)).
 
 <!-- synapse-derived: complement coverage currently exercises this behavior
 against Synapse in TestMSC4499Key/DuplicateJSONKeyRejection -->
@@ -417,9 +415,8 @@ server's configured signing key has a different key body than what was
 previously persisted for that key ID, the server MUST refuse to start and emit a
 clear error message instructing the administrator to either restore the original
 key or assign a new key ID. This prevents the misconfiguration from propagating
-to the federation in the first place. Ideally the server should also check for
-pre-existing keys under that ID with its configured notaries (but if they abide
-by the paragraph below, this is a largely unnecessary precaution).
+to the federation in the first place. Implementations MAY also check configured
+notaries for pre-existing keys under that ID at startup.
 
 Because local startup guardrails cannot detect collisions if the server's
 database has been entirely wiped (the most common cause of key ID reuse),
@@ -474,10 +471,9 @@ unrecoverable database failure without backup):
    for this scenario.
 
 The protocol does not provide an automated recovery mechanism for key ID
-collisions. Under the current constraints, it is best for the federation to
-surface the misconfiguration as a visible failure — forcing the administrator to
-discover and fix the error — than to bake dangerous trial verification logic or
-other accommodations into homeservers to quietly allow administrative mistakes.
+collisions. The protocol deliberately surfaces misconfiguration as a
+deterministic verification failure rather than introducing trial verification
+fallbacks that mask key collisions.
 
 **Manual cache eviction.** Because the First Seen Wins policy permanently binds
 a key ID, a successful TOFU poisoning attack (or serious remote
@@ -578,8 +574,8 @@ validity-window metadata instead of key-body identity.
 The strict key ID uniqueness requirement ensures that this lookup is always
 unambiguous: for any `(server_name, algorithm, key_id)` tuple, there is at most
 one public key body, and its validity window is well-defined. This permanent
-binding also acts as a forensic asset post-compromise: you can definitively
-prove which specific key body signed what event, and when.
+binding also ensures auditors can deterministically verify which key body signed
+a given event and when.
 
 This MSC deliberately does not put collision handling into room version auth
 rules. Key ID collisions are local observations from out-of-band HTTP key
@@ -680,8 +676,9 @@ believe they were following the room version.
   against this: if the legitimate key was cached first, the attacker's key is
   rejected as a collision. If the attacker's key is cached first (the server was
   never contacted before), TOFU provides no protection regardless of this MSC —
-  an inherent limitation of TOFU, not a flaw in the proposal. Currently
-  mitigating this is an admin effort.
+  an inherent limitation of TOFU, not a flaw in the proposal. Mitigating
+  first-contact poisoning remains an out-of-band administrative verification
+  task.
 
 - **Bounded key revocation lag (inherited limitation).** Matrix key resolution
   is strictly pull-based; an origin server cannot push a rotation or an
@@ -710,7 +707,7 @@ believe they were following the room version.
   notary-learned keys prevents notary-enforced lock-in, it temporarily exposes
   the server to DNS/BGP spoofing on direct connections. This is an acceptable
   TOFU trade-off because (1) direct connections use WebPKI TLS certificate
-  validation (bringing in standard internet-grade security), (2) the window of
+  validation (leveraging standard WebPKI validation), (2) the window of
   vulnerability is bounded to the brief provisional period before the server
   performs a confirming direct fetch, and (3) future MSCs such as a Global
   Settings Lock would effectively mitigate this concern.
@@ -1056,7 +1053,7 @@ administrator regenerates their keys, the new key body structurally enforces a
 novel key ID. This entirely mitigates the TOFU poisoning vulnerability (an
 attacker cannot assert a new key under an old ID without conducting a
 computationally intractable search). It would eliminate the need for out-of-band
-collision detection heuristics, allowing us to enforce strict key uniqueness
+collision detection heuristics, enabling enforcement of strict key uniqueness
 directly within room version auth rules.
 
 Because this requires changing how PDU signatures are verified and supplants

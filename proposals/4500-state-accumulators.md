@@ -3,9 +3,8 @@
 This MSC introduces an incremental hasher which tracks state map entries by ID
 as well as `m.room.redaction` events (since they can affect state content). This
 standardizes a wire format for uniquely fingerprinting state sets in
-microseconds. The underlying techniques are already used by multiple large
-enterprises with larger economic stakes: Ethereum, Facebook's RocksDB `folly`,
-and others[^0.e].
+microseconds. The underlying lattice hashing techniques (LtHash) are established
+in distributed systems and state synchronization tooling[^0.e].
 
 State is a derived property of the DAG, meaning it changes over time as events
 are received. Most basically, state is a `set()` of `$eventIDs`; it can also be
@@ -24,28 +23,25 @@ bounds the runtime complexity by a constant factor ($1/100$), but it does not
 bound it asymptotically. The write-time complexity is still $O(S)$ per step and
 $O(S^2)$ cumulatively over the room history or state DAG.
 
-Additionally, these local implementations have no way of sharing state group IDs
-over federation; they effectively speak different languages—neither Synapse's
-`state_groups` nor Conduit's `shortstatehash` are universally specified—they are
-implementation-specific. Going forward, the ability to speak the same language
-and verify set equality may allow diagnosing divergence early in an exchange.
+Additionally, current implementations lack a federated state identifier format:
+neither Synapse's `state_groups` nor Conduit's `shortstatehash` is standardized
+across implementations. Standardizing deterministic state commitments allows
+servers to detect state divergence across federation without re-exchanging full
+state maps.
 
-This MSC does not, on its own, solve the state resolution bottleneck. Combined
-with a HAMT[^0.b] that carries the delta itself, `LtHash` is one ingredient of
-the future speedup — the piece that collapses state into a fixed-size, secure
-commitment[^0.c].
+This MSC does not resolve the state resolution bottleneck in isolation.
+Combined with a persistent tree structure (e.g. HAMT[^0.b]), homomorphic set
+hashing provides a fixed-size commitment over room state[^0.c].
 
-Furthermore, this MSC, by placing a backwards compatible (safely ignored)
-`state_hashes` key alongside `txn` request bodies, allows for instant, passive
-state comparisons with federated peers. This is important because it allows
-efficient (basically free) confirmation that two servers agree on room state.
-The proposed wire scope covers `txn` payloads and a backwards-compatible
-`/state_ids` cache component. Both use the 256-bit BLAKE digest.
+Additionally, attaching an optional `state_hashes` field to
+`PUT /_matrix/federation/v1/send/{txnId}` transaction payloads enables passive
+state equality verification across peers with minimal overhead. The proposed wire
+scope covers `txn` payloads and an ETag component for `/state_ids`, both using a
+256-bit digest.
 
-The current `LtHash16` specification is byte-for-byte compatible with Facebook
-researcher's specification[^0.d] and is available, together with test vectors,
-as a Rust library. A Golang project is also linked. Their production-readiness
-is only waiting on final wire format (algorithm specification).
+The `LtHash16` construction is compatible with the Bellare-Micciancio / Lewi et
+al. specification[^0.d], with reference implementations and test vectors
+available in Rust[^1.2.rust] and Go[^1.2.go].
 
 <!-- Edit marker. -->
 
@@ -57,7 +53,7 @@ This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
 the `/state_ids` endpoint, and a secondary redaction accumulator.
 
-The proposal is purely additive and does not break change PDU structure or
+The proposal is purely additive and does not alter PDU structure or
 authorization rules. Such changes are left to the discretion of future
 proposals.
 
@@ -199,10 +195,10 @@ include `state_hashes`, but are not required to do so. The object has two
 fields: a scalar `algorithm` identifying the digest algorithm used for every
 entry (see below), and an `entries` dictionary mapping the IDs of the PDUs
 included in the transaction to their respective state assertions. Namespacing
-both fields under `state_hashes` keeps them from occupying generic names at the
-transaction root that other MSCs might want. The `state_hashes` values always
-represent the transaction sender's local resolved state, not necessarily the
-origin server's (meaning relays forward their own view).
+both fields under `state_hashes` avoids collisions with root-level transaction
+fields in other proposals. The `state_hashes` values always represent the
+transaction sender's local resolved state, not necessarily the origin server's
+(i.e. relays forward their own view).
 
 When a PDU lists multiple `prev_events`, the `before` state is the output of the
 room version's state resolution algorithm applied across the states after each
@@ -337,11 +333,10 @@ per resolvable PDU; the 2048-byte lattices are never duplicated on the wire.
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
-When a server catches a `/send` transaction containing the `state_hashes`
-payload, it collapses its own local primary and causal-redaction-overlay
-lattices at that exact DAG point using fast bitmap operations, hashing each down
-to a canonical 32-byte `BLAKE2b-256` digest. If the local digests match the
-incoming ones, all systems are nominal.
+When a server receives a `/send` transaction containing a `state_hashes`
+payload, it collapses its local primary and causal-redaction-overlay lattices at
+that DAG point to a canonical 32-byte `BLAKE2b-256` digest. If the local digests
+match the incoming ones, processing proceeds normally.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
@@ -380,9 +375,8 @@ Mismatch handling SHOULD be deduplicated per room (i.e. the first detection
 triggers logging, but subsequent mismatching transactions MUST be subject to
 exponential backoff or local rate-limiting to limit logger output and network
 activity). Note that if a receiving server **rejects** an incoming state event
-due to auth/power-level rules, their `after` hash will instantly (and correctly)
-mismatch the sender's `after` hash. This mechanism instantly detects split-brain
-authorization failures.
+due to auth/power-level rules, their `after` hash will mismatch the sender's
+`after` hash, detecting split-brain authorization failures.
 
 Primary and overlay mismatches SHOULD be reported separately. A primary mismatch
 means the servers disagree about the selected state event IDs. An overlay
@@ -398,18 +392,13 @@ Homeservers operating under Partial State (MSC3706) MUST silently defer hash
 validation for that room. They cannot compare state to emit warnings (until the
 room state is fully synchronized).
 
-The emphasis here is on agility: if a receiver cannot validate the `before` and
-`after` hashes readily (e.g., from an in-memory LRU cache or a point database
-lookup), they MUST defer the verification pipeline. This same deferral applies
-whenever a receiver cannot yet resolve state at the relevant DAG point at all —
-for example, while it is still mid-gap behind a `/get_missing_events` shortfall
-(see the motivating case in the introduction): an unresolved gap MUST be
-silently deferred like any other not-yet-resolvable point, never treated as a
-positive signal either way. This proposal accordingly does not repair a broken
-`/get_missing_events` implementation; what it changes is only the case where a
-receiver's view _is_ resolvable, by catching a genuine split-brain on the very
-next transaction instead of letting it surface later as a confusing downstream
-authorization failure.
+Validation is non-blocking: if a receiver cannot validate `before` and `after`
+hashes immediately (e.g. from local cache or point lookups), it MUST defer
+validation. This deferral applies whenever a receiver cannot yet resolve state at
+the relevant DAG point (e.g. pending missing event fetches); an unresolved gap
+MUST be silently deferred rather than treated as a mismatch. This allows
+resolvable views to detect split-brain conditions on the incoming transaction
+without blocking unresolvable pipelines.
 
 A mismatched or deferred hash does not block the PDU; it is still processed
 under standard rules. Whether a homeserver implements an automated healing
@@ -568,9 +557,8 @@ plus one addition. A bundle of 100 deltas is 100 additions and 100 subtractions.
 Servers without persisted lattices can compute them on demand per-event during
 delta chain traversals or state resolution.
 
-Homeservers who do not yet support large customers (millions of rooms or users)
-may elect for a monolithic database migration once the wire format is
-stabilized.
+Deployments with modest room or user counts may opt for a direct database
+migration once the wire format is stabilized.
 
 ### State identifiers and local storage optimizations
 
@@ -579,30 +567,31 @@ They are advisory; a server MAY implement none, some, or all of them.
 
 Locally, an accumulator makes state identity path-independent instead of
 path-dependent (cf. Solana's "Accounts Lattice Hash" [^3.1.a], which computes
-rolling `O(1)` state-root identities the same way). Today's homeservers trade
-read-time CPU against write-time I/O: Synapse's incrementing "state group" IDs
-need cache-heavy comparisons or graph traversal to tell two groups apart, and
-rely on background workers to deduplicate converging groups; Conduit-derived
+rolling `O(1)` state-root identities the same way). Current homeservers trade
+read-time CPU against write-time I/O: Synapse's incrementing state group IDs
+require cache-heavy comparisons or graph traversals to differentiate groups and
+rely on background workers to deduplicate convergent states; Conduit-derived
 implementations hash sorted state lists (`ShortStateHash`) for cheap reads but
 must re-materialize, re-sort, and re-hash the full state vector on every write,
-since `BLAKE2b-256` isn't homomorphic.
+since standard hash functions are not homomorphic.
 
 An `LtHash16` accumulator's 32-byte digest gives three optimizations instead:
 
 1. **`O(1)` state progression.** A new state group's digest is the parent's
    cached lattice with one subtraction and one addition, collapsed — no delta
    walk, no re-sorted materialization, independent of room size or fork depth.
-2. **Free deduplication.** Lattice addition is commutative, so `Base + X + Y`
-   and `Base + Y + X` collapse to the same digest regardless of DAG-branch
-   ordering. Convergent branches can be deduplicated to one state group ID via a
-   plain unique-index or point lookup, with no dictionary comparison.
+2. **Path-independent deduplication.** Lattice addition is commutative, so
+   `Base + X + Y` and `Base + Y + X` collapse to the same digest regardless of
+   DAG-branch ordering. Convergent branches can be deduplicated to one state
+   group ID via a plain unique-index or point lookup, with no dictionary
+   comparison.
 3. **Fast-path state resolution.** State resolution v2/v2.1's first step —
    checking whether diverging tips actually differ — becomes a 32-byte
    comparison; equal digests mean no conflict set, skipping the algorithm
    entirely.
 
 Delta chains are still needed to materialize state for client APIs and to
-isolate the actual conflict set during resolution (a homomorphic hash can't be
+isolate the actual conflict set during resolution (a homomorphic hash cannot be
 inverted to name its summands); the accumulator only removes them from the
 write-path and the fast-path equality check.
 
@@ -647,7 +636,7 @@ payload of the event, enforcing it as a protocol-level requirement.
 
 **Disadvantages:**
 
-- **PDU bloat:** PDUs already suffer from excessive meta-data.
+- **PDU size:** Increases PDU size overhead.
 - **Leads to confusion:** Matrix allows for servers being slightly out of sync.
   Implying consensus on every event leads to ambiguity (situations even arise
   where administrative power events can rewrite formerly correct state).
@@ -660,7 +649,8 @@ payload of the event, enforcing it as a protocol-level requirement.
   which show how room versions evolve the conflict-resolution rules that this
   proposal tries not to disturb.
 
-A transaction-level approach achieves similar diagnostic goal without friction.
+A transaction-level approach achieves the diagnostic goal without altering event
+schemas.
 
 ### Hashes in the `unsigned` dictionary
 
@@ -679,10 +669,10 @@ A transaction-level approach achieves similar diagnostic goal without friction.
 
 By placing these digests in the `PUT /send` request body, they are automatically
 protected by the sending server's `X-Matrix` authorization headers, providing
-free tamper-resistance on the primary hop. Consequently, relaying servers assert
-their own perceived state digest rather than blindly forwarding the origin
-server's viewpoint — limiting the propagation of unverified hints and offering
-broader auditability of major servers that frequently act as relays.
+authenticated tamper-resistance on the primary hop. Consequently, relaying
+servers assert their own perceived state digest rather than blindly forwarding
+the origin server's viewpoint — limiting the propagation of unverified hints and
+offering broader auditability of major servers that frequently act as relays.
 
 ### Historical repair endpoints
 
@@ -907,10 +897,8 @@ not required to implement this proposal.
     <https://forum.canton.network/t/what-shared-state-do-acs-commitments-cover/5012>
 
 [^1.1.a]:
-    _Cryptographic_ here means "secure" (collision resistant and/or
-    non-invertible). SHA, BLAKE; AES — these are cryptographic hashes (AES is an
-    encryption scheme, not hash). MD5; XXH3; Poseidon; Zobrist —
-    **non-**cryptographic hashes (Poseidon is _pseudo_-cryptographic).
+    _Cryptographic_ here refers to standard collision-resistant, one-way hash
+    constructions.
 
 [^1.2.rust]:
     `rezzy/src/state/lthash.rs` at master · gamesguru/rezzy
