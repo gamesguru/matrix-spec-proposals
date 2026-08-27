@@ -221,6 +221,72 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
 3. **Deep diff:** Only when digests differ, iterate the 32-bit CHAMP bitmaps and
    recurse into differing children to extract the exact mismatched leaves.
 
+**Reference implementation.** This algorithm is not merely descriptive: `rezzy`
+implements it directly (`isolate_delta`/`diff_hamt_nodes` in `hamt/delta.rs`),
+including the lattice-then-structural-hash short-circuit in step 2 and the
+recursive bitmap walk in step 3, and its own doc comment states the same
+$O(|\Delta| \cdot \log_{32} S)$ bound. Implementations targeting this MSC in
+Rust can use it as-is rather than re-deriving the walk.
+
+**Producer-tracked deltas dominate isolate_delta, not the reverse.** Delta
+isolation exists for the case where two states must be compared with no prior
+relationship recorded between them (e.g., a state fork rediscovered after a
+network partition, or a deep historical rebuild). It is not the preferred way to
+obtain a delta when one is knowable for free at the point a new state is
+produced: a single linear state change (one PDU altering one
+`(event_type, state_key)`) never needs step 1–3 at all — the change is already
+`O(1)` to name and `O(\log_{32} S)` to apply via a persistent insert/remove
+against the prior root (see Write-path cost, above). Even a multi-way
+state-resolution merge already computes its conflicted-key set as part of
+resolving conflicts; that set _is_ the delta, at zero additional cost, whenever
+the resolver is in a position to report it. `isolate_delta` is the fallback for
+the residual case — comparing two already-opaque resolved states with no
+recorded provenance between them — not the default path for every state
+transition. An implementation that reaches for `isolate_delta` (or, worse, a
+full flat-map comparison) on every state change where provenance was actually
+available has reintroduced an unnecessary $O(S)$-or-worse step ahead of a change
+this MSC's write path already makes $O(\log_{32} S)$ or, at worst,
+$O(|\Delta| \cdot \log_{32} S)$.
+
+### Optional: typed roots (per-event-type partitioning)
+
+Implementations MAY additionally partition the flat HAMT described above by
+event type, trading a small amount of write-path complexity for cheaper
+type-scoped bulk reads (e.g. "all `m.room.member` state," the most common
+non-point Matrix state query):
+
+```text
+TypedRoot
+ ├── structural_hash   local, keyed directory identity (see below)
+ ├── state_group_id    the same unkeyed State Group ID as the flat root
+ └── directory (sorted by event_type)
+       event_type -> subtree_hash   -- one flat HAMT per event type
+```
+
+A type-scoped read resolves the directory, then traverses only the matching
+subtree, at a cost of $O(\log_{32} S + S_T)$ rather than $O(S)$ for the matching
+type's state size $S_T$. This is a read-side optimization only: it does not
+create key ordering, and a request that isn't type-scoped (a state-key range, an
+arbitrary predicate) gets no benefit from it.
+
+**Normative-in-spirit caution for any implementation adopting this extension:**
+the directory itself MAY use a cheap, local, keyed digest as its own structural
+identity (parallel to an internal HAMT node's keyed digest in Data structure,
+above) — but the typed root's `state_group_id` MUST remain the same unkeyed
+`LtHash`-derived identity the flat root would produce for identical logical
+content, computed directly from the full set of
+`(event_type, state_key, event_id)` entries (`LtHash` addition is commutative
+and associative, so summing it per event-type subtree and then combining is
+exactly equivalent to summing it once over the flat list — but only when every
+entry contributes through the identical encoding exactly once). It must **not**
+be derived from, or replaced by, a combination of the subtrees' keyed structural
+hashes: doing so silently produces a server-local, non-homomorphic value in the
+one field this MSC requires to be cross-server comparable, defeating the `O(1)`
+deduplication this proposal exists to provide. An implementation adding this
+extension should verify the equivalence with a direct test — construct the same
+logical state both ways and assert identical `state_group_id` — rather than
+assume the composition is correct by inspection.
+
 ### Bounded forward repair
 
 Where an implementation retroactively repairs descendant state groups after a
