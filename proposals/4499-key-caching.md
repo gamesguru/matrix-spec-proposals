@@ -184,16 +184,15 @@ to substitute the first-seen key body: mutating `verify_keys` or
 `old_verify_keys` invalidates the origin's `signatures` entry for that payload,
 so a patched response fails verification for any downstream client checking the
 origin's own signature, regardless of any additional signature the notary itself
-appends. Implementations instead satisfy this requirement by declining to update their
-served cache entry for that origin when a fetch contains a rejected collision,
-continuing to serve the last self-signed payload consistent with the bindings they
-actually accepted. Indexing by digest also accommodates wider or post-quantum key
-formats where raw key bodies are significantly larger than traditional public key
-fields.
-This forensic index is an implementation-private log of rejected material; it is
-not part of the notary's served binding set and is therefore outside the scope
-of the 3,000-key retention ceiling described under
-[Storage considerations](#storage-considerations), which governs only the
+appends. Implementations instead satisfy this requirement by declining to update
+their served cache entry for that origin when a fetch contains a rejected
+collision, continuing to serve the last self-signed payload consistent with the
+bindings they actually accepted. Indexing by digest also accommodates wider or
+post-quantum key formats where raw key bodies are significantly larger than
+traditional public key fields. This forensic index is an implementation-private
+log of rejected material; it is not part of the notary's served binding set and
+is therefore outside the scope of the 3,000-key retention ceiling described
+under [Storage considerations](#storage-considerations), which governs only the
 bindings a notary actively serves. However, the forensic index MUST still be
 bounded: implementations MUST either retain only bounded digest metadata
 (origin, key ID, digest, timestamps, and reason for rejection), or enforce

@@ -73,9 +73,8 @@ define an event-repair protocol.
 
 The 128-bit accumulator does not prove frame agreement. Before subtracting
 strata or extraction sketches, a consuming protocol MUST verify both sides are
-comparing the same frame, snapshot, population kind, digest profile, and
-element canonicalization. If agreement cannot be established, the comparison
-MUST abort.
+comparing the same frame, snapshot, population kind, digest profile, and element
+canonicalization. If agreement cannot be established, the comparison MUST abort.
 
 ## Summary of protocol bounds and recommendations
 

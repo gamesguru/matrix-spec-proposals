@@ -29,15 +29,15 @@ across implementations. Standardizing deterministic state commitments allows
 servers to detect state divergence across federation without re-exchanging full
 state maps.
 
-This MSC does not resolve the state resolution bottleneck in isolation.
-Combined with a persistent tree structure (e.g. HAMT[^0.b]), homomorphic set
-hashing provides a fixed-size commitment over room state[^0.c].
+This MSC does not resolve the state resolution bottleneck in isolation. Combined
+with a persistent tree structure (e.g. HAMT[^0.b]), homomorphic set hashing
+provides a fixed-size commitment over room state[^0.c].
 
 Additionally, attaching an optional `state_hashes` field to
 `PUT /_matrix/federation/v1/send/{txnId}` transaction payloads enables passive
-state equality verification across peers with minimal overhead. The proposed wire
-scope covers `txn` payloads and an ETag component for `/state_ids`, both using a
-256-bit digest.
+state equality verification across peers with minimal overhead. The proposed
+wire scope covers `txn` payloads and an ETag component for `/state_ids`, both
+using a 256-bit digest.
 
 The `LtHash16` construction is compatible with the Bellare-Micciancio / Lewi et
 al. specification[^0.d], with reference implementations and test vectors
@@ -394,9 +394,9 @@ room state is fully synchronized).
 
 Validation is non-blocking: if a receiver cannot validate `before` and `after`
 hashes immediately (e.g. from local cache or point lookups), it MUST defer
-validation. This deferral applies whenever a receiver cannot yet resolve state at
-the relevant DAG point (e.g. pending missing event fetches); an unresolved gap
-MUST be silently deferred rather than treated as a mismatch. This allows
+validation. This deferral applies whenever a receiver cannot yet resolve state
+at the relevant DAG point (e.g. pending missing event fetches); an unresolved
+gap MUST be silently deferred rather than treated as a mismatch. This allows
 resolvable views to detect split-brain conditions on the incoming transaction
 without blocking unresolvable pipelines.
 
