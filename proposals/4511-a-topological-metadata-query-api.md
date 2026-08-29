@@ -517,7 +517,8 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4511.topology_query": true
+    "tk.nutra.msc4511.topology_query": true,
+    "tk.nutra.msc4511.merge_bases": true
   }
 }
 ```
@@ -591,6 +592,66 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
   "limited": true
 }
 ```
+
+#### Merge-base analysis example
+
+A requester learning that `$branch_a` and `$branch_b` have diverged can ask the
+responder to compute their merge bases in the same round-trip:
+
+```json
+{
+  "room_id": "!room:example.org",
+  "seed": {
+    "event_ids": ["$branch_a", "$branch_b"]
+  },
+  "edge_types": ["prev_events"],
+  "fields": ["event_id", "prev_events"],
+  "analysis": { "merge_bases": true }
+}
+```
+
+Complete response — both causal closures were fully explored:
+
+```json
+{
+  "event_fields": ["event_id", "prev_events"],
+  "events": [
+    ["$branch_a", ["$common"]],
+    ["$branch_b", ["$common"]],
+    ["$common", ["$root"]]
+  ],
+  "analysis": {
+    "merge_bases": {
+      "event_ids": ["$common"],
+      "complete": true
+    }
+  },
+  "limited": false
+}
+```
+
+Incomplete response — a limit prevented exhausting all reachable predecessors:
+
+```json
+{
+  "event_fields": ["event_id", "prev_events"],
+  "events": [
+    ["$branch_a", ["$common"]],
+    ["$branch_b", ["$common"]]
+  ],
+  "analysis": {
+    "merge_bases": {
+      "event_ids": null,
+      "complete": false
+    }
+  },
+  "limited": true
+}
+```
+
+An empty `event_ids` with `"complete": true` means both closures were fully
+explored and the seeds share no common ancestor (e.g. they originate from
+independent DAG roots).
 
 #### Traversal, authorization, and edge errors
 
