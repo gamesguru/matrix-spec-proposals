@@ -265,8 +265,8 @@ listing predecessor roots proves neither.
 
 #### Search and proof operations
 
-Part A queries MAY request proofs relative to a named anchor event `E`. A
-responder can provide:
+A future proof extension for the Part A query surface MAY request proofs
+relative to a named anchor event `E`. A responder can provide:
 
 - **inclusion:** the event ID is a leaf in $\mathcal{C}(E)$;
 - **non-inclusion:** the key-directed path terminates in a canonical empty
@@ -277,22 +277,30 @@ responder can provide:
 - **multiproof:** shared siblings for several inclusion, non-inclusion, or
   prefix queries are transmitted once.
 
-This provides the operational foundation for Part A's query predicate
-`in_past_of: "$E"`:
+The causal relation committed here is precisely the `prev_events` and, where
+defined, `prev_state_events` recurrence above. It is not a commitment to every
+navigable Part A edge relation, such as `auth_events`, `relates_to`, or
+`redacts`.
 
-- In unauthenticated room versions under Part A, "is $X$ in the past of $E$?"
-  can only be answered within the bounded exploration frontier, and negative
-  answers are incomplete (`limited: true`).
-- In room versions adopting Part C, the causal trie answers `in_past_of`
-  definitively: a non-inclusion proof proves absence across the entire unbounded
-  history ($\mathcal{C}(E)$ with $b.\text{depth} = \infty$). Responses
-  distinguish cryptographically authenticated answers (`proven: true`) from
-  bounded traversal hints (`limited: true`).
-- Similarly, `common_ancestor(a, b)` under Part C reduces to a recursive-diff /
-  intersection over the two committed tries
-  $\mathcal{C}(a) \cap \mathcal{C}(b)$; only the final antichain reduction
-  (finding maximal elements among common ancestors) is computed outside the
-  cryptographic commitment.
+MSC4511A deliberately does not include causal-membership predicates. A future
+wire extension for a room version adopting Part C MAY request a membership proof
+for a named anchor $E$ and candidate $X$. Inclusion proves
+$X \in \mathcal{C}(E)$ and non-inclusion proves the converse across the entire
+committed history. Such a response MUST identify the anchor, carry a verified
+anchor event root and signature, include the causal-trie proof, and set
+`proven: true`. It MUST NOT label an ordinary bounded traversal result as
+`proven`.
+
+The causal trie authenticates set membership, not graph reachability between
+members. It can efficiently obtain the candidate population for a future common
+ancestor operation, but it does not itself establish the required maximal
+antichain. In particular, Part A's closure includes its seed whereas
+$\mathcal{C}(a)$ excludes $a$; any such extension must use
+$(\mathcal{C}(a) \cup \{a\}) \cap (\mathcal{C}(b) \cup \{b\})$, specify the
+causal edge relation, and authenticate or fetch enough predecessor edges to
+prove maximality. `common_ancestor` therefore remains a bounded Part A compute
+operation rather than a cryptographically complete consequence of trie
+intersection.
 
 Every proof MUST identify the anchor event, algorithm, expected root, and root
 count. Sibling entries carry both hash and count. Verifiers recompute every
@@ -500,14 +508,14 @@ event, without ever learning `display_name`.
 
 ### Cryptographic proof responses
 
-When `proof` is requested in `fields` and the queried room version supports
-split canonicalization, a server SHOULD include proof material for provable
-requested fields inside the `proofs` sidecar object keyed by the corresponding
-`event_id`. A room version adopting this format enables cryptographic proof
-generation for committed header leaves (such as `state_key`, `redacts`,
-`sender_domain`, `origin_server_ts`, and `depth`), proving their authenticity
-against `event_root` via Merkle inclusion paths without requiring full event
-fetching.
+When `proofs` is named in the Part A `include` array and the queried room
+version supports split canonicalization, a server SHOULD include proof material
+for provable requested dense fields inside the `proofs` sidecar object keyed by
+the corresponding `event_id`. A room version adopting this format enables
+cryptographic proof generation for committed header leaves (such as `state_key`,
+`redacts`, `sender_domain`, `origin_server_ts`, and `depth`), proving their
+authenticity against `event_root` via Merkle inclusion paths without requiring
+full event fetching.
 
 Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
 provides any required top-level component hashes needed to reconstruct

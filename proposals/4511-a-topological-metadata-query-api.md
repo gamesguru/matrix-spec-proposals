@@ -49,14 +49,15 @@ single bounded-closure query defined as a 5-tuple $(S, R, b, \phi, \pi)$:
 - $b$ — **Bound vector**: literal resource and recursion limits (`depth`,
   `records`, `nodes`, `compute_pairs`, `common_ancestors`, `candidate_servers`).
 - $\phi$ — **Node predicate (`select`)**: a boolean filter over event properties
-  (`types`, `state_keys`, `in_past_of`) that gates event emission.
+  (`types`, `state_keys`) that gates event emission.
 - $\pi$ — **Projection**: the output representation mode (`"fields"` for dense
   positional matrices, or `"events"` for full event objects).
 
 #### Bounded frontier fixpoint evaluation
 
-Query evaluation is defined as a bounded frontier fixpoint over the room's event
-graph:
+Query evaluation is described by the following bounded frontier fixpoint. The
+normative queue, authorization, and accounting rules below determine which
+members enter a frontier when a bound is reached:
 
 <!-- markdownlint-disable MD013 -->
 
@@ -65,7 +66,7 @@ V_0 = S
 $$
 
 $$
-V_{k+1} = V_k \cup \{ t : s \in V_k, (s, t) \in R \} \quad \text{for } k < b.\text{depth}, \, |V| < b.\text{nodes}
+V_{k+1} = V_k \cup \{ t : s \in V_k, (s, t) \in R \} \quad \text{for } k < b.\text{depth}, \, |V_k| < b.\text{nodes}
 $$
 
 $$
@@ -87,15 +88,18 @@ casing.
 
 #### Core sub-Turing safety properties
 
-The query form guarantees deterministic termination and strictly bounded server
-resource consumption through three statically checkable invariants:
+The query form guarantees deterministic termination and bounded protocol-level
+work through three invariants. These limits do not promise a uniform bound on
+database latency or parsing cost for attacker-controlled event data; servers
+retain independent physical response-size and time limits.
 
 1. **Syntactic bound**: Every iteration construct's trip count is a literal
    integer in the request or a server-configured constant, never a value derived
    from queried event data.
-2. **Budget monotonicity**: Every traversal step, node lookup, and compute
-   clause draws from a single shared, non-resettable node budget
-   (`limits.nodes`).
+2. **Budget monotonicity**: Every visited node and every inspected edge
+   reference draws from a non-resettable work budget. `limits.nodes` bounds
+   nodes; servers MUST additionally enforce a configured edge-reference budget
+   and response-size budget.
 3. **Truncation totality**: Every operation has a well-defined result when the
    work budget is exhausted, and truncation is unambiguously signaled to the
    requester via `limited: true`.
@@ -172,8 +176,7 @@ The canonical request body adheres to the following JSON schema:
         "state_keys": {
           "type": "array",
           "items": { "type": "string" }
-        },
-        "in_past_of": { "type": "string" }
+        }
       },
       "additionalProperties": false
     },
@@ -196,6 +199,14 @@ The canonical request body adheres to the following JSON schema:
     "fields": {
       "type": "array",
       "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "include": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["edge_errors", "start_event_errors", "proofs"]
+      },
       "uniqueItems": true
     },
     "compute": {
@@ -278,6 +289,10 @@ ANDed. An omitted field or empty `{}` matches all visited events. Arrays in
 `select` represent mathematical sets; duplicate entries are harmless and
 ignored.
 
+`in_past_of` is deliberately not part of v1. Its negative result requires a
+second, potentially incomplete ancestry evaluation. A room version adopting
+MSC4511C MAY define a separate proof request for that operation.
+
 **Emission-only semantics:** The `select` predicate acts strictly as an
 **emission filter**, not a traversal gate. A node in $V$ that does not satisfy
 $\phi$ is still visited, still charged against the non-resettable `limits.nodes`
@@ -310,7 +325,9 @@ Dense fields available for projection include:
 - `redacts`: target event ID redacted by this event.
 - `sender`: full MXID of the event sender.
 - `sender_domain`: server domain portion of `sender`, split at the first `:`
-  character.
+  character. For example, `@alice:example.org:8448` yields `example.org:8448`.
+  If `sender` is not a valid user ID, both `sender` and `sender_domain` MUST be
+  `null`.
 - `type`: event type string.
 - `state_key`: event state key string (if a state event).
 - `candidate_servers`: list of server names recommended for routing/repair
@@ -326,9 +343,11 @@ Dense fields available for projection include:
 to a single `room_id`, emitting it in every row is redundant dead weight.
 
 If a server does not know a dense field, does not store it efficiently, or
-declines to disclose it, it emits `null` in that position. Fields expected to be
-highly sparse or diagnostic (`edge_errors`, `start_event_errors`, `proofs`) are
-returned in dedicated sidecar maps keyed by event ID.
+declines to disclose it, it emits `null` in that position. Every event row MUST
+have exactly the length and field order of `event_fields`. Diagnostic sidecars
+(`edge_errors`, `start_event_errors`, `proofs`) are not dense fields: they are
+returned only when named in `include`, as maps keyed by event ID. A server MUST
+NOT repeat a requested dense field in `event_fields`.
 
 #### Folded compute layer (`compute`)
 
@@ -345,6 +364,11 @@ algorithmic subroutines; they are derived facts over labeled closures:
 `compute_event_pairs` specifies the pairs $[a, b]$ to evaluate. If `compute` is
 present, `compute_event_pairs` MUST be present and non-empty. Malformed pairs
 cause the request to fail with `M_INVALID_PARAM`.
+
+`common_ancestor` is defined only when `edge_types` is a non-empty subset of
+`prev_events`, `auth_events`, and `prev_state_events`. A request that combines
+it with `relates_to` or `redacts` MUST be rejected with `M_INVALID_PARAM`: those
+links are navigable references, not ancestry relations.
 
 Compute evaluations draw directly from the request's shared `limits.nodes`
 currency. If the node budget is exhausted before maximality can be confirmed for
@@ -388,15 +412,19 @@ The unified cost model establishes:
 | `depth`             | `0` (fixed)            | `500`                      | Syntactic recursion bound         |
 | `records`           | `1000`                 | `1000`                     | Terminal emission cap             |
 | `nodes`             | `1000`                 | `5000`                     | Shared non-resettable work budget |
-| `compute_pairs`     | `0` (unsupported)      | `20`                       | Cap on compute pair invocations   |
-| `common_ancestors`  | `0` (unsupported)      | `20`                       | Max maximal ancestors per pair    |
-| `candidate_servers` | `0` (forbidden)        | `10`                       | Routing hint disclosure cap       |
+| `compute_pairs`     | Rejected               | `20`                       | Cap on compute pair invocations   |
+| `common_ancestors`  | Rejected               | `20`                       | Max maximal ancestors per pair    |
+| `candidate_servers` | Rejected               | `10`                       | Routing hint disclosure cap       |
 
 <!-- markdownlint-enable MD013 -->
 
 Request limits are clamped to the server's configured maximum. If traversal or
 compute is truncated by any limit or budget exhaustion, the response sets
 `limited: true`.
+
+In the Client State Profile, `compute_pairs`, `common_ancestors`, and
+`candidate_servers` are not parameters with a zero default: their presence is
+invalid and MUST be rejected with `M_INVALID_PARAM`.
 
 ---
 
@@ -445,14 +473,8 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
     "common_ancestors": 10,
     "candidate_servers": 5
   },
-  "fields": [
-    "event_id",
-    "prev_events",
-    "sender",
-    "type",
-    "candidate_servers",
-    "edge_errors"
-  ],
+  "fields": ["event_id", "prev_events", "sender", "type", "candidate_servers"],
+  "include": ["edge_errors"],
   "compute": ["common_ancestor", "hop_distance"],
   "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
 }
@@ -509,17 +531,35 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
 }
 ```
 
-#### Traversal ordering and edge errors
+#### Traversal, authorization, and edge errors
 
-Traversal is breadth-first. Within the same recursion depth, servers SHOULD
-order events by `(depth descending, event_id ascending)` where depth is known,
-with unknown-depth events ordered after known-depth events by event ID
-ascending.
+Traversal is breadth-first. A server MUST maintain a visited set and MUST visit
+an event ID at most once. Each visited event consumes exactly one unit of
+`limits.nodes`, whether or not it passes `select`. Each inspected edge reference
+consumes one unit of the server's edge-reference budget. When only some targets
+fit in the remaining budget, the server MUST retain the first targets in the
+ordering below and report the others as `truncated` if `edge_errors` was
+requested.
+
+Within the same recursion depth, servers MUST order events by
+`(depth descending, event_id ascending)` where depth is known, with
+unknown-depth events ordered after known-depth events by event ID ascending.
+
+Every seed and every discovered target MUST be checked against the requested
+`room_id` before it is queued, emitted, or expanded. Federation visibility is
+evaluated according to the room's history-visibility rules at the event being
+served. If the server cannot reconstruct the applicable historical state, it
+MUST omit the event unless it can establish that the current policy is equally
+or more restrictive. A request with no federation authorization to access the
+room MUST fail with `M_FORBIDDEN`.
 
 Edge targets that cannot be traversed are reported in `edge_errors`:
 
 - `wrong_room`: the target event belongs to a different room. The server MUST
-  NOT follow the edge or disclose data from the target room.
+  NOT follow the edge or disclose data from the target room. This code MAY be
+  returned only when the requester is authorized to learn that target under the
+  target room's history-visibility rules; otherwise the server MUST return
+  `not_available`.
 - `not_available`: the target appears to be an in-room event, but the responding
   server will not serve it to this requester (conflating absence with access
   restrictions to prevent leaking history visibility).
@@ -653,8 +693,8 @@ required for MSC4511A.
   room version.
 - [MSC4511C: Verifiable Room State and Event Metadata](4511-c-merkleized-room-version-upgrade.md):
   Completes MSC4511A's algebra by materializing the unbounded ancestor closure
-  $C(E)$ ($b.\text{depth} = \infty$) into authenticated causal tries, allowing
-  `in_past_of` queries to return cryptographic proofs (`proven: true`).
+  $C(E)$ into authenticated causal tries, allowing a future proof extension to
+  answer causal-membership queries cryptographically.
 - [MSC4000: Forwards fill](https://github.com/matrix-org/matrix-spec-proposals/pull/4000)
   &
   [MSC4370: Current extremities endpoint](https://github.com/matrix-org/matrix-spec-proposals/pull/4370):
