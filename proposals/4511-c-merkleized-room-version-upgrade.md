@@ -2,9 +2,12 @@
 
 This companion to [Part A](4511-a-topological-metadata-query-api.md) sketches
 how a future room version could make selected topology metadata independently
-provable by committing it into event identity. Current room versions should use
-Part A as hint-only; archived Part B provides responder-scoped attestations
-without a room-version change.
+provable by committing it into event identity. Part C completes Part A's bounded
+query algebra by materializing the **unbounded** ancestor closure
+$\mathcal{C}(E)$ (the fixpoint with $b.\text{depth} = \infty$) into
+authenticated, persistent data structures. Current room versions should use Part
+A as hint-only; archived Part B provides responder-scoped attestations without a
+room-version change.
 
 ## Unstable prefix
 
@@ -262,10 +265,10 @@ listing predecessor roots proves neither.
 
 #### Search and proof operations
 
-Part A MAY request proofs relative to a named anchor event `E`. A responder can
-provide:
+Part A queries MAY request proofs relative to a named anchor event `E`. A
+responder can provide:
 
-- **inclusion:** the event ID is a leaf in `C(E)`;
+- **inclusion:** the event ID is a leaf in $\mathcal{C}(E)$;
 - **non-inclusion:** the key-directed path terminates in a canonical empty
   subtree;
 - **prefix range:** a subtree root and count at a requested key-prefix;
@@ -273,6 +276,23 @@ provide:
   descend only where they differ;
 - **multiproof:** shared siblings for several inclusion, non-inclusion, or
   prefix queries are transmitted once.
+
+This provides the operational foundation for Part A's query predicate
+`in_past_of: "$E"`:
+
+- In unauthenticated room versions under Part A, "is $X$ in the past of $E$?"
+  can only be answered within the bounded exploration frontier, and negative
+  answers are incomplete (`limited: true`).
+- In room versions adopting Part C, the causal trie answers `in_past_of`
+  definitively: a non-inclusion proof proves absence across the entire unbounded
+  history ($\mathcal{C}(E)$ with $b.\text{depth} = \infty$). Responses
+  distinguish cryptographically authenticated answers (`proven: true`) from
+  bounded traversal hints (`limited: true`).
+- Similarly, `common_ancestor(a, b)` under Part C reduces to a recursive-diff /
+  intersection over the two committed tries
+  $\mathcal{C}(a) \cap \mathcal{C}(b)$; only the final antichain reduction
+  (finding maximal elements among common ancestors) is computed outside the
+  cryptographic commitment.
 
 Every proof MUST identify the anchor event, algorithm, expected root, and root
 count. Sibling entries carry both hash and count. Verifiers recompute every
@@ -483,9 +503,11 @@ event, without ever learning `display_name`.
 When `proof` is requested in `fields` and the queried room version supports
 split canonicalization, a server SHOULD include proof material for provable
 requested fields inside the `proofs` sidecar object keyed by the corresponding
-`event_id`. A room version adopting this format also extends the queryable
-`fields` set with header leaves not exposed in hint-only mode, such as
-`state_key` and `redacts`, since a field must be returnable to be provable.
+`event_id`. A room version adopting this format enables cryptographic proof
+generation for committed header leaves (such as `state_key`, `redacts`,
+`sender_domain`, `origin_server_ts`, and `depth`), proving their authenticity
+against `event_root` via Merkle inclusion paths without requiring full event
+fetching.
 
 Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
 provides any required top-level component hashes needed to reconstruct
