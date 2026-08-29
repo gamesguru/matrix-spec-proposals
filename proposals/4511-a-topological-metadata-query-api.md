@@ -365,6 +365,12 @@ duplicate field names. Duplicates in `fields` MUST be rejected with
 `M_INVALID_PARAM` before traversal because positional decoding in `events`
 requires 1:1 alignment with `event_fields`.
 
+When `projection` is `"events"`, `fields` MUST be omitted. A server receiving
+both values MUST reject the request with `M_INVALID_PARAM`, and a response in
+this mode MUST omit `event_fields`. The returned `events` array MUST be
+homogeneous: it contains only positional arrays for `"fields"` projection or
+only event objects for `"events"` projection. A mixed array MUST NOT be emitted.
+
 Dense fields available for projection include:
 
 - `event_id`: the event identifier (always required in `fields`).
@@ -472,9 +478,12 @@ Request limits are clamped to the server's configured maximum. If traversal or
 compute is truncated by any limit or budget exhaustion, the response sets
 `limited: true`.
 
-In the Client State Profile, `compute_pairs`, `common_ancestors`,
-`candidate_servers`, and `include` are not parameters with a zero default: their
-presence is invalid and MUST be rejected with `M_INVALID_PARAM`.
+The public Client State Profile filter accepts only `types` and `state_keys`.
+`compute`, `compute_event_pairs`, `include`, `fields`, `edge_types`, and
+`projection` are invalid in that profile and MUST be rejected with
+`M_INVALID_PARAM` if present. Client-controlled `limits` are likewise not part
+of the profile: depth is fixed at zero by the rewrite, and record and work
+limits are server-owned.
 
 ---
 
