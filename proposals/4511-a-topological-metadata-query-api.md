@@ -1,18 +1,9 @@
 # MSC4511A: Bounded Topology and State Queries
 
-Currently the Matrix protocol relies on fetching entire events to perform
-backfills or otherwise retrieve previous or missing events. Often we do not know
-the shape of the graph we are traversing, whether it is a dead end, or whether
-two branches reconnect at a known common ancestor. When a server encounters a
-gap in the DAG, the current federation API provides limited ways to discover
-which events reference the gap, which servers sent or received them, or which
-servers are otherwise likely to have the missing event before fetching full
-events.
-
-Similarly, on the Client-Server API, clients fetching room state via
-`GET /_matrix/client/v3/rooms/{roomId}/state` must retrieve the entire room
-state dictionary even when they only require a few specific state event types
-(such as `m.room.name` or specific application-scoped state).
+Federation repair currently requires fetching full events before a server can
+learn the shape of a gap in the DAG. Likewise,
+`GET /_matrix/client/v3/rooms/{roomId}/state` returns the complete state
+dictionary even when a client needs only selected event types or state keys.
 
 This proposal unifies both surfaces under a single formal **bounded-closure
 query primitive**. Homeservers can execute bounded graph traversals and return
@@ -704,56 +695,15 @@ the general query grammar to clients.
 
 #### Deferral of predicate-gated traversal (`traverse`)
 
-Predicate-gated expansion (`traverse`) is intentionally deferred from v1.
-Filtering which edges are traversed changes the reachable closure $V$, which
-interacts destructively with `compute` (a common ancestor over a pruned graph is
-not a true merge base) and overlaps with history-visibility pruning. By
-restricting $\phi$ (`select`) to an emission filter over unpruned closures, v1
-achieves complete unification of federation and C2S surfaces with zero traversal
-ambiguity.
+Predicate-gated expansion (`traverse`) is deferred from v1. Pruning edges
+changes the reachable closure and can make computed ancestry and
+history-visibility semantics ambiguous. `select` is therefore an emission filter
+only.
 
 #### Forward recursive queries
 
-Future extensions may define forward recursion (following inverse `prev_events`
-or `auth_events` references) to aid witness discovery and cache hunting. Such
-extensions must specify forward indexing structures, traversal ordering, and
-hard visit budgets.
-
----
-
-### Packaging and deployment strategy
-
-The architectural unification and deployment vehicles are decoupled:
-
-1. **Semantic Unification**: MSC4511A defines the comprehensive query primitive
-   $(S, R, b, \phi, \pi)$ and shared evaluator semantics.
-2. **Independent Shipping**: The Client State Profile can be shipped as an
-   independent, lightweight C2S MSC referencing MSC4511A's grammar. Issue #2019
-   is its motivating consumer example. This allows immediate client performance
-   gains without coupling to federation traversal reviews or room-version
-   upgrades.
-
----
-
-### Performance characteristics and benchmarking
-
-#### Asymptotic bandwidth analysis
-
-For a traversal visiting $N$ events:
-
-- Full-event retrieval transfers $O(N \cdot S_{\text{event}})$ bytes.
-- Sparse topology queries transfer $O(N \cdot S_{\text{meta}})$ bytes.
-
-With $S_{\text{event}} \approx 1\text{--}5\text{ KiB}$ and
-$S_{\text{meta}} \approx 80\text{--}300\text{ bytes}$, bandwidth reductions of
-70% to 98% are achieved for DAG exploration and merge-base discovery.
-
-#### Storage and indexing
-
-Homeservers answer queries from existing event stores supplemented by standard
-indexes over `(room_id, event_id)`, `prev_events`, `auth_events`, `type`, and
-`state_key`. No cryptographic tree generation or new storage formats are
-required for MSC4511A.
+Future extensions may define forward recursion over inverse predecessor edges,
+but must specify indexing, ordering, and visit bounds.
 
 ---
 
@@ -773,7 +723,7 @@ required for MSC4511A.
 - [MSC2695: Get event by ID over federation](https://github.com/matrix-org/matrix-spec-proposals/pull/2695):
   MSC4511A identifies which missing PDUs to fetch via MSC2695.
 - [Matrix Spec Issue #2019](https://github.com/matrix-org/matrix-spec/issues/2019):
-  Directly satisfied by MSC4511A's Client State Profile.
+  A motivating consumer of the Client State Profile.
 
 ---
 

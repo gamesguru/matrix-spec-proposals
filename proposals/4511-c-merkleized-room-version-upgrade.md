@@ -754,47 +754,6 @@ unambiguous: every signed, identity-relevant event field must be committed to
 exactly once, and verifiers must be able to determine which leaf position proves
 or withholds each independently provable field.
 
-## Performance characteristics and benchmarking
-
-The shared bandwidth and benchmarking analysis for the topology query endpoint
-is defined in
-[Part A, Performance characteristics and benchmarking](4511-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
-This part documents only what the split-canonicalization sketch adds on top of
-that baseline.
-
-### Storage overhead
-
-The split-canonicalization sketch introduces storage overhead if a server stores
-the top-level hashes `prev_events_hash`, `auth_events_hash`,
-`event_header_root`, `redacted_content_hash`, `redactable_content_hash`,
-`content_hash`, `other_signed_fields_hash`, and `event_root`.
-
-Using SHA3-256, each hash is 32 bytes, so storing these eight hashes adds 256
-bytes of raw hash material per event before database row, index, and encoding
-overhead. For a 2 KiB event, this raw hash material is approximately 12.5% of
-the event size; for a 5 KiB event, it is approximately 5.0%. A server MUST
-retain `redactable_content_hash` past redaction execution, since it is otherwise
-unrecoverable once the redactable plaintext is dropped and is required to
-reconstruct `content_hash` and `event_root`. Implementations can recompute proof
-paths on demand; caching intermediate Merkle nodes or proof indexes is optional
-and would increase this overhead.
-
-The causal trie adds up to 256 fresh path nodes for a linear insertion, though
-persistent structural sharing reuses every untouched subtree and canonical empty
-node. A naive 32-byte hash plus 8-byte count per level is therefore roughly 10
-KiB of raw new path material per event before node encoding or deduplication.
-Implementations SHOULD use compressed paths or another canonical sparse-node
-encoding, but compression MUST preserve the root construction and proof
-semantics above. Multi-predecessor union can write more than one path and must
-be benchmarked separately from the linear case.
-
-### Cacheability
-
-The base topology-query cacheability analysis from Part A applies unchanged to
-responses carrying proofs: the committed metadata is event-intrinsic and
-immutable, so a cached proof-bearing response remains useful as room history
-advances.
-
 ## Relationship to other proposals
 
 This room-version sketch is the native-verifiability counterpart to Part A's
