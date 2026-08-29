@@ -201,14 +201,6 @@ The canonical request body adheres to the following JSON schema:
         "enum": ["edge_errors", "start_event_errors", "proofs"]
       },
       "uniqueItems": true
-    },
-    "analysis": {
-      "type": "object",
-      "required": ["merge_bases"],
-      "properties": {
-        "merge_bases": { "const": true }
-      },
-      "additionalProperties": false
     }
   },
   "additionalProperties": false
@@ -250,39 +242,6 @@ projection rules below.
     "proofs": {
       "type": "object",
       "additionalProperties": { "type": "object" }
-    },
-    "analysis": {
-      "type": "object",
-      "required": ["merge_bases"],
-      "properties": {
-        "merge_bases": {
-          "oneOf": [
-            {
-              "type": "object",
-              "required": ["event_ids", "complete"],
-              "properties": {
-                "event_ids": {
-                  "type": "array",
-                  "items": { "type": "string" },
-                  "uniqueItems": true
-                },
-                "complete": { "const": true }
-              },
-              "additionalProperties": false
-            },
-            {
-              "type": "object",
-              "required": ["event_ids", "complete"],
-              "properties": {
-                "event_ids": { "type": "null" },
-                "complete": { "const": false }
-              },
-              "additionalProperties": false
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
     },
     "limited": { "type": "boolean" }
   },
@@ -361,43 +320,6 @@ budget, and still expanded along $R$. Reachability semantics are invariant to
 the projection filter, guaranteeing that different requesters querying the same
 graph structure receive consistent, comparable closures.
 
-#### Paired-seed merge-base analysis (`analysis`)
-
-The optional `analysis: {"merge_bases": true}` requests the merge-base antichain
-for a paired causal closure. A server advertising `tk.nutra.msc4511.merge_bases`
-MUST implement these rules; a server that does not advertise it MUST reject
-`analysis` with `M_UNRECOGNIZED`.
-
-The request MUST use `seed.event_ids` containing exactly two distinct IDs and a
-non-empty `edge_types` subset of `prev_events` and `prev_state_events`. It MUST
-NOT use a state seed, `auth_events`, `relates_to`, or `redacts`; violations MUST
-be rejected with `M_INVALID_PARAM`. `select` affects ordinary event emission but
-not this analysis.
-
-Let $A = \{a\} \cup \operatorname{closure}(a)$ and
-$B = \{b\} \cup \operatorname{closure}(b)$ under the selected causal edges. The
-responder MUST perform one shared paired-seed traversal. Each loaded event has a
-two-bit source label recording reachability from $a$, $b$, or both. An event ID
-consumes one unit of `limits.nodes` only on first load; when it gains a new
-source label, the responder propagates that label across its cached selected
-edges. Each such propagation consumes the ordinary edge-reference budget. The
-responder MUST retain every inspected selected edge as `child` to `parent`.
-
-An event with both labels is a common ancestor. After a complete traversal, it
-is a merge base when no common child has a selected edge to it. This direct-edge
-test yields the maximal antichain because every path from one common ancestor to
-an older common ancestor contains a direct common-child edge. No separate
-reachability traversal or analysis-specific budget is permitted.
-
-The response's `analysis.merge_bases` object contains `event_ids` and
-`complete`. `event_ids` is the complete merge-base antichain, possibly empty,
-only when `complete` is `true`. It MUST be `null` when `complete` is `false`.
-`complete` is `true` only when every reachable selected causal edge was
-inspected and the result fits the response; a depth, node, edge-reference,
-record, response-size, availability, visibility, or authorization limit that
-prevents this makes the result unknown. In that case the response MUST set
-`limited: true`; it MUST NOT emit a partial antichain.
-
 #### Projection modes (`projection` and `fields`)
 
 The `projection` field selects the output encoding:
@@ -441,6 +363,15 @@ Dense fields available for projection include:
 - `depth`: integer depth of the event.
 - `rejected`: boolean indicating local rejection status (server hint).
 - `soft_failed`: boolean indicating local soft-fail status (server hint).
+- `hop_count`: non-negative integer. The minimum number of selected edges on the
+  first BFS path from any seed to this event, as observed during the responder's
+  traversal; seed events have `hop_count` `0`. This is a traversal observation
+  over the responder's available graph, not a proof of globally shortest-path
+  distance through history the responder could not inspect. `hop_count` MUST NOT
+  be requested with `seed.state`; servers MUST reject such requests with
+  `M_INVALID_PARAM`. Because `select` is an emission filter and not a traversal
+  gate, `hop_count` reflects distance to the event itself regardless of whether
+  intermediate events were emitted.
 - `content`: full canonical event content dictionary. **Allowed in Client
   Profile only; strictly forbidden in Federation Profile.**
 
@@ -517,8 +448,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4511.topology_query": true,
-    "tk.nutra.msc4511.merge_bases": true
+    "tk.nutra.msc4511.topology_query": true
   }
 }
 ```
@@ -541,7 +471,14 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
     "nodes": 5000,
     "candidate_servers": 5
   },
-  "fields": ["event_id", "prev_events", "sender", "type", "candidate_servers"],
+  "fields": [
+    "event_id",
+    "prev_events",
+    "sender",
+    "type",
+    "hop_count",
+    "candidate_servers"
+  ],
   "include": ["edge_errors"]
 }
 ```
@@ -555,6 +492,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
     "prev_events",
     "sender",
     "type",
+    "hop_count",
     "candidate_servers"
   ],
   "events": [
@@ -563,6 +501,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
       ["$prev_1", "$prev_2"],
       "@alice:example.org",
       "m.room.message",
+      0,
       ["example.org"]
     ],
     [
@@ -570,6 +509,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
       ["$prev_1"],
       "@bob:elsewhere.example",
       "m.room.member",
+      0,
       ["elsewhere.example", "example.net"]
     ],
     [
@@ -577,6 +517,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
       ["$prev_0"],
       "@alice:example.org",
       "m.room.message",
+      1,
       ["example.org"]
     ]
   ],
@@ -592,66 +533,6 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
   "limited": true
 }
 ```
-
-#### Merge-base analysis example
-
-A requester learning that `$branch_a` and `$branch_b` have diverged can ask the
-responder to compute their merge bases in the same round-trip:
-
-```json
-{
-  "room_id": "!room:example.org",
-  "seed": {
-    "event_ids": ["$branch_a", "$branch_b"]
-  },
-  "edge_types": ["prev_events"],
-  "fields": ["event_id", "prev_events"],
-  "analysis": { "merge_bases": true }
-}
-```
-
-Complete response — both causal closures were fully explored:
-
-```json
-{
-  "event_fields": ["event_id", "prev_events"],
-  "events": [
-    ["$branch_a", ["$common"]],
-    ["$branch_b", ["$common"]],
-    ["$common", ["$root"]]
-  ],
-  "analysis": {
-    "merge_bases": {
-      "event_ids": ["$common"],
-      "complete": true
-    }
-  },
-  "limited": false
-}
-```
-
-Incomplete response — a limit prevented exhausting all reachable predecessors:
-
-```json
-{
-  "event_fields": ["event_id", "prev_events"],
-  "events": [
-    ["$branch_a", ["$common"]],
-    ["$branch_b", ["$common"]]
-  ],
-  "analysis": {
-    "merge_bases": {
-      "event_ids": null,
-      "complete": false
-    }
-  },
-  "limited": true
-}
-```
-
-An empty `event_ids` with `"complete": true` means both closures were fully
-explored and the seeds share no common ancestor (e.g. they originate from
-independent DAG roots).
 
 #### Traversal, authorization, and edge errors
 
