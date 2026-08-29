@@ -142,7 +142,8 @@ The canonical request body adheres to the following JSON schema:
                 },
                 "state_keys": {
                   "type": "array",
-                  "items": { "type": "string" }
+                  "items": { "type": "string" },
+                  "minItems": 1
                 }
               },
               "additionalProperties": false
@@ -171,11 +172,13 @@ The canonical request body adheres to the following JSON schema:
       "properties": {
         "types": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "minItems": 1
         },
         "state_keys": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string" },
+          "minItems": 1
         }
       },
       "additionalProperties": false
@@ -199,7 +202,8 @@ The canonical request body adheres to the following JSON schema:
     "fields": {
       "type": "array",
       "items": { "type": "string" },
-      "uniqueItems": true
+      "uniqueItems": true,
+      "contains": { "const": "event_id" }
     },
     "include": {
       "type": "array",
@@ -219,6 +223,7 @@ The canonical request body adheres to the following JSON schema:
     },
     "compute_event_pairs": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "array",
         "items": { "type": "string" },
@@ -226,6 +231,49 @@ The canonical request body adheres to the following JSON schema:
         "maxItems": 2
       }
     }
+  },
+  "additionalProperties": false
+}
+```
+
+The successful (`200 OK`) response body adheres to the following envelope
+schema. Standard Matrix error responses are defined separately. JSON Schema
+cannot express the cross-field requirement that every positional row has the
+same length and ordering as `event_fields`; that requirement is normative in the
+projection rules below.
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["events"],
+  "properties": {
+    "event_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true,
+      "contains": { "const": "event_id" }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "oneOf": [{ "type": "array", "items": {} }, { "type": "object" }]
+      }
+    },
+    "edge_errors": {
+      "type": "object",
+      "additionalProperties": { "type": "object" }
+    },
+    "start_event_errors": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "proofs": {
+      "type": "object",
+      "additionalProperties": { "type": "object" }
+    },
+    "computed": { "type": "object" },
+    "limited": { "type": "boolean" }
   },
   "additionalProperties": false
 }
@@ -247,6 +295,9 @@ member MUST be present:
 
 A request containing both `event_ids` and `state`, or omitting `seed` entirely,
 MUST be rejected with `M_INVALID_PARAM`.
+
+Empty arrays in `seed.state` or `select` MUST be rejected with
+`M_INVALID_PARAM`.
 
 In v1 of this specification, `state` seed resolution is strictly restricted to
 the **current room state**. Requesters MUST NOT specify historical state anchors
@@ -279,10 +330,9 @@ The `select` object specifies the emission filter $\phi$:
 - `types`: array of event type patterns. A trailing `*` acts as a prefix match
   (e.g., `uk.half-shot.hookshot.*`); `*` matches all event types. Trailing `*`
   is always interpreted as a wildcard operator with no escape syntax; event
-  types literally ending in `*` are unrepresentable.
+  types literally ending in `*` are unrepresentable. An interior `*` (for
+  example, `m.*.foo`) is literal and has no wildcard semantics.
 - `state_keys`: array of exact state keys. State keys are always exact matches.
-- `in_past_of`: an event ID string $E$. Matches if the visited event is in the
-  strict causal past of $E$.
 
 Predicates within each array are ORed; clauses across different fields are
 ANDed. An omitted field or empty `{}` matches all visited events. Arrays in
@@ -422,9 +472,9 @@ Request limits are clamped to the server's configured maximum. If traversal or
 compute is truncated by any limit or budget exhaustion, the response sets
 `limited: true`.
 
-In the Client State Profile, `compute_pairs`, `common_ancestors`, and
-`candidate_servers` are not parameters with a zero default: their presence is
-invalid and MUST be rejected with `M_INVALID_PARAM`.
+In the Client State Profile, `compute_pairs`, `common_ancestors`,
+`candidate_servers`, and `include` are not parameters with a zero default: their
+presence is invalid and MUST be rejected with `M_INVALID_PARAM`.
 
 ---
 
@@ -627,6 +677,17 @@ The response is the standard JSON array of canonical state event objects.
 Clients receive authoritative state directly from their own homeserver; no
 Merkle proof verification is required for C2S flows.
 
+#### Consuming example: Issue #2019 state filtering
+
+[Issue #2019: Ability to specify a filter for `/_matrix/client/v3/rooms/{roomId}/state`](https://github.com/matrix-org/matrix-spec/issues/2019)
+is a direct consumer of this profile. An integration such as Hookshot, which
+needs selected application state but does not run `/sync`, can request only the
+event types and state keys it understands instead of downloading the entire room
+state and discarding most of it. A follow-on C2S MSC resolving that issue can
+adopt the depth-zero rewrite above while retaining the standard `/state`
+response shape; it need not expose federation traversal, compute, sidecars, or
+the general query grammar to clients.
+
 ---
 
 ### Future extensions & deferred features
@@ -657,10 +718,10 @@ The architectural unification and deployment vehicles are decoupled:
 1. **Semantic Unification**: MSC4511A defines the comprehensive query primitive
    $(S, R, b, \phi, \pi)$ and shared evaluator semantics.
 2. **Independent Shipping**: The Client State Profile can be shipped as an
-   independent, lightweight C2S MSC referencing MSC4511A's grammar (addressing
-   [Issue #2019](https://github.com/matrix-org/matrix-spec/issues/2019)). This
-   allows immediate client performance gains without coupling to federation
-   traversal reviews or room-version upgrades.
+   independent, lightweight C2S MSC referencing MSC4511A's grammar. Issue #2019
+   is its motivating consumer example. This allows immediate client performance
+   gains without coupling to federation traversal reviews or room-version
+   upgrades.
 
 ---
 
