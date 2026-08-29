@@ -7,9 +7,9 @@ dictionary even when a client needs only selected event types or state keys.
 
 This proposal unifies both surfaces under a single formal **bounded-closure
 query primitive**. Homeservers can execute bounded graph traversals and return
-sparse metadata hints, routing advice, and computed graph facts for federation
-repair, while client state filtering is evaluated as the depth-zero point query
-instance of the same operator.
+sparse metadata hints and routing advice for federation repair, while client
+state filtering is evaluated as the depth-zero point-query instance of the same
+operator.
 
 For room versions 3 and later, metadata returned over federation remains a hint
 that must be verified by fetching full events. This is the intended security
@@ -38,7 +38,7 @@ single bounded-closure query defined as a 5-tuple $(S, R, b, \phi, \pi)$:
 - $R$ — **Edge relations**: a subset of edge types to traverse (`prev_events`,
   `auth_events`, `relates_to`, `redacts`, `prev_state_events`).
 - $b$ — **Bound vector**: literal resource and recursion limits (`depth`,
-  `records`, `nodes`, `compute_pairs`, `common_ancestors`, `candidate_servers`).
+  `records`, `nodes`, `candidate_servers`).
 - $\phi$ — **Node predicate (`select`)**: a boolean filter over event properties
   (`types`, `state_keys`) that gates event emission.
 - $\pi$ — **Projection**: the output representation mode (`"fields"` for dense
@@ -180,8 +180,6 @@ The canonical request body adheres to the following JSON schema:
         "depth": { "type": "integer", "minimum": 0 },
         "records": { "type": "integer", "minimum": 1 },
         "nodes": { "type": "integer", "minimum": 1 },
-        "compute_pairs": { "type": "integer", "minimum": 1 },
-        "common_ancestors": { "type": "integer", "minimum": 1 },
         "candidate_servers": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
@@ -203,24 +201,6 @@ The canonical request body adheres to the following JSON schema:
         "enum": ["edge_errors", "start_event_errors", "proofs"]
       },
       "uniqueItems": true
-    },
-    "compute": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": ["common_ancestor", "hop_distance"]
-      },
-      "uniqueItems": true
-    },
-    "compute_event_pairs": {
-      "type": "array",
-      "minItems": 1,
-      "items": {
-        "type": "array",
-        "items": { "type": "string" },
-        "minItems": 2,
-        "maxItems": 2
-      }
     }
   },
   "additionalProperties": false
@@ -263,7 +243,6 @@ projection rules below.
       "type": "object",
       "additionalProperties": { "type": "object" }
     },
-    "computed": { "type": "object" },
     "limited": { "type": "boolean" }
   },
   "additionalProperties": false
@@ -397,38 +376,6 @@ have exactly the length and field order of `event_fields`. Diagnostic sidecars
 returned only when named in `include`, as maps keyed by event ID. A server MUST
 NOT repeat a requested dense field in `event_fields`.
 
-#### Folded compute layer (`compute`)
-
-Computed graph facts (`common_ancestor`, `hop_distance`) are not separate
-algorithmic subroutines; they are derived facts over labeled closures:
-
-- `hop_distance(a, b)`: the depth-of-first-visit of $b$ in the closure seeded at
-  $\{a\}$ under edge relation set $R$.
-- `common_ancestor(a, b)`: the maximal elements of $V(a) \cap V(b)$ under the
-  closure's edge relation set $R$. An ancestor $u \in V(a) \cap V(b)$ is maximal
-  if there is no $v \in V(a) \cap V(b)$ such that $v$ reaches $u$ along $R$
-  (antichain reduction).
-
-`compute_event_pairs` specifies the pairs $[a, b]$ to evaluate. If `compute` is
-present, `compute_event_pairs` MUST be present and non-empty. Malformed pairs
-cause the request to fail with `M_INVALID_PARAM`.
-
-`common_ancestor` is defined only when `edge_types` is a non-empty subset of
-`prev_events`, `auth_events`, and `prev_state_events`. A request that combines
-it with `relates_to` or `redacts` MUST be rejected with `M_INVALID_PARAM`: those
-links are navigable references, not ancestry relations.
-
-Compute evaluations draw directly from the request's shared `limits.nodes`
-currency. If the node budget is exhausted before maximality can be confirmed for
-a `common_ancestor` pair, the server MUST return `null` for that pair and set
-`limited: true`; it MUST NOT emit a partial non-maximal ancestor set.
-
-If a server does not implement computed graph queries, it MUST reject requests
-containing `compute` with `M_UNRECOGNIZED` (or the distinct code
-`tk.nutra.msc4511.unsupported_compute`) rather than generic `M_INVALID_PARAM`,
-allowing the requester to distinguish lack of implementation support from a
-malformed query payload.
-
 #### Limits and cost model (`limits`)
 
 Resource limits are consolidated in the `limits` object:
@@ -438,8 +385,6 @@ Resource limits are consolidated in the `limits` object:
   "depth": 50,
   "records": 1000,
   "nodes": 5000,
-  "compute_pairs": 10,
-  "common_ancestors": 10,
   "candidate_servers": 5
 }
 ```
@@ -447,7 +392,7 @@ Resource limits are consolidated in the `limits` object:
 The unified cost model establishes:
 
 - `nodes`: the **single non-resettable work currency** shared across graph
-  traversal, seed resolution, and all compute invocations.
+  traversal and seed resolution.
 - `records`: terminal cap on the number of emitted event records.
 - `depth`: syntactic recursion bound on frontier expansion.
 - `bytes` / `ms`: server-enforced physical response size and wall-clock time
@@ -460,22 +405,18 @@ The unified cost model establishes:
 | `depth`             | `0` (fixed)            | `500`                      | Syntactic recursion bound         |
 | `records`           | `1000`                 | `1000`                     | Terminal emission cap             |
 | `nodes`             | `1000`                 | `5000`                     | Shared non-resettable work budget |
-| `compute_pairs`     | Rejected               | `20`                       | Cap on compute pair invocations   |
-| `common_ancestors`  | Rejected               | `20`                       | Max maximal ancestors per pair    |
 | `candidate_servers` | Rejected               | `10`                       | Routing hint disclosure cap       |
 
 <!-- markdownlint-enable MD013 -->
 
-Request limits are clamped to the server's configured maximum. If traversal or
-compute is truncated by any limit or budget exhaustion, the response sets
-`limited: true`.
+Request limits are clamped to the server's configured maximum. If traversal is
+truncated by any limit or budget exhaustion, the response sets `limited: true`.
 
 The public Client State Profile filter accepts only `types` and `state_keys`.
-`compute`, `compute_event_pairs`, `include`, `fields`, `edge_types`, and
-`projection` are invalid in that profile and MUST be rejected with
-`M_INVALID_PARAM` if present. Client-controlled `limits` are likewise not part
-of the profile: depth is fixed at zero by the rewrite, and record and work
-limits are server-owned.
+`include`, `fields`, `edge_types`, and `projection` are invalid in that profile
+and MUST be rejected with `M_INVALID_PARAM` if present. Client-controlled
+`limits` are likewise not part of the profile: depth is fixed at zero by the
+rewrite, and record and work limits are server-owned.
 
 ---
 
@@ -498,8 +439,7 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4511.topology_query": true,
-    "tk.nutra.msc4511.computed_graph_queries": true
+    "tk.nutra.msc4511.topology_query": true
   }
 }
 ```
@@ -520,14 +460,10 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
     "depth": 50,
     "records": 1000,
     "nodes": 5000,
-    "compute_pairs": 10,
-    "common_ancestors": 10,
     "candidate_servers": 5
   },
   "fields": ["event_id", "prev_events", "sender", "type", "candidate_servers"],
-  "include": ["edge_errors"],
-  "compute": ["common_ancestor", "hop_distance"],
-  "compute_event_pairs": [["$missing_event_A", "$prev_1"]]
+  "include": ["edge_errors"]
 }
 ```
 
@@ -573,10 +509,6 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
         "$later_event": "truncated"
       }
     }
-  },
-  "computed": {
-    "common_ancestor": [["$prev_1"]],
-    "hop_distance": [1]
   },
   "limited": true
 }
@@ -686,8 +618,8 @@ needs selected application state but does not run `/sync`, can request only the
 event types and state keys it understands instead of downloading the entire room
 state and discarding most of it. A follow-on C2S MSC resolving that issue can
 adopt the depth-zero rewrite above while retaining the standard `/state`
-response shape; it need not expose federation traversal, compute, sidecars, or
-the general query grammar to clients.
+response shape; it need not expose federation traversal, sidecars, or the
+general query grammar to clients.
 
 ---
 
@@ -696,9 +628,8 @@ the general query grammar to clients.
 #### Deferral of predicate-gated traversal (`traverse`)
 
 Predicate-gated expansion (`traverse`) is deferred from v1. Pruning edges
-changes the reachable closure and can make computed ancestry and
-history-visibility semantics ambiguous. `select` is therefore an emission filter
-only.
+changes the reachable closure and can make ancestry and history-visibility
+semantics ambiguous. `select` is therefore an emission filter only.
 
 #### Forward recursive queries
 

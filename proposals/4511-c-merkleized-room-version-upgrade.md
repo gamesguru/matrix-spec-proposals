@@ -297,9 +297,8 @@ antichain. In particular, Part A's closure includes its seed whereas
 $\mathcal{C}(a)$ excludes $a$; any such extension must use
 $(\mathcal{C}(a) \cup \{a\}) \cap (\mathcal{C}(b) \cup \{b\})$, specify the
 causal edge relation, and authenticate or fetch enough predecessor edges to
-prove maximality. `common_ancestor` therefore remains a bounded Part A compute
-operation rather than a cryptographically complete consequence of trie
-intersection.
+prove maximality. A future common-ancestor operation is therefore not a
+cryptographically complete consequence of trie intersection.
 
 Every proof MUST identify the anchor event, algorithm, expected root, and root
 count. Sibling entries carry both hash and count. Verifiers recompute every
