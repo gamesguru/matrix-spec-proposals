@@ -282,9 +282,8 @@ defined, `prev_state_events` recurrence above. It is not a commitment to every
 navigable Part A edge relation, such as `auth_events`, `relates_to`, or
 `redacts`.
 
-MSC4511A deliberately does not include causal-membership predicates. A future
-wire extension for a room version adopting Part C MAY request a membership proof
-for a named anchor $E$ and candidate $X$. Inclusion proves
+A future wire extension for a room version adopting Part C MAY request a
+membership proof for a named anchor $E$ and candidate $X$. Inclusion proves
 $X \in \mathcal{C}(E)$ and non-inclusion proves the converse across the entire
 committed history. Such a response MUST identify the anchor, carry a verified
 anchor event root and signature, include the causal-trie proof, and set

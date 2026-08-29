@@ -17,7 +17,7 @@ state dictionary even when they only require a few specific state event types
 This proposal unifies both surfaces under a single formal **bounded-closure
 query primitive**. Homeservers can execute bounded graph traversals and return
 sparse metadata hints, routing advice, and computed graph facts for federation
-repair, while client state filtering is evaluated as the depth-zero degenerate
+repair, while client state filtering is evaluated as the depth-zero point query
 instance of the same operator.
 
 For room versions 3 and later, metadata returned over federation remains a hint
@@ -53,7 +53,7 @@ single bounded-closure query defined as a 5-tuple $(S, R, b, \phi, \pi)$:
 - $\pi$ — **Projection**: the output representation mode (`"fields"` for dense
   positional matrices, or `"events"` for full event objects).
 
-#### Bounded frontier fixpoint evaluation
+#### Traversal semantics
 
 Query evaluation is described by the following bounded frontier fixpoint. The
 normative queue, authorization, and accounting rules below determine which
@@ -86,7 +86,7 @@ When the relation set $R$ is empty ($\emptyset$), traversal collapses to depth
 0, and the evaluator executes a direct filtered point query without special
 casing.
 
-#### Core sub-Turing safety properties
+#### Termination and cost bounds
 
 The query form guarantees deterministic termination and bounded protocol-level
 work through three invariants. These limits do not promise a uniform bound on
@@ -365,11 +365,12 @@ duplicate field names. Duplicates in `fields` MUST be rejected with
 `M_INVALID_PARAM` before traversal because positional decoding in `events`
 requires 1:1 alignment with `event_fields`.
 
-When `projection` is `"events"`, `fields` MUST be omitted. A server receiving
-both values MUST reject the request with `M_INVALID_PARAM`, and a response in
-this mode MUST omit `event_fields`. The returned `events` array MUST be
+When `projection` is `"events"`, the request MUST omit `fields` and the response
+MUST omit `event_fields`. The returned `events` array MUST be strictly
 homogeneous: it contains only positional arrays for `"fields"` projection or
-only event objects for `"events"` projection. A mixed array MUST NOT be emitted.
+only event objects for `"events"` projection. A request that includes `fields`
+with `"events"` projection MUST be rejected with `M_INVALID_PARAM`, and a mixed
+array MUST NOT be emitted.
 
 Dense fields available for projection include:
 
