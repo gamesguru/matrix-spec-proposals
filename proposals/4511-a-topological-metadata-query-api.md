@@ -651,6 +651,13 @@ Predicate-gated expansion (`traverse`) is deferred from v1. Pruning edges
 changes the reachable closure and can make ancestry and history-visibility
 semantics ambiguous. `select` is therefore an emission filter only.
 
+#### Merge-base analysis
+
+Paired-seed merge-base analysis (provenance-labelled traversal returning common
+ancestors) is deferred from v1. The wire format and behavioural contract are
+designed to accommodate it as an `include.analysis` extension in a future
+revision.
+
 #### Forward recursive queries
 
 Future extensions may define forward recursion over inverse predecessor edges,
