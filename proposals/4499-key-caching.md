@@ -278,6 +278,9 @@ its key body MUST NOT be purged from the server's key database when
 `valid_until_ts` expires. Purging this binding would leave the server naive to
 future collisions and blindly accepting colliding key bodies.
 
+<!-- synapse-derived: complement coverage directly exercises this request-auth
+scope in TestFederationRequestAuthenticationKeyScope -->
+
 **Collision detection.** If a server observes a key response (whether fetched
 directly via `/_matrix/key/v2/server` or via a `/_matrix/key/v2/query` notary)
 from a remote server where a key ID that was previously associated with public
@@ -482,13 +485,16 @@ mechanism (e.g., an admin API or CLI interface) to manually evict cached
 key-body bindings for a specific remote server name, allowing a human operator
 to break the binding and re-initiate TOFU.
 
-This manual eviction MUST be logged loudly by the homeserver, including both the
-server name and the fingerprints of the evicted keys. This is an intentionally
-manual, operator-gated ability to perform cache merges or manual overrides. It
-must not be automated or triggered via inbound/outbound federation traffic; room
-ACLs and other federation-visible mechanisms MUST NOT be able to force eviction
-or bypass First Seen Wins. This includes any third-party forensic or attestation
-evidence about a key binding, however cryptographically strong — for example, a
+This manual eviction MUST atomically remove or replace the retained digest
+binding together with the relevant cached verification material, so a
+replacement body can be learned only as one deliberate operator action. It MUST
+be logged loudly by the homeserver, including both the server name and the
+fingerprints of the evicted keys. This is an intentionally manual,
+operator-gated ability to perform cache merges or manual overrides. It must not
+be automated or triggered via inbound/outbound federation traffic; room ACLs and
+other federation-visible mechanisms MUST NOT be able to force eviction or bypass
+First Seen Wins. This includes any third-party forensic or attestation evidence
+about a key binding, however cryptographically strong — for example, a
 cross-server equivocation proof a future proposal might define. Such evidence
 remains advisory and MUST NOT automatically trigger eviction, rebinding, or any
 other deviation from First Seen Wins on a receiving server. It may inform the
@@ -511,6 +517,11 @@ cryptographic signature verification without introducing a new `valid_until_ts`
 requirement. The 7-day cache validity clamp restricts the window in which the
 key is authorized to sign new events, but does not invalidate historically
 signed events when verifying them years later.
+
+<!-- synapse-derived: complement coverage keeps the outer X-Matrix request on a
+currently valid key while separately exercising historical PDU verification on
+old/expired keys in testMSC4499KeyHistoricalEventVerification and
+testMSC4499KeyLostKeyPublicationHistoricalVerification -->
 
 Servers MUST sanity-check `expired_ts` values in `old_verify_keys`. A future
 `expired_ts` (beyond a 5-minute clock-skew allowance) MUST be treated as
@@ -737,10 +748,11 @@ believe they were following the room version.
 
 Mandating indefinite storage of key-body bindings introduces a storage
 exhaustion vector if an attacker forces a server to fetch and permanently store
-millions of unique key IDs. Homeservers MUST enforce a maximum of 3,000 retired
-key IDs (`old_verify_keys` entries) per remote server name, matching the
-per-response ceiling above; a server's current `verify_keys` (bounded separately
-at 50) are exempt from and not counted against this ceiling. If a remote server
+millions of unique key IDs. Homeservers MUST enforce a cumulative maximum of
+3,000 retired key IDs (`old_verify_keys` entries) per remote server name. This
+is a retained-storage ceiling, distinct from the per-response validation ceiling
+above; current `verify_keys` (bounded separately at 50) are active keys and are
+exempt from and not counted against this retired-key ceiling. If a remote server
 reaches this quota, receiving servers MUST NOT ignore new key IDs permanently;
 instead, they MUST evict retired keys according to the deterministic ordering
 below — never by recency or least-recently-used heuristics, which would make
@@ -862,19 +874,19 @@ or Cuckoo Cycle.
 
 ### Digest-binding cap
 
-The digest binding is deliberately minimal: `key_id`, a 32-byte `SHA-256` digest
-of the key body, and a `first_seen` timestamp recording when the receiver itself
-established the binding — kept for operator forensics and for a future proposal
-to build eviction or corroboration policy on top of without a schema change;
-this MSC's own rules do not read it — on the order of 60–80 bytes per record,
-far smaller than a retained verification entry. It exists to survive eviction of
-retired-key verification material so a future body reusing an evicted key ID is
-still checked against what was first seen, closing the collision-blind window
-that motivates permanent retention in the first place. Because that guarantee
-depends on the binding never being evicted for a genuinely-seen key ID, it MUST
-NOT be pruned the way retired-key verification material is — evicting a digest
-binding to make room for a new one reopens exactly the TOFU window this record
-exists to close.
+The digest binding is deliberately minimal: a `key_id` limited to 255 UTF-8
+bytes, a 32-byte `SHA-256` digest of the key body, and a `first_seen` timestamp
+recording when the receiver itself established the binding — kept for operator
+forensics and for a future proposal to build eviction or corroboration policy on
+top of without a schema change; this MSC's own rules do not read it — on the
+order of 315 bytes per record, far smaller than a retained verification entry.
+It exists to survive eviction of retired-key verification material so a future
+body reusing an evicted key ID is still checked against what was first seen,
+closing the collision-blind window that motivates permanent retention in the
+first place. Because that guarantee depends on the binding never being evicted
+for a genuinely-seen key ID, it MUST NOT be pruned the way retired-key
+verification material is — evicting a digest binding to make room for a new one
+reopens exactly the TOFU window this record exists to close.
 
 That means the digest-binding set cannot be bounded by eviction; it MUST instead
 be bounded by refusing new entries once a fixed cap is reached. Implementations
@@ -883,12 +895,14 @@ MUST enforce a maximum on digest-binding records independently per
 or notary-observed, RECOMMENDED at 30,000 for each bucket — an order of
 magnitude above the 3,000-entry retired-key ceiling, since digest bindings
 accumulate for the full lifetime of a key ID even after its verification
-material is pruned, but still small and fixed (at ~70 bytes/record, roughly 2
-MiB per origin per bucket at the recommended cap). A different fixed value has
-no wire-visible effect as long as it is enforced deterministically and
-consistently; the requirement that matters for interoperability is that reaching
-_some_ fixed ceiling for a given `(origin, source category)` bucket is itself
-the anomaly signal, not the exact number.
+material is pruned, but still small and fixed (at ~315 bytes/record, roughly 10
+MiB per origin per bucket at the recommended cap). Implementations MUST reject a
+key ID longer than 255 UTF-8 bytes before allocating or persisting a
+digest-binding record. A different fixed value has no wire-visible effect as
+long as it is enforced deterministically and consistently; the requirement that
+matters for interoperability is that reaching _some_ fixed ceiling for a given
+`(origin, source category)` bucket is itself the anomaly signal, not the exact
+number.
 
 A key ID observed for the first time for a given `(origin, source category)`
 bucket after that bucket's digest-binding set is already at the cap MUST be
@@ -931,27 +945,14 @@ MUST transfer the accounting of the existing record.
 
 ### Other considerations
 
-- **Eviction reopens a TOFU window on the permanent-binding guarantee —
-  mitigated by the corroboration tier.** `expired_ts` is asserted by the origin
-  server itself, and `old_verify_keys` entries are plain historical claims
-  within that self-signed response — they are not separately signed by the
-  retired key they describe. A malicious or compromised origin could therefore
-  attempt to fabricate synthetic retired-key entries to flood a peer's
-  3,000-entry quota and push a legitimate historical key binding below the
-  retention floor. The corroboration tier above closes the one-shot version of
-  this: a freshly fabricated `key_id` that this receiver never independently
-  observed as active lands in the uncorroborated tier, where it can only evict
-  other uncorroborated entries; it cannot push out a corroborated,
-  legitimately-retired binding. Because corroboration is deliberately never
-  grantable by asking a notary to vouch after the fact, a compromised notary
-  cannot shortcut this either. This flood is self-scoped: because the ceiling is
-  enforced per remote `server_name`, it can only accelerate eviction of that
-  _same_ origin's own historical retired-key bindings on a given receiver, never
-  a different domain's history — and it requires control of the origin's current
-  signing capability, the same prerequisite as TOFU cache poisoning above, not
-  mere possession of one stolen historical key. This MSC accepts that residual
-  risk and leaves any rate-limiting of novel key-ID discovery to individual
-  implementations at their own discretion.
+- **Eviction preserves collision safety but can lose historical material.**
+  Retired verification material may be evicted at the cumulative cap, but its
+  identity digest remains bound. Therefore eviction cannot reopen First Seen
+  Wins or TOFU: a later body under the same key ID is still rejected. The cost
+  is that historical events requiring the evicted material may no longer verify.
+  When the digest-binding cap is reached, new key IDs are rejected rather than
+  displacing existing bindings. This is self-scoped per remote server and source
+  bucket; implementations may additionally rate-limit hostile discovery.
 
 - **The provisional-binding freeze is a deliberate trade, not an oversight.** A
   provisional binding that has retired, or whose own local promotion window has
