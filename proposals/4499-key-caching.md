@@ -749,8 +749,11 @@ believe they were following the room version.
 Mandating indefinite storage of key-body bindings introduces a storage
 exhaustion vector if an attacker forces a server to fetch and permanently store
 millions of unique key IDs. Homeservers MUST enforce a cumulative maximum of
-3,000 retired key IDs (`old_verify_keys` entries) per remote server name. This
-is a retained-storage ceiling, distinct from the per-response validation ceiling
+3,000 retired bindings per remote server name — both explicitly-published
+`old_verify_keys` entries and keys inferred as retired (a key previously
+observed active that later disappears from the origin's responses without ever
+appearing in `old_verify_keys`) count toward this same ceiling. This is a
+retained-storage ceiling, distinct from the per-response validation ceiling
 above; current `verify_keys` (bounded separately at 50) are active keys and are
 exempt from and not counted against this retired-key ceiling. If a remote server
 reaches this quota, receiving servers MUST NOT ignore new key IDs permanently;
