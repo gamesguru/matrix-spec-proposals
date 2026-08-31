@@ -124,31 +124,41 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 _output_ of state resolution. It cannot distinguish a divergent input DAG from a
 resolver disagreement over identical inputs, and it intentionally omits the
 local rejection and soft-failure classifications that are valuable diagnostics.
-For each PDU $P$, this MSC therefore defines a sibling LtHash input set $I(P)$:
-the deduplicated union of every `(type, state_key, event_id)` entry in the state
-maps at each of $P$'s `prev_events`, before the room version applies state
-resolution. This is the raw, labelled state-DAG input supplied to the resolver,
-not its selected result and not a recursive digest of all room history.
+For each PDU $P$, this MSC therefore defines a sibling LtHash input set $I(P)$
+over the complete raw labelled DAG input to resolution. $I(P)$ is the least set
+of event records containing every event in the state maps at each of $P$'s
+`prev_events`, and every event transitively referenced from those records by
+`auth_events` and the room version's state-predecessor relation
+(`prev_state_events` when defined, otherwise `prev_events`). The relation name
+is part of the record, so this commits topology as well as node labels. Missing
+referenced events make the assertion `limited`; they are never represented by a
+synthetic placeholder.
 
 Each element of $I(P)$ is serialized as
 
 ```text
-len(type) || type || len(state_key) || state_key || rejected || soft_failed || event_id
+len(event_id) || event_id || len(type) || type || len(state_key) || state_key ||
+rejected || soft_failed || auth_events || state_predecessors
 ```
 
 where `rejected` and `soft_failed` are exactly one byte (`0x00` for false,
 `0x01` for true) recording the responding server's classification of that event
-at evaluation time. The final `event_id` is raw because it is final. An event
-with the same ID and different labels is a distinct labelled input element;
-identical labelled elements appearing through multiple predecessor maps are
-included once. The set is expanded and accumulated exactly as the primary
-accumulator, but under the distinct domain separation tag
+at evaluation time. `auth_events` is `uint32le(count)` followed by its event IDs
+in bytewise UTF-8 ascending order, each encoded as `uint16le(length) || id`.
+`state_predecessors` uses the same encoding over `prev_state_events`, or over
+`prev_events` when the room version does not define `prev_state_events`. An
+event with the same ID and different labels or outgoing edges is a distinct
+labelled input element; identical records reached by multiple paths are included
+once. The set is expanded and accumulated exactly as the primary accumulator,
+but under the distinct domain separation tag
 `msc4500_lthash16_resolution_inputs_v1\x00`.
 
 This digest is diagnostic only. Rejection and soft-failure labels are local
 observations, so mismatches identify a useful divergence boundary but neither
 establish protocol-invalid behaviour nor alter state resolution, authorization,
-or event acceptance.
+or event acceptance. Unlike the selected-state accumulator, it does distinguish
+a mismatch in the recursive input topology from a resolver disagreement over an
+identical canonical input graph.
 
 **Causal redaction overlay.** Redaction visibility is represented by a separate
 overlay accumulator, not by changing the primary element tuple. The overlay uses
@@ -379,9 +389,9 @@ Each server independently maintains its own `LtHash16` lattice in local storage.
 When a server receives a `/send` transaction containing a `state_hashes`
 payload, it collapses its local primary and causal-redaction-overlay lattices at
 that DAG point to canonical 32-byte `BLAKE2b-256` digests. For the
-resolution-input algorithm it also computes the labelled input digest before
-running resolution. If the local digests match the incoming ones, processing
-proceeds normally.
+resolution-input algorithm it also computes the complete labelled input-DAG
+closure before running resolution. If the local digests match the incoming ones,
+processing proceeds normally.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
