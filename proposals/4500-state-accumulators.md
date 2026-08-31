@@ -51,7 +51,8 @@ available in Rust[^1.2.rust] and Go[^1.2.go].
 
 This MSC introduces a cryptographic[^1.1.a] `state_hashes` object in the
 `PUT /_matrix/federation/v1/send/{txnId}` payload. It also introduces an ETag to
-the `/state_ids` endpoint, and a secondary redaction accumulator.
+the `/state_ids` endpoint, a secondary redaction accumulator, and a sibling
+digest of the labelled input set supplied to state resolution.
 
 The proposal is purely additive and does not alter PDU structure or
 authorization rules. Such changes are left to the discretion of future
@@ -119,6 +120,36 @@ Golang[^1.2.go].
 **NOTE:** elements bind the `event_id` only, never event content. Redacting an
 event therefore has no effect on the accumulator (having no effect on event ID).
 
+**Resolution-input accumulator.** The primary accumulator commits the selected
+_output_ of state resolution. It cannot distinguish a divergent input DAG from a
+resolver disagreement over identical inputs, and it intentionally omits the
+local rejection and soft-failure classifications that are valuable diagnostics.
+For each PDU $P$, this MSC therefore defines a sibling LtHash input set $I(P)$:
+the deduplicated union of every `(type, state_key, event_id)` entry in the state
+maps at each of $P$'s `prev_events`, before the room version applies state
+resolution. This is the raw, labelled state-DAG input supplied to the resolver,
+not its selected result and not a recursive digest of all room history.
+
+Each element of $I(P)$ is serialized as
+
+```text
+len(type) || type || len(state_key) || state_key || rejected || soft_failed || event_id
+```
+
+where `rejected` and `soft_failed` are exactly one byte (`0x00` for false,
+`0x01` for true) recording the responding server's classification of that event
+at evaluation time. The final `event_id` is raw because it is final. An event
+with the same ID and different labels is a distinct labelled input element;
+identical labelled elements appearing through multiple predecessor maps are
+included once. The set is expanded and accumulated exactly as the primary
+accumulator, but under the distinct domain separation tag
+`msc4500_lthash16_resolution_inputs_v1\x00`.
+
+This digest is diagnostic only. Rejection and soft-failure labels are local
+observations, so mismatches identify a useful divergence boundary but neither
+establish protocol-invalid behaviour nor alter state resolution, authorization,
+or event acceptance.
+
 **Causal redaction overlay.** Redaction visibility is represented by a separate
 overlay accumulator, not by changing the primary element tuple. The overlay uses
 the same element encoding `(type, state_key, event_id)` and the same lattice
@@ -166,23 +197,26 @@ a set manager or delta-decoder.
 
 ### Capability discovery
 
-Servers advertise causal redaction overlay support through
-`GET /_matrix/federation/v1/version`:
+Servers advertise causal redaction overlay and resolution-input digest support
+through `GET /_matrix/federation/v1/version`:
 
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4500.redaction_overlay": true
+    "tk.nutra.msc4500.redaction_overlay": true,
+    "tk.nutra.msc4500.resolution_input_digest": true
   }
 }
 ```
 
-Once a server advertises this flag, it MUST emit the complete overlay wherever
-this MSC requires `state_hashes`, and MUST emit the overlay validator on a
-resolvable `/state_ids` response. Absence from an advertising server means no
-assertion was made; it MUST NOT be interpreted as the empty-overlay sentinel or
-as agreement. Servers that do not advertise the flag remain compatible with
-legacy federation behavior.
+Once a server advertises `tk.nutra.msc4500.redaction_overlay`, it MUST emit the
+complete overlay wherever this MSC requires `state_hashes`, and MUST emit the
+overlay validator on a resolvable `/state_ids` response. Once it advertises
+`tk.nutra.msc4500.resolution_input_digest`, it MUST emit the complete
+resolution-input digest for every non-limited transaction assertion. Absence
+from an advertising server means no assertion was made; it MUST NOT be
+interpreted as an empty sentinel or as agreement. Servers that do not advertise
+these flags remain compatible with legacy federation behavior.
 
 ### Transaction payload
 
@@ -240,22 +274,23 @@ digest at that DAG position.
   every entry in this transaction's `state_hashes.entries` dictionary. This MSC
   defines `lthash16-v1+redactions-v1`, comprising the primary `lthash16-v1`
   accumulator and the causal redaction overlay with its separate DST (see
-  [Algorithm specification](#algorithm-specification)). One value governs the
-  whole transaction; mixing algorithms within a single transaction serves no
-  purpose and is not supported. A receiver that does not recognize the algorithm
-  MUST silently skip hash validation for the entire transaction, the same as any
-  other deferral case in the [Receiver contract](#receiver-contract) — this
-  preserves forward compatibility if a future revision introduces a new digest
-  family (e.g. a wider lattice or a different XOF) without causing receivers on
-  the old algorithm to raise false mismatch alarms against upgraded senders.
+  [Algorithm specification](#algorithm-specification)). A server advertising
+  `tk.nutra.msc4500.resolution_input_digest` instead uses
+  `lthash16-v1+redactions-v1+resolution-inputs-v1`, which additionally commits
+  the labelled resolver-input set. One value governs the whole transaction;
+  mixing algorithms within a single transaction serves no purpose and is not
+  supported. A receiver that does not recognize the algorithm MUST silently skip
+  hash validation for the entire transaction, the same as any other deferral
+  case in the [Receiver contract](#receiver-contract).
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. It MUST contain exactly one entry for every PDU in `pdus` when
   `state_hashes` is present. Under `lthash16-v1+redactions-v1`, each value
   either asserts that PDU's primary and overlay `before` and `after` digests, or
   explicitly marks the assertion as limited. A supporting sender MUST emit all
-  four digest fields for a non-limited entry; omission is malformed, not an
-  assertion that the overlay is empty. The empty overlay is represented by its
-  defined sentinel digest. A receiver that observed the sender advertise
+  four digest fields for a non-limited entry; the resolution-input algorithm
+  MUST additionally emit `resolution_inputs_before`. Omission is malformed, not
+  an assertion that the overlay is empty. The empty overlay is represented by
+  its defined sentinel digest. A receiver that observed the sender advertise
   `tk.nutra.msc4500.redaction_overlay` SHOULD report an omitted overlay as a
   protocol violation, while continuing ordinary PDU processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
@@ -270,20 +305,26 @@ digest at that DAG position.
     `null` when `limited` is `true`.
   - `redactions_after`: The 32-byte causal redaction overlay digest after the
     current PDU is applied. This field MUST be omitted when `limited` is `true`.
+  - `resolution_inputs_before`: The 32-byte digest of the complete labelled
+    input set handed to state resolution for the PDU's `prev_events`, as defined
+    above. This field is required only by the `resolution-inputs-v1` algorithm
+    and is JSON `null` when `limited` is `true`.
   - `limited`: The boolean `true` when the sender cannot resolve the state at
     all of the PDU's `prev_events` and therefore makes no digest assertion. It
-    MUST be omitted or `false` when all four digests are present.
+    MUST be omitted or `false` when every digest required by the selected
+    algorithm is present.
 
 **Sender-side partial state.** A server MUST NOT emit a guessed or approximated
 digest. If a sending or relaying server cannot compute the resolved state at a
 given PDU's position — because it is itself operating under Partial State
 (MSC3706), is missing ancestry, or holds an unpersisted accumulator it declines
 to backfill on demand — its entry MUST contain `"limited": true` and
-`"before": null` and `"redactions_before": null`, and MUST omit `after` and
-`redactions_after`. Receivers MUST treat such an entry as an explicit deferral,
-not as a mismatch. An implementation MUST NOT use an empty string in place of
-JSON `null`: retaining one representation keeps the wire format type-safe and
-canonical.
+`"before": null` and `"redactions_before": null`. For the resolution-input
+algorithm it MUST also contain `"resolution_inputs_before": null`; it MUST omit
+`after` and `redactions_after`. Receivers MUST treat such an entry as an
+explicit deferral, not as a mismatch. An implementation MUST NOT use an empty
+string in place of JSON `null`: retaining one representation keeps the wire
+format type-safe and canonical.
 
 This payload deliberately carries no state-cardinality fields. A count cannot
 establish set equality or reliably estimate symmetric-difference magnitude, and
@@ -307,13 +348,14 @@ MSC4500's equality commitment.
     }
   ],
   "state_hashes": {
-    "algorithm": "lthash16-v1+redactions-v1",
+    "algorithm": "lthash16-v1+redactions-v1+resolution-inputs-v1",
     "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "redactions_before": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
-        "redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g"
+        "redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "resolution_inputs_before": "bF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
     }
   }
@@ -326,8 +368,9 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Only the collapsed primary and overlay digests and their field names are added
-per resolvable PDU; the 2048-byte lattices are never duplicated on the wire.
+Only the collapsed primary, overlay, and resolution-input digests and their
+field names are added per resolvable PDU; the 2048-byte lattices are never
+duplicated on the wire.
 
 ### Receiver contract
 
@@ -335,12 +378,14 @@ Each server independently maintains its own `LtHash16` lattice in local storage.
 
 When a server receives a `/send` transaction containing a `state_hashes`
 payload, it collapses its local primary and causal-redaction-overlay lattices at
-that DAG point to a canonical 32-byte `BLAKE2b-256` digest. If the local digests
-match the incoming ones, processing proceeds normally.
+that DAG point to canonical 32-byte `BLAKE2b-256` digests. For the
+resolution-input algorithm it also computes the labelled input digest before
+running resolution. If the local digests match the incoming ones, processing
+proceeds normally.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
-provide all four primary and overlay digests; transaction and PDU processing
+provide every digest required by its algorithm; transaction and PDU processing
 continue under the standard federation rules.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
@@ -360,11 +405,13 @@ evaluated against.
   "pdus": {
     "$sample_pduid_abc123def456": {
       "state_hash_mismatch": {
-        "algorithm": "lthash16-v1+redactions-v1",
+        "algorithm": "lthash16-v1+redactions-v1+resolution-inputs-v1",
         "expected_after": "uF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "expected_redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
-        "received_redactions_after": "gQgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g"
+        "received_redactions_after": "gQgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "expected_resolution_inputs_before": "cF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
+        "received_resolution_inputs_before": "bF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
     }
   }
@@ -387,6 +434,11 @@ at missing redaction or target ancestry and is a fetch/reconciliation signal. If
 both digests mismatch, the primary state disagreement is the first condition to
 investigate, because redaction effectiveness itself depends on authorized state
 such as power levels.
+
+A resolution-input mismatch means the peers did not hand the same labelled raw
+state-DAG input to their resolvers. It should be investigated before attributing
+a primary mismatch to resolver non-determinism: matching input digests with a
+mismatching primary `before` digest is the diagnostic signal for that case.
 
 Homeservers operating under Partial State (MSC3706) MUST silently defer hash
 validation for that room. They cannot compare state to emit warnings (until the

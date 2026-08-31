@@ -38,7 +38,7 @@ single bounded-closure query defined as a 5-tuple $(S, R, b, \phi, \pi)$:
 - $R$ — **Edge relations**: a subset of edge types to traverse (`prev_events`,
   `auth_events`, `relates_to`, `redacts`, `prev_state_events`).
 - $b$ — **Bound vector**: literal resource and recursion limits (`depth`,
-  `records`, `nodes`, `candidate_servers`).
+  `records`, `nodes`, `candidate_servers`, `compute_pairs`, `common_ancestors`).
 - $\phi$ — **Node predicate (`select`)**: a boolean filter over event properties
   (`types`, `state_keys`) that gates event emission.
 - $\pi$ — **Projection**: the output representation mode (`"fields"` for dense
@@ -158,6 +158,12 @@ The canonical request body adheres to the following JSON schema:
       },
       "uniqueItems": true
     },
+    "relates_to_types": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
     "select": {
       "type": "object",
       "properties": {
@@ -180,7 +186,9 @@ The canonical request body adheres to the following JSON schema:
         "depth": { "type": "integer", "minimum": 0 },
         "records": { "type": "integer", "minimum": 1 },
         "nodes": { "type": "integer", "minimum": 1 },
-        "candidate_servers": { "type": "integer", "minimum": 1 }
+        "candidate_servers": { "type": "integer", "minimum": 1 },
+        "compute_pairs": { "type": "integer", "minimum": 1 },
+        "common_ancestors": { "type": "integer", "minimum": 1 }
       },
       "additionalProperties": false
     },
@@ -201,9 +209,28 @@ The canonical request body adheres to the following JSON schema:
         "enum": ["edge_errors", "start_event_errors", "proofs"]
       },
       "uniqueItems": true
+    },
+    "compute": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["common_ancestor", "hop_distance"]
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "compute_event_pairs": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": { "type": "string" },
+        "minItems": 2,
+        "maxItems": 2
+      },
+      "minItems": 1
     }
   },
-  "additionalProperties": false
+  "additionalProperties": true
 }
 ```
 
@@ -243,6 +270,7 @@ projection rules below.
       "type": "object",
       "additionalProperties": { "type": "object" }
     },
+    "computed": { "type": "object" },
     "limited": { "type": "boolean" }
   },
   "additionalProperties": false
@@ -283,7 +311,10 @@ The `edge_types` list defines the edge relations $R$ to follow during traversal:
 
 - `prev_events`: follows directed DAG predecessor edges.
 - `auth_events`: follows authentication predecessor edges.
-- `relates_to`: follows the target event referenced in `m.relates_to`.
+- `relates_to`: follows the target event referenced in `m.relates_to`. When
+  `relates_to_types` is present, only relations whose `rel_type` is in that
+  non-empty list are followed; it does not change the reported `relates_to`
+  value.
 - `redacts`: follows the target event referenced in the top-level `redacts`
   property of `m.room.redaction` events.
 - `prev_state_events`: follows State DAG predecessor edges in room versions
@@ -351,10 +382,12 @@ Dense fields available for projection include:
 - `relates_to`: relation target object `{"event_id": "...", "rel_type": "..."}`.
 - `redacts`: target event ID redacted by this event.
 - `sender`: full MXID of the event sender.
+- `sender_localpart`: localpart portion of `sender`, split at the first `:`.
 - `sender_domain`: server domain portion of `sender`, split at the first `:`
-  character. For example, `@alice:example.org:8448` yields `example.org:8448`.
-  If `sender` is not a valid user ID, both `sender` and `sender_domain` MUST be
-  `null`.
+  character. For example, `@alice:example.org:8448` yields `example.org:8448`. A
+  server MUST NOT split at the last `:`. If `sender` is not a valid user ID,
+  both derived fields MUST be `null`; whenever `sender` and either derived field
+  are returned, the value MUST agree with this first-boundary split.
 - `type`: event type string.
 - `state_key`: event state key string (if a state event).
 - `candidate_servers`: list of server names recommended for routing/repair
@@ -372,8 +405,6 @@ Dense fields available for projection include:
   `M_INVALID_PARAM`. Because `select` is an emission filter and not a traversal
   gate, `hop_count` reflects distance to the event itself regardless of whether
   intermediate events were emitted.
-- `content`: full canonical event content dictionary. **Allowed in Client
-  Profile only; strictly forbidden in Federation Profile.**
 
 `room_id` is deliberately omitted from dense `fields`: since queries are scoped
 to a single `room_id`, emitting it in every row is redundant dead weight.
@@ -383,7 +414,47 @@ declines to disclose it, it emits `null` in that position. Every event row MUST
 have exactly the length and field order of `event_fields`. Diagnostic sidecars
 (`edge_errors`, `start_event_errors`, `proofs`) are not dense fields: they are
 returned only when named in `include`, as maps keyed by event ID. A server MUST
-NOT repeat a requested dense field in `event_fields`.
+NOT repeat a requested dense field in `event_fields`. Dense fields unavailable
+for every returned event MAY be omitted from `event_fields` except `event_id`.
+Requesters MUST ignore unrecognized field names while preserving positional
+alignment. A room version or extension MAY define additional queryable fields;
+its request schema extends the v1 core schema, so the core schema's open top
+level does not make unnamespaced members part of this specification.
+
+#### Derived graph facts (`compute`)
+
+`compute` requests optional derived facts over labelled bounded closures.
+Support is advertised with the `tk.nutra.msc4511.computed_graph_queries`
+capability. A server which does not advertise it MUST reject a request
+containing `compute` or `compute_event_pairs` with `M_UNRECOGNIZED`.
+
+`compute` and `compute_event_pairs` MUST either both be present or both be
+absent. Each pair has exactly two event IDs. The first ID of each pair is an
+implicit explicit seed for that pair's labelled sub-closure; it is not required
+to occur in `seed.event_ids`. Pair closures use the selected edge types and the
+same authorization, room-boundary, depth, node, time, and response budgets as
+the raw closure. The request-wide node budget is never reset between raw
+traversal or pairs.
+
+Pairs MUST be processed in request order. `computed` maps each requested fact
+name to an array aligned with `compute_event_pairs`. If a budget is exhausted,
+the affected result and every later affected result are `null` and `limited` is
+`true`. If either member is unknown, wrong-room, or invisible, its result is
+`null`; this alone does not set `limited`.
+
+- `common_ancestor` returns the maximal common ancestors of the two pair
+  members. Results are ordered `(depth descending, event_id ascending)`, with
+  unknown-depth events after known-depth events. Results exceeding
+  `limits.common_ancestors` are truncated in that order and set `limited`. If a
+  bounded maximal set cannot be determined, the result is `null`, never a
+  partial set.
+- `hop_distance` returns the shortest directed distance from the first member to
+  the second through selected edges, or `null` if none is found within the
+  effective depth. It is also `null` with `limited: true` when the answer cannot
+  be determined before budget exhaustion.
+
+Derived facts are hints and MUST NOT be treated as proof of an authenticated
+relationship without fetching and validating the relevant events.
 
 #### Limits and cost model (`limits`)
 
@@ -415,17 +486,33 @@ The unified cost model establishes:
 | `records`           | `1000`                 | `1000`                     | Terminal emission cap             |
 | `nodes`             | `1000`                 | `5000`                     | Shared non-resettable work budget |
 | `candidate_servers` | Rejected               | `10`                       | Routing hint disclosure cap       |
+| `compute_pairs`     | Rejected               | `20`                       | Derived-fact pair cap             |
+| `common_ancestors`  | Rejected               | `20`                       | Per-pair ancestor-result cap      |
 
 <!-- markdownlint-enable MD013 -->
 
-Request limits are clamped to the server's configured maximum. If traversal is
-truncated by any limit or budget exhaustion, the response sets `limited: true`.
+Responding servers MUST enforce local maxima for seed event count, depth,
+records, nodes, compute pairs, common ancestors, candidate servers, response
+body size, processing time, and request rate per origin. The effective request
+limit is clamped to the configured maximum; there is no unlimited syntax. A
+request with more seed IDs than the effective maximum MUST fail with
+`M_INVALID_PARAM` before lookup or traversal. `depth` MAY be `0`; every other
+requestable limit MUST be at least `1`. `bytes` and `ms` are server-enforced,
+not request members. Clamping alone does not set `limited`; it is `true` when a
+limit, timeout, or unreported omission truncates work or output.
+
+Implementations SHOULD use conservative defaults no higher than 20 seed IDs,
+depth 500, 1000 records, 5000 nodes, 20 compute pairs, 20 common ancestors, 10
+candidate servers per event, a 1 MiB response body, and 3 seconds of processing
+time. Implementations MAY use lower defaults and stricter per-origin rate
+limits.
 
 The public Client State Profile filter accepts only `types` and `state_keys`.
-`include`, `fields`, `edge_types`, and `projection` are invalid in that profile
-and MUST be rejected with `M_INVALID_PARAM` if present. Client-controlled
-`limits` are likewise not part of the profile: depth is fixed at zero by the
-rewrite, and record and work limits are server-owned.
+`include`, `fields`, `edge_types`, `relates_to_types`, `projection`, `compute`,
+and `compute_event_pairs` are invalid in that profile and MUST be rejected with
+`M_INVALID_PARAM` if present. Client-controlled `limits` are likewise not part
+of the profile: depth is fixed at zero by the rewrite, and record and work
+limits are server-owned.
 
 ---
 
@@ -448,7 +535,8 @@ Servers advertise support in `GET /_matrix/federation/v1/version` under
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4511.topology_query": true
+    "tk.nutra.msc4511.topology_query": true,
+    "tk.nutra.msc4511.computed_graph_queries": true
   }
 }
 ```
@@ -556,6 +644,13 @@ MUST omit the event unless it can establish that the current policy is equally
 or more restrictive. A request with no federation authorization to access the
 room MUST fail with `M_FORBIDDEN`.
 
+Malformed seed event IDs MUST fail with `M_INVALID_PARAM`. Unknown, wrong-room,
+or invisible seeds and targets are omitted. If the applicable requested sidecar
+does not report that omission, the response MUST set `limited: true`. Hidden
+branches MUST NOT be replaced with opaque markers: those markers leak graph
+shape. This room-boundary rule mirrors the cross-room `auth_events` protection
+of [MSC4307](https://github.com/matrix-org/matrix-spec-proposals/pull/4307).
+
 Edge targets that cannot be traversed are reported in `edge_errors`:
 
 - `wrong_room`: the target event belongs to a different room. The server MUST
@@ -575,11 +670,26 @@ Responses over federation are strictly **hints**. Requesters MUST fetch and
 validate full PDUs (content hashes, auth rules, signatures, state resolution)
 before accepting events into room history.
 
-The `content` field is **strictly forbidden** in the Federation Profile. Serving
-event bodies over `/topology_query` would collapse the endpoint into an
-unauthenticated `/backfill` and destroy the bandwidth-saving hint architecture.
 `candidate_servers` represents the responder's local routing beliefs and MUST
 NOT be exposed to clients.
+
+Candidate servers MAY be derived from the sender domain, a server which sent the
+event, peers which answered for nearby events, or servers known to participate
+around the event's depth. They MUST be limited by `limits.candidate_servers`,
+ordered by descending local confidence, and omitted where disclosure would
+reveal private membership or history information. They are advisory routing
+beliefs, not PDU metadata. A joined server may receive visible history; an
+invited server only invite-legal material; a non-joined server receives no
+private room metadata. World-readable history is still subject to the requested
+field set and the event-time visibility rule above.
+
+#### Room versions
+
+This endpoint applies to room versions 3 and later only as a hint surface. Room
+versions 1 and 2 MUST be rejected with `M_UNSUPPORTED_ROOM_VERSION`: their
+hashed predecessor references cannot be represented losslessly as this
+endpoint's bare event-ID edges. For room versions 3 and later, requesters MUST
+fetch and validate full PDUs before accepting history.
 
 ---
 
@@ -626,6 +736,17 @@ form:
 }
 ```
 
+This MSC chooses the GET-only client surface. The Client State Profile exposes
+exactly this depth-zero, current-state, full-event instance of the query form;
+the general request object is federation-only in v1. The `filter` object's
+`types` and `state_keys` use the same predicate grammar and parser as
+`seed.state`: they select which current-state entries enter $V_0$, whereas
+`select` is a federation emission filter over all of $V$. A client profile
+implementation MUST reject an unadvertised endpoint with `M_UNRECOGNIZED`, an
+invalid filter with `M_INVALID_PARAM`, preserve the usual state response order,
+return `[]` with `200 OK` when no current state matches, and preserve ordinary
+client authorization and history-visibility behaviour.
+
 The response is the standard JSON array of canonical state event objects.
 Clients receive authoritative state directly from their own homeserver; no
 Merkle proof verification is required for C2S flows.
@@ -651,21 +772,23 @@ Predicate-gated expansion (`traverse`) is deferred from v1. Pruning edges
 changes the reachable closure and can make ancestry and history-visibility
 semantics ambiguous. `select` is therefore an emission filter only.
 
-#### Merge-base analysis
-
-Paired-seed merge-base analysis (provenance-labelled traversal returning common
-ancestors) is deferred from v1. The wire format and behavioural contract are
-designed to accommodate it as an `include.analysis` extension in a future
-revision.
-
 #### Forward recursive queries
 
 Future extensions may define forward recursion over inverse predecessor edges,
 but must specify indexing, ordering, and visit bounds.
 
+#### Cacheability
+
+Event IDs, predecessor edges, depth, and sender-derived fields are immutable
+once the event is known. Authorization-equivalent sparse answers containing only
+those fields MAY be cached. Responder-local fields such as `rejected`,
+`soft_failed`, and `candidate_servers` SHOULD be cached conservatively.
+Requesters SHOULD negatively cache a peer's unsupported
+`tk.nutra.msc4511.topology_query` capability for no longer than 24 hours.
+
 ---
 
-### Relationship to other proposals
+## Relationship to other proposals
 
 - [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242):
   MSC4511A natively traverses `prev_state_events` edges when supported by the
@@ -678,14 +801,27 @@ but must specify indexing, ordering, and visit bounds.
   &
   [MSC4370: Current extremities endpoint](https://github.com/matrix-org/matrix-spec-proposals/pull/4370):
   MSC4511A provides general DAG traversal rather than frontier-only slices.
+  Forward extremities are not returned because they describe a server's local
+  view of the DAG boundary, not metadata committed to an individual event.
 - [MSC2695: Get event by ID over federation](https://github.com/matrix-org/matrix-spec-proposals/pull/2695):
   MSC4511A identifies which missing PDUs to fetch via MSC2695.
 - [Matrix Spec Issue #2019](https://github.com/matrix-org/matrix-spec/issues/2019):
   A motivating consumer of the Client State Profile.
 
+- [MSC2316: Federation queries to aid with database recovery](https://github.com/matrix-org/matrix-spec-proposals/pull/2316)
+  and
+  [MSC2391: Efficient point-queries for room state over federation](https://github.com/matrix-org/matrix-spec-proposals/pull/2391):
+  MSC2316 is a recovery protocol and MSC2391 is a state point-query; neither
+  provides this endpoint's bounded recursive sparse DAG query.
+
+None of these proposals combines arbitrary known start points, selectable DAG
+edges, bounded traversal, sparse per-event metadata, and routing hints. This is
+the pull primitive they can compose with, not a replacement for their higher
+level repair or state-transfer flows.
+
 ---
 
-### Security considerations
+## Security considerations
 
 1. **Resource exhaustion**: Mitigated by strict syntactic bounds, monotonic
    `limits.nodes` currencies, and server-clamped execution budgets.
@@ -693,11 +829,26 @@ but must specify indexing, ordering, and visit bounds.
    `not_available` prevents leaking history visibility boundaries.
 3. **Misdirection resistance**: Requesting homeservers track hint accuracy
    against verified PDUs and temporarily rate-limit peers that return false
-   topology metadata.
+   topology metadata. Such local penalties MUST expire after a bounded interval
+   and MUST NOT cause rejection of an event which passes normal Matrix
+   verification and authorization.
 
 ---
 
-### References
+## Unstable prefix
+
+<!-- markdownlint-disable MD013 -->
+
+| Surface                 | Unstable identifier                                            |
+| :---------------------- | :------------------------------------------------------------- |
+| Federation endpoint     | `/_matrix/federation/unstable/tk.nutra.msc4511/topology_query` |
+| Federation capability   | `tk.nutra.msc4511.topology_query`                              |
+| Derived-fact capability | `tk.nutra.msc4511.computed_graph_queries`                      |
+| Client capability       | `tk.nutra.msc4511.client_state_filter`                         |
+
+<!-- markdownlint-enable MD013 -->
+
+## References
 
 - [Matrix Server-Server API](https://spec.matrix.org/latest/server-server-api/)
 - [Matrix Client-Server API](https://spec.matrix.org/latest/client-server-api/)
