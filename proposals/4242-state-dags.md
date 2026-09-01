@@ -53,7 +53,7 @@ a solution needs to provide the following properties:
 - Room state convergence: Two honest servers that have the same set of state
   events in their room DAG derive the same room state.
 
-This MSC aims to improve the security of authorization decisions. In line with
+For authorization decisions specifically, the MSC additionally relies on
 scientific research on
 [To the Best of Knowledge and Belief: On Eventually Consistent Access Control](https://publikationen.bibliothek.kit.edu/1000176494),
 a solution needs to provide the following properties:
@@ -538,7 +538,7 @@ The intended server behaviour would be:
 1. If type is `m.room.create`:
    1. If it has any `prev_events`, reject.
    2. If the event has a `room_id`, reject.
-   3. **[Added in this version]** If it has any `prev_state_events`, reject.=
+   3. **[Added in this version]** If it has any `prev_state_events`, reject.
    4. If `content.room_version` is present and is not a recognised version,
       reject.
    5. If `additional_creators` is present in `content` and is not an array of
@@ -639,7 +639,7 @@ HTTP/1.1 200 OK
     "$b": ["$a"],
     "$c": ["$a", "$d"],
     "$e": ["$a"]
-  }
+  },
   "timeline": [
     // most recent 10 events
   ]

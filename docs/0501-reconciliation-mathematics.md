@@ -343,9 +343,11 @@ O(63k^2\log_2 k)
 $$
 
 field multiplications in the bounded decoder. A local work budget therefore sets
-a practical direct-decode capacity; the profile's `k=64` cap is the wire and
-local-policy boundary used by MSC4521. Given an estimate `\widehat{\Delta}` and
-a per-bucket safe occupancy $\lambda$, choose the bucket depth
+a practical direct-decode capacity. This note uses `k=64` for its provisioning
+examples; it is a local-policy value, not an `algebraic_v1` wire limit. MSC4521
+caps each extraction entry at 32 and the aggregate exchange capacity at 4096.
+Given an estimate `\widehat{\Delta}` and a per-bucket safe occupancy $\lambda$,
+choose the bucket depth
 
 $$
 d=\left\lceil\log_2\left(\frac{\widehat{\Delta}}{\lambda}\right)\right\rceil,

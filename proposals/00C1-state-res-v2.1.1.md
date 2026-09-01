@@ -186,10 +186,13 @@ unresolvable/outlier pending backfill) — `compute_local_auth` itself never mak
 that call.
 
 This is scoped to `V2_1_1`/`V2_2`'s transitive traversal branch specifically.
-V2.1's 1-hop walk isn't exposed to this problem the same way: it only ever reads
-an event's own `auth_events` list directly, so "missing" there already means
-"not cited," which existing rules already handle correctly — there is no
-multi-hop closure to be silently incomplete over.
+V2.1 deliberately has a one-hop limitation: it reads only an event's directly
+cited `auth_events`, so a transitively required tuple is deterministically
+absent and the relevant rule falls back conservatively, as described above. It
+therefore does not begin a multi-hop closure which can be silently truncated
+mid-walk by missing data. `V2_1_1`/`V2_2`, by contrast, undertake that
+transitive walk; once they do, an unavailable cited ancestor must be represented
+as incomplete rather than silently treated as absent.
 
 ### Retry cost, and un-rejection
 

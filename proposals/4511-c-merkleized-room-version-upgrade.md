@@ -88,7 +88,8 @@ content_hash =
 
 event_root =
   SHA3-256("msc4511:root:v1" || prev_events_hash || auth_events_hash ||
-           event_header_root || content_hash || other_signed_fields_hash)
+           prev_state_events_hash || event_header_root || content_hash ||
+           other_signed_fields_hash)
 ```
 
 All concatenations above are byte concatenations: domain-separation strings and
@@ -96,13 +97,15 @@ All concatenations above are byte concatenations: domain-separation strings and
 is the UTF-8 encoding of the canonical JSON value; and
 `left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
 
-The top-level component hashes `prev_events_hash`, `auth_events_hash`, and
-`other_signed_fields_hash` are computed with the leaf-hash construction above,
-using the field names `prev_events`, `auth_events`, and `other_signed_fields`
-respectively. `content_hash` is instead the `inner_hash` combination of
-`redacted_content_hash` and `redactable_content_hash`, each of which is itself a
-leaf hash over the room version's redaction-surviving and redaction-stripped
-event body fields respectively, as shown above.
+The top-level component hashes `prev_events_hash`, `auth_events_hash`,
+`prev_state_events_hash`, and `other_signed_fields_hash` are computed with the
+leaf-hash construction above, using the field names `prev_events`,
+`auth_events`, `prev_state_events`, and `other_signed_fields` respectively. For
+room versions without State DAGs, `prev_state_events_hash` is the leaf hash of
+the canonical JSON value `null`. `content_hash` is instead the `inner_hash`
+combination of `redacted_content_hash` and `redactable_content_hash`, each of
+which is itself a leaf hash over the room version's redaction-surviving and
+redaction-stripped event body fields respectively, as shown above.
 
 The domain-separation strings use the stable MSC identifier `msc4511` and are
 part of the event ID derivation. Implementations MUST NOT use the unstable
@@ -379,17 +382,13 @@ The sample inputs are:
   },
   "prev_events": ["$a:example.org"],
   "auth_events": ["$auth:example.org"],
+  "prev_state_events": null,
   "content": {
     "body": "hello",
     "msgtype": "m.text"
   },
   "other_signed_fields": {
     "origin": "example.org"
-  },
-  "signature_envelope": {
-    "event_root": "4ccc880527fe5f97d27a04105bb55e6c6e75d87928e54a6cd2973c224802ce91",
-    "room_id": "!room:example.org",
-    "room_version": "tk.nutra.msc4511.12"
   }
 }
 ```
@@ -399,10 +398,6 @@ vector's `other_signed_fields_hash`. It does not define `origin` as a queryable
 field for this MSC. It is an arbitrary signed property used to demonstrate hash
 absorption only.
 
-The `signature_envelope` value above is the sample canonical signed envelope for
-the stated `event_root`. It is signed with the sample Ed25519 key below to make
-the draft vector self-contained.
-
 The generated outputs are:
 
 ```text
@@ -410,20 +405,20 @@ The generated outputs are:
 event_header_root_hex = db91cc8e8d3eb0d13885c32f28dbd4215a111081383e25263749c65d9bf8bc37
 prev_events_hash_hex = fe8934c852d5a646390f3734f99911606c40f4f8ca7fe4065814081e2fb1faef
 auth_events_hash_hex = 2309b8433c96de36d4a55cfb263f3f3131a0874324a9bda59bfd9e73e3846ea1
+prev_state_events_hash_hex = 1e563a09a6d11e52cfea876ee71cdbb6bc9bf6e7680711673d9c2c691d724a3a
 content_hash_hex = 8bfc6857f7a86d45b263c551057d052dfa73ef29dee6e842c90d12143abec729
 other_signed_fields_hash_hex = 272428680275d80a8b02254dbbbe13e93af0153a6e8d80746d7d95dd1df48d59
-event_root_hex = 4ccc880527fe5f97d27a04105bb55e6c6e75d87928e54a6cd2973c224802ce91
-event_id = $TMyIBSf-X5fSegQQW7VebG512Hko5Ups0pc8IkgCzpE
-event_signature_public_key_base64 = LYZrYjxYptzTRzEYBZzYMMEfX/2yYYqQ+RCw62Hmsz4
-event_signature_base64 = 592xXLqbyExpxL1Te7zobls1Gh+IYYbliYCN3jTTn2Ny0kRnFGCEc22Sh/ifTCh/IDsJWVnmRFgrWA7JAqchBA
+event_root_hex = 4f73b8ccd1b706a365ec6982c1ea2f4ebae8790985d8afddd586318108db952e
+event_id = $T3O4zNG3BqNl7GmCweovTrroeQmF2K_d1YYxgQjblS4
 ```
 
-`prev_events_hash_hex`, `auth_events_hash_hex`, `content_hash_hex`, and
-`other_signed_fields_hash_hex` are unchanged from the pre-split vectors, since
-none of those inputs reference `sender`. `event_header_root_hex`,
-`event_root_hex`, `event_id`, and the signature values change because
-`event_header_root` now commits `sender_localpart` and `sender_domain` as
-separate leaves instead of a single `sender` leaf.
+`prev_events_hash_hex`, `auth_events_hash_hex`, `prev_state_events_hash_hex`,
+`content_hash_hex`, and `other_signed_fields_hash_hex` are the top-level
+components in the order used by `event_root`. `event_header_root_hex`,
+`event_root_hex`, and `event_id` change because `event_header_root` now commits
+`sender_localpart` and `sender_domain` as separate leaves instead of a single
+`sender` leaf, and `event_root` now commits the `prev_state_events` field (the
+canonical `null` value in this non-State-DAG vector).
 
 #### Draft causal sparse Merkle sum trie vectors
 

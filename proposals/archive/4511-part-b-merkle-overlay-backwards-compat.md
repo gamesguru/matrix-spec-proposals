@@ -273,12 +273,13 @@ response-tree batching profiles, or fresher liveness envelopes. A new
 `fields_version` MUST identify the fixed leaf set, tree construction, and
 domain-separation strings together, and verifiers MUST reject unknown versions.
 
-## Performance characteristics and benchmarking
+## Performance characteristics
 
-The shared bandwidth and benchmarking analysis for the topology query endpoint
-is defined in
-[Part A, Performance characteristics and benchmarking](../4511-a-topological-metadata-query-api.md#performance-characteristics-and-benchmarking).
-This part documents only what the overlay profile adds on top of that baseline.
+The shared request limits and bandwidth mitigations for the topology query
+endpoint are defined in
+[Part A, Security considerations](../4511-a-topological-metadata-query-api.md#security-considerations).
+This part documents only the storage and response overhead that the overlay
+profile adds on top of that baseline.
 
 ### Storage overhead
 

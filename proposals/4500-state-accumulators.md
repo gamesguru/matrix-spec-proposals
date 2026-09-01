@@ -812,11 +812,11 @@ $2^{16}$; massive rooms are fully supported.
 
 ## Test vectors
 
-To assist implementers, the following test vectors are provided. They use the
-main accumulator: `SHAKE256` element expansion prefixed with the domain
-separation tag `msc4500_lthash16_v1\x00`, 16-bit little-endian wrapping lane
+To assist implementers, the following test vectors are provided. They use
+`SHAKE256` element expansion, 16-bit little-endian wrapping lane
 addition/subtraction, and a `BLAKE2b-256` collapse digest encoded as unpadded
-`base64url` (the wire form).
+`base64url` (the wire form). Unless a vector specifies a sibling accumulator,
+the domain separation tag is `msc4500_lthash16_v1\x00`.
 
 ### Empty state
 
@@ -833,6 +833,29 @@ constant. Receivers MUST NOT treat digest equality at the empty state as a
 meaningful confirmation of anything about a specific room; it confirms only that
 both sides implement the same empty-state convention. This value doubles as a
 free extra test vector for the `before` digest of any room's create event.
+
+### Sibling accumulators
+
+The empty lattice for both sibling accumulators is also 2048 zero bytes and
+therefore collapses to `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`.
+
+For the causal redaction overlay, add the same tuple as Scenario 1 under the
+`msc4500_lthash16_redactions_v1\x00` tag:
+
+- Raw encoded element:
+  `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
+- Expansion prefix (first 16 bytes): `e8f6d24fee80eda443d6a3078978d00e`
+- Collapse digest: `NOWxmUdkDBgFpQvGMSHTDaLbLkMGngxlXVv8xImYPp0`
+
+For the resolution-input accumulator, use the one-node labelled record with
+event ID `$event_1`, type `m.room.member`, state key `@alice:example.com`, and
+empty `auth_events` and state-predecessor lists, under the
+`msc4500_lthash16_resolution_inputs_v1\x00` tag:
+
+- Raw encoded element:
+  `0800246576656e745f310d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d0000000000000000`
+- Expansion prefix (first 16 bytes): `f693a14502d2d4d5b63860a53b6cab00`
+- Collapse digest: `j6UmRSysLWmKJI8pUCl_HJAO0bC7nCi0KMDXoRs6y4E`
 
 ### Scenario 1: one element (addition)
 

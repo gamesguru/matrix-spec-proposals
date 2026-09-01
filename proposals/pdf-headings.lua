@@ -1,14 +1,28 @@
-local consumed_title = false
+function Pandoc(doc)
+  -- The Makefile supplies the first H1 as PDF metadata.  Removing it and
+  -- promoting the remaining headings is only safe for documents that use a
+  -- single H1 title.  Many established MSCs use H1 for their major sections.
+  local h1_count = 0
+  doc:walk({
+    Header = function(header)
+      if header.level == 1 then
+        h1_count = h1_count + 1
+      end
+    end,
+  })
 
-function Header(header)
-  if not consumed_title and header.level == 1 then
-    consumed_title = true
-    return {}
+  if h1_count ~= 1 then
+    return doc
   end
 
-  if header.level > 1 then
-    header.level = header.level - 1
-  end
+  return doc:walk({
+    Header = function(header)
+      if header.level == 1 then
+        return {}
+      end
 
-  return header
+      header.level = header.level - 1
+      return header
+    end,
+  })
 end

@@ -254,9 +254,10 @@ projection rules below.
     },
     "events": {
       "type": "array",
-      "items": {
-        "oneOf": [{ "type": "array", "items": {} }, { "type": "object" }]
-      }
+      "anyOf": [
+        { "items": { "type": "array", "items": {} } },
+        { "items": { "type": "object" } }
+      ]
     },
     "edge_errors": {
       "type": "object",
@@ -747,9 +748,12 @@ invalid filter with `M_INVALID_PARAM`, preserve the usual state response order,
 return `[]` with `200 OK` when no current state matches, and preserve ordinary
 client authorization and history-visibility behaviour.
 
-The response is the standard JSON array of canonical state event objects.
-Clients receive authoritative state directly from their own homeserver; no
-Merkle proof verification is required for C2S flows.
+The Client State Profile is not subject to the `records` terminal emission cap:
+the existing endpoint has neither a `limited` member nor pagination. It MUST
+return every current-state event that matches the filter and is visible to the
+requester. The response is the standard JSON array of canonical state event
+objects. Clients receive authoritative state directly from their own homeserver;
+no Merkle proof verification is required for C2S flows.
 
 #### Consuming example: Issue #2019 state filtering
 
