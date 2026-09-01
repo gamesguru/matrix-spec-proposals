@@ -105,6 +105,31 @@ does not define peer-admin arbitration, bans, self-leaves, invitations,
 join-rule conflicts, or arbitrary power-level edits. Those cases use ordinary
 room-version resolution until separately specified.
 
+## Canonical repair schedule
+
+V3 selection is synchronous. Implementations MUST NOT mutate a provisional
+resolved state while authorizing another event in the same round.
+
+Let `D0` be the complete admitted event set. At round `i`:
+
+1. For every state key, derive causally maximal writers in `Di` and select the
+   maximum under V3's total rank. These selections form `sigma_i`.
+2. Evaluate every selected event against the same immutable `sigma_i`, including
+   the V3 cross-branch-reach predicate.
+3. Let `Fi` contain every selected event that fails that predicate.
+4. If `Fi` is empty, `sigma_i` is the result. Otherwise set
+   `D(i+1) = Di minus Fi` and begin the next round.
+
+Candidate discovery, rank comparison, and diagnostics MUST use canonical event
+ID order. That order cannot affect a round's outcome; it only makes work and
+diagnostics reproducible. Removals are simultaneous. After removal, a causally
+dominated writer may become maximal and is considered in the next round. A key
+with no remaining writer is absent.
+
+The schedule terminates in at most `|D0|` non-final rounds: every non-final
+round removes at least one event. This schedule is normative even if the
+associated repair operator is not monotone in the lattice-theoretic sense.
+
 ## Safety and interoperability
 
 Implementations MUST NOT use a traversal budget whose exhaustion is interpreted
