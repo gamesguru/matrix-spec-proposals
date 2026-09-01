@@ -157,10 +157,10 @@ resolution, authorization, or event acceptance. Unlike the selected-state
 accumulator, it does distinguish a mismatch in recursive input topology from a
 resolver disagreement over an identical canonical input graph.
 
-**Causal redaction overlay.** Redaction visibility is represented by a separate
-overlay accumulator, not by changing the primary element tuple. The overlay uses
-the same element encoding `(type, state_key, event_id)` and the same lattice
-parameters, but expands elements under the domain separation tag
+**Redaction accumulator.** Redaction visibility is represented by a separate
+accumulator, not by changing the primary element tuple. The redaction
+accumulator uses the same element encoding `(type, state_key, event_id)` and the
+same lattice parameters, but expands elements under the domain separation tag
 `msc4500_lthash16_redactions_v1\x00`. Its normative input at a DAG point `E` is
 the following derived set:
 
@@ -169,23 +169,25 @@ R(E) = \{\operatorname{tuple}(s) \mid s \in \operatorname{resolved\_state}(E)
 \land \operatorname{effectively\_redacted\_in\_past}(E, s)\}.
 $$
 
-An incrementally maintained overlay lattice is only a cache of this function; it
-MUST NOT be treated as an independent source of redaction or state membership.
-Multiple accepted redactions of the same selected event still contribute one
-overlay element. Redactions of timeline events, and redactions of state events
-not selected in the resolved state at `E`, contribute nothing.
+An incrementally maintained redaction lattice is only a cache of this function;
+it MUST NOT be treated as an independent source of redaction or state
+membership. Multiple accepted redactions of the same selected event still
+contribute one accumulated element. Redactions of timeline events, and
+redactions of state events not selected in the resolved state at `E`, contribute
+nothing.
 
-This overlay answers a narrower question than history-wide reconciliation: do
-the peers agree about redactions that affect the presentation of the selected
-state at this DAG point? It intentionally does not accumulate every redaction in
-the room. Servers legitimately have different retained history horizons, so an
-unframed room-global redaction digest would not be comparable. History-wide
-redaction gaps belong to framed MSC0501 / MSC4521 reconciliation instead.
+This redaction accumulator answers a narrower question than history-wide
+reconciliation: do the peers agree about redactions that affect the presentation
+of the selected state at this DAG point? It intentionally does not accumulate
+every redaction in the room. Servers legitimately have different retained
+history horizons, so an unframed room-global redaction digest would not be
+comparable. History-wide redaction gaps belong to framed MSC0501 / MSC4521
+reconciliation instead.
 
 Hash-failure redaction of a locally corrupt event is also excluded. It is a
 local, reversible repair condition, not consensus state. A server may use it for
 local telemetry or refetch decisions, but MUST NOT include it in federated
-overlay digests.
+redaction digests.
 
 **NOTE:** It is the caller's responsibility to ensure the input is really a set
 [^1.2.n2]. The digest allows deducting elements which were never added, and it
@@ -204,21 +206,21 @@ a set manager or delta-decoder.
 
 ### Capability discovery
 
-Servers advertise causal redaction overlay and resolution-input digest support
-through `GET /_matrix/federation/v1/version`:
+Servers advertise redaction and resolution-input digest support through
+`GET /_matrix/federation/v1/version`:
 
 ```json
 {
   "unstable_features": {
-    "tk.nutra.msc4500.redaction_overlay": true,
+    "tk.nutra.msc4500.redactions": true,
     "tk.nutra.msc4500.resolution_input_digest": true
   }
 }
 ```
 
-Once a server advertises `tk.nutra.msc4500.redaction_overlay`, it MUST emit the
-complete overlay wherever this MSC requires `state_hashes`, and MUST emit the
-overlay validator on a resolvable `/state_ids` response. Once it advertises
+Once a server advertises `tk.nutra.msc4500.redactions`, it MUST emit the
+redaction digest wherever this MSC requires `state_hashes` and on all resolvable
+`/state_ids` responses. Once it advertises
 `tk.nutra.msc4500.resolution_input_digest`, it MUST emit the complete
 resolution-input digest for every non-limited transaction assertion. Absence
 from an advertising server means no assertion was made; it MUST NOT be
@@ -255,7 +257,7 @@ If the PDU is a non-rejected state event, `after` is that DAG-position state
 with the PDU's `(type, state_key)` binding replaced by the PDU's event ID. For a
 non-state or rejected event, `after` equals `before`. If the PDU is an effective
 redaction whose target is selected in that DAG-position state,
-`redactions_after` adds the target's `(type, state_key, event_id)` overlay
+`redactions_after` adds the target's `(type, state_key, event_id)` redacted
 element even though `after` equals `before`. This replacement is not a shortcut
 around state resolution: when this branch is later resolved with other branches,
 the room version's complete state resolution algorithm decides whether the PDU
@@ -280,7 +282,7 @@ digest at that DAG position.
 - `algorithm`: A single string identifying the complete digest profile used for
   every entry in this transaction's `state_hashes.entries` dictionary. This MSC
   defines `lthash16-v1+redactions-v1`, comprising the primary `lthash16-v1`
-  accumulator and the causal redaction overlay with its separate DST (see
+  accumulator and the redaction supplement with its separate DST (see
   [Algorithm specification](#algorithm-specification)). A server advertising
   `tk.nutra.msc4500.resolution_input_digest` instead uses
   `lthash16-v1+redactions-v1+resolution-inputs-v1`, which additionally commits
@@ -292,14 +294,14 @@ digest at that DAG position.
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. It MUST contain exactly one entry for every PDU in `pdus` when
   `state_hashes` is present. Under `lthash16-v1+redactions-v1`, each value
-  either asserts that PDU's primary and overlay `before` and `after` digests, or
-  explicitly marks the assertion as limited. A supporting sender MUST emit all
-  four digest fields for a non-limited entry; the resolution-input algorithm
+  either asserts that PDU's primary and redaction `before` and `after` digests,
+  or explicitly marks the assertion as limited. A supporting sender MUST emit
+  all four digest fields for a non-limited entry; the resolution-input algorithm
   MUST additionally emit `resolution_inputs_before`. Omission is malformed, not
-  an assertion that the overlay is empty. The empty overlay is represented by
-  its defined sentinel digest. A receiver that observed the sender advertise
-  `tk.nutra.msc4500.redaction_overlay` SHOULD report an omitted overlay as a
-  protocol violation, while continuing ordinary PDU processing.
+  an assertion that the redaction accumulator is empty; the empty accumulator is
+  represented by its defined sentinel digest. A receiver that observed the
+  sender advertise `tk.nutra.msc4500.redactions` SHOULD report an omitted digest
+  as a protocol violation, while continuing ordinary PDU processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -307,11 +309,11 @@ digest at that DAG position.
   - `after`: The 32-byte digest of the room state after the current PDU is
     applied. For non-state events, this is identical to `before`. This field
     MUST be omitted when `limited` is `true`.
-  - `redactions_before`: The 32-byte causal redaction overlay digest evaluated
-    over the selected state at the same DAG point as `before`. This is JSON
-    `null` when `limited` is `true`.
-  - `redactions_after`: The 32-byte causal redaction overlay digest after the
-    current PDU is applied. This field MUST be omitted when `limited` is `true`.
+  - `redactions_before`: The 32-byte redaction digest evaluated over the
+    selected state at the same DAG point as `before`. This is JSON `null` when
+    `limited` is `true`.
+  - `redactions_after`: The 32-byte redaction digest after the current PDU is
+    applied. This field MUST be omitted when `limited` is `true`.
   - `resolution_inputs_before`: The 32-byte digest of the complete labelled
     input set handed to state resolution for the PDU's `prev_events`, as defined
     above. This field is required only by the `resolution-inputs-v1` algorithm
@@ -375,20 +377,20 @@ To avoid event bloat, the full `LtHash16` lattice state (2048 bytes) is **never
 explicitly transmitted over transactions.**
 
 Transmitting only the collapsed 32-byte digest keeps payload footprints small.
-Only the collapsed primary, overlay, and resolution-input digests and their
-field names are added per resolvable PDU; the 2048-byte lattices are never
-duplicated on the wire.
+Only the collapsed _primary_, _redaction_, and _input_ digests and their field
+names are added per resolvable PDU; the 2048-byte lattices are never duplicated
+on the wire.
 
 ### Receiver contract
 
 Each server independently maintains its own `LtHash16` lattice in local storage.
 
 When a server receives a `/send` transaction containing a `state_hashes`
-payload, it collapses its local primary and causal-redaction-overlay lattices at
-that DAG point to canonical 32-byte `BLAKE2b-256` digests. For the
-resolution-input algorithm it also computes the complete labelled input-DAG
-closure before running resolution. If the local digests match the incoming ones,
-processing proceeds normally.
+payload, it collapses its local resolved state and redaction lattices at that
+DAG point to canonical 32-byte `BLAKE2b-256` digests. For the resolution-input
+algorithm it also computes the complete labelled input-DAG closure before
+running resolution. If the local digests match the incoming ones, processing
+proceeds normally.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
@@ -432,15 +434,14 @@ activity). Note that if a receiving server **rejects** an incoming state event
 due to auth/power-level rules, their `after` hash will mismatch the sender's
 `after` hash, detecting split-brain authorization failures.
 
-Primary and overlay mismatches SHOULD be reported separately. A primary mismatch
-means the servers disagree about the selected state event IDs. An overlay
-mismatch with a matching primary digest means the servers agree on selected
-state IDs but disagree about whether one of those selected events has been
-effectively redacted in the causal past; operationally, this most often points
-at missing redaction or target ancestry and is a fetch/reconciliation signal. If
-both digests mismatch, the primary state disagreement is the first condition to
-investigate, because redaction effectiveness itself depends on authorized state
-such as power levels.
+Primary and redaction mismatches SHOULD be reported separately. A primary
+mismatch means the servers disagree about the selected state event IDs. A
+redaction mismatch with a matching primary digest means the servers agree on
+selected state IDs but disagree about whether one of those selected events has
+been redacted; this most often points at missing redaction or target ancestry
+and is a fetch/reconciliation signal. If both digests mismatch, the primary
+state disagreement is the first condition to investigate, because redaction
+effectiveness itself depends on authorized state such as power levels.
 
 A resolution-input mismatch means the peers did not hand the same labelled raw
 state-DAG input to their resolvers. It should be investigated before attributing
@@ -480,9 +481,8 @@ The primary digest is an ID-set validator only. Endpoints that return full event
 objects, including the client `/state` endpoint, can be affected by redaction of
 selected state events even when the selected event IDs are unchanged. A
 client-facing validator for those representations would therefore need to bind
-both the primary digest and a redaction overlay digest in its own extension;
-this MSC only specifies the backwards-compatible federation `/state_ids`
-validator.
+both the primary digest and a redaction digest in its own extension; this MSC
+only specifies the backwards-compatible federation `/state_ids` validator.
 
 #### Backwards-compatible `/state_ids` optimization
 
@@ -504,12 +504,12 @@ therefore equal selected state event IDs also imply equal auth-chain IDs. A
 future room version or endpoint semantics that break this derivation MUST use a
 validator that commits to both response sets instead.
 
-A responder advertising `tk.nutra.msc4500.redaction_overlay` MUST also include a
-causal redaction overlay validator of the form
+A responder advertising `tk.nutra.msc4500.redactions` MUST also include a
+redaction accumulation validator of the form
 `X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
 `<digest>` is evaluated at the same requested `event_id`. This header is not a
 substitute for the entity-tag: the ETag validates the endpoint's ID-only JSON
-body, while the overlay header lets peers cheaply detect disagreement over
+body, while the redaction header lets peers cheaply detect disagreement over
 effective redactions of the selected state at that DAG point. A redaction MUST
 NOT invalidate the primary `/state_ids` ETag unless it changes the selected
 state event IDs.
@@ -523,11 +523,11 @@ the responder's own resolved state at the requested DAG point. Unsupported,
 unknown, or malformed validators MUST be ignored, yielding the existing `200`
 response and JSON body. Thus this extension changes neither the endpoint's URL
 nor its JSON schema, and implementations unaware of it remain interoperable. The
-overlay header remains backwards-compatible: unaware implementations ignore it.
-Aware implementations compare it only when they have independently resolved the
-same requested DAG point. If an advertising responder omits it, the requester
-MUST treat the overlay check as unavailable, not successful, and SHOULD report
-the protocol violation.
+redaction header remains backwards-compatible: unaware implementations ignore
+it. Aware implementations compare it only when they have independently resolved
+the same requested DAG point. If an advertising responder omits it, the
+requester MUST treat the redaction check as unavailable, not successful, and
+SHOULD report the protocol violation.
 
 Conditional requests are a steady-state polling optimization only. Once state
 divergence is known or suspected, a requester MUST issue `/state_ids`
@@ -553,9 +553,9 @@ polling interval can be lengthened (rate-limited to a longer period) for rooms
 with recent inbound transactions.
 
 MSC4500 does not detect omissions in ordinary messages or history-wide
-redactions. Its causal overlay detects only redactions that affect state events
-selected at the asserted DAG point. Broader timeline reconciliation remains the
-domain of MSC0501.
+redactions. Its accumulators detect only redactions that affect state events
+selected at the asserted DAG point. Broader timeline reconciliation are
+excluded.
 
 ## Synergy with MSC4521 (state-set sketch reconciliation)
 
@@ -583,32 +583,32 @@ handling total rewrites with a single pointer flip or by computing the set
 partitions (for partial or heterogeneous rewrites) in SIMD and L1 cache before
 issuing any database commands.
 
-The causal redaction overlay is normatively the function $R(E)$ defined above,
-not independently maintained state. Implementations MAY cache its lattice
-incrementally and SHOULD represent cached values as pointer-shared immutable
-roots, not mandatory 2048-byte copies on every state group. Most rooms have no
-currently selected redacted state events, so the all-zero overlay lattice is a
-global sentinel. Even in rooms with such redactions, the overlay changes only
-when an effective redaction targets a state event selected at that DAG point, or
-when state resolution selects a different redacted/non-redacted state event for
-a binding. Implementations can therefore store many state groups pointing at the
-same overlay value.
+The redaction accumulator is the function $R(E)$ defined above. Implementations
+MAY cache its lattice incrementally and SHOULD represent cached values as
+pointer-shared immutable roots, not mandatory 2048-byte copies on every state
+group. Most rooms have no currently selected redacted state events, so the
+all-zero redaction lattice is a global sentinel. Even in rooms with such
+redactions, the accumulator changes only when an effective redaction targets a
+state event selected at that DAG point, or when state resolution selects a
+different redacted/non-redacted state event for a binding. Implementations can
+therefore store many state groups pointing at the same redaction set.
 
-An implementation that caches the overlay MUST retain a path to recompute it
-from authoritative resolved-state membership and causal redaction data. Before
-classifying an overlay mismatch as peer divergence, it MUST verify or recompute
-the local derived value. A full recomputation is $O(S)$ in selected-state size;
-colocated redaction status, a compact status bitmap, or an index of selected
-redacted events can reduce its practical cost without changing the normative
-set.
+An implementation that caches room redaction digests MUST retain a path to
+recompute it from authoritative resolved-state membership and redaction data.
+Before classifying a redaction mismatch as peer divergence, it MUST verify or
+recompute the local derived value. A full recomputation is $O(S)$ in
+selected-state size; colocated redaction status, a compact status bitmap, or an
+index of selected redacted events can reduce its practical cost without changing
+the normative set.
 
-At multi-predecessor events, neither the primary nor the overlay lattice can be
-computed by directly combining parent lattices; both follow from the room
-version's state resolution result. The overlay's marginal work is checking
-redaction status for selected state events already enumerated to construct the
-primary lattice. Implementations SHOULD colocate that status with the selected
-state row, short event ID, or equivalent state-map metadata. Storing it in a
-separate table can turn merge construction into an avoidable extra scan.
+At multi-predecessor events, neither the primary nor the redaction lattice can
+be computed by directly combining parent lattices; both follow from the room
+version's state resolution result. The redaction accumulator's marginal work is
+checking redaction status for selected state events already enumerated to
+construct the primary lattice. Implementations SHOULD colocate that status with
+the selected state row, short event ID, or equivalent state-map metadata.
+Storing it in a separate table can turn merge construction into an avoidable
+extra scan.
 
 Creating a new state group ID (digest) from a singular delta is one subtraction
 plus one addition. A bundle of 100 deltas is 100 additions and 100 subtractions.
@@ -839,7 +839,7 @@ free extra test vector for the `before` digest of any room's create event.
 The empty lattice for both sibling accumulators is also 2048 zero bytes and
 therefore collapses to `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`.
 
-For the causal redaction overlay, add the same tuple as Scenario 1 under the
+For the redaction accumulator, add the same Scenario 1 tuple with
 `msc4500_lthash16_redactions_v1\x00` tag:
 
 - Raw encoded element:
@@ -940,7 +940,7 @@ not required to implement this proposal.
   servers that want the accelerant without pulling in MSC4521's GF(64)
   machinery)?
 
-## References
+<!-- ## References -->
 
 [^1]:
     **Bellare, M., & Micciancio, D. (1997).** _A New Paradigm for Collision-free
