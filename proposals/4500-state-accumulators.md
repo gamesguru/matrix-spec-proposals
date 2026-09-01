@@ -122,43 +122,40 @@ event therefore has no effect on the accumulator (having no effect on event ID).
 
 **Resolution-input accumulator.** The primary accumulator commits the selected
 _output_ of state resolution. It cannot distinguish a divergent input DAG from a
-resolver disagreement over identical inputs, and it intentionally omits the
-local rejection and soft-failure classifications that are valuable diagnostics.
-For each PDU $P$, this MSC therefore defines a sibling LtHash input set $I(P)$
-over the complete raw labelled DAG input to resolution. $I(P)$ is the least set
-of event records containing every event in the state maps at each of $P$'s
-`prev_events`, and every event transitively referenced from those records by
-`auth_events` and the room version's state-predecessor relation
-(`prev_state_events` when defined, otherwise `prev_events`). The relation name
-is part of the record, so this commits topology as well as node labels. Missing
-referenced events make the assertion `limited`; they are never represented by a
-synthetic placeholder.
+resolver disagreement over identical inputs. For this diagnostic, the input must
+be independent of responder-local processing policy. For each PDU $P$, this MSC
+therefore defines a sibling LtHash input set $I(P)$ over the complete raw
+labelled DAG input to resolution. $I(P)$ is the least set of event records
+containing every event in the state maps at each of $P$'s `prev_events`, and
+every event transitively referenced from those records by `auth_events` and the
+room version's state-predecessor relation (`prev_state_events` when defined,
+otherwise `prev_events`). The relation name is part of the record, so this
+commits topology as well as node labels. Missing referenced events make the
+assertion `limited`; they are never represented by a synthetic placeholder.
 
 Each element of $I(P)$ is serialized as
 
 ```text
 len(event_id) || event_id || len(type) || type || len(state_key) || state_key ||
-rejected || soft_failed || auth_events || state_predecessors
+auth_events || state_predecessors
 ```
 
-where `rejected` and `soft_failed` are exactly one byte (`0x00` for false,
-`0x01` for true) recording the responding server's classification of that event
-at evaluation time. `auth_events` is `uint32le(count)` followed by its event IDs
-in bytewise UTF-8 ascending order, each encoded as `uint16le(length) || id`.
+where `auth_events` is `uint32le(count)` followed by its event IDs in bytewise
+UTF-8 ascending order, each encoded as `uint16le(length) || id`.
 `state_predecessors` uses the same encoding over `prev_state_events`, or over
 `prev_events` when the room version does not define `prev_state_events`. An
-event with the same ID and different labels or outgoing edges is a distinct
-labelled input element; identical records reached by multiple paths are included
-once. The set is expanded and accumulated exactly as the primary accumulator,
-but under the distinct domain separation tag
-`msc4500_lthash16_resolution_inputs_v1\x00`.
+event with the same ID and different outgoing edges is a distinct labelled input
+element; identical records reached by multiple paths are included once. The set
+is expanded and accumulated exactly as the primary accumulator, but under the
+distinct domain separation tag `msc4500_lthash16_resolution_inputs_v1\x00`.
 
-This digest is diagnostic only. Rejection and soft-failure labels are local
-observations, so mismatches identify a useful divergence boundary but neither
-establish protocol-invalid behaviour nor alter state resolution, authorization,
-or event acceptance. Unlike the selected-state accumulator, it does distinguish
-a mismatch in the recursive input topology from a resolver disagreement over an
-identical canonical input graph.
+This digest is diagnostic only. It MUST NOT include `rejected`, `soft_failed`,
+or any other responder-local processing status: those observations are not raw
+resolution inputs and would produce false mismatches between otherwise identical
+graphs. It neither establishes protocol-invalid behaviour nor alters state
+resolution, authorization, or event acceptance. Unlike the selected-state
+accumulator, it does distinguish a mismatch in recursive input topology from a
+resolver disagreement over an identical canonical input graph.
 
 **Causal redaction overlay.** Redaction visibility is represented by a separate
 overlay accumulator, not by changing the primary element tuple. The overlay uses
