@@ -12,7 +12,18 @@ function Pandoc(doc)
   })
 
   if h1_count ~= 1 then
-    return doc
+    local removed_title = false
+
+    return doc:walk({
+      Header = function(header)
+        if not removed_title and header.level == 1 then
+          removed_title = true
+          return {}
+        end
+
+        return header
+      end,
+    })
   end
 
   return doc:walk({
