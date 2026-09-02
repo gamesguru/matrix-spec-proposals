@@ -89,12 +89,12 @@ implemented as follows:
    per length is sufficient since no field in a valid PDU can exceed the global
    65 KB event size limit.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
-   tag `msc4500_lthash16_v1\x00`, is expanded to exactly 2048 bytes using the
+   tag `msc4500:lthash16:v1`, is expanded to exactly 2048 bytes using the
    `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
-   `expansion = SHAKE256("msc4500_lthash16_v1\x00" || element, 2048)`. A
-   fixed-width hash cannot fill the lattice; this uniform XOF expansion is
-   essential for identical lane distribution. `SHAKE256` is natively supported
-   across virtually all cryptographic libraries without custom parameter block
+   `expansion = SHAKE256("msc4500:lthash16:v1" || element, 2048)`. A fixed-width
+   hash cannot fill the lattice; this uniform XOF expansion is essential for
+   identical lane distribution. `SHAKE256` is natively supported across
+   virtually all cryptographic libraries without custom parameter block
    requirements.
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
@@ -147,7 +147,7 @@ UTF-8 ascending order, each encoded as `uint16le(length) || id`.
 event with the same ID and different outgoing edges is a distinct labelled input
 element; identical records reached by multiple paths are included once. The set
 is expanded and accumulated exactly as the primary accumulator, but under the
-distinct domain separation tag `msc4500_lthash16_resolution_inputs_v1\x00`.
+distinct domain separation tag `msc4500:resolution_inputs:v1`.
 
 This digest is diagnostic only. It MUST NOT include `rejected`, `soft_failed`,
 or any other responder-local processing status: those observations are not raw
@@ -161,8 +161,8 @@ resolver disagreement over an identical canonical input graph.
 accumulator, not by changing the primary element tuple. The redaction
 accumulator uses the same element encoding `(type, state_key, event_id)` and the
 same lattice parameters, but expands elements under the domain separation tag
-`msc4500_lthash16_redactions_v1\x00`. Its normative input at a DAG point `E` is
-the following derived set:
+`msc4500:redactions:v1`. Its normative input at a DAG point `E` is the following
+derived set:
 
 $$
 R(E) = \{\operatorname{tuple}(s) \mid s \in \operatorname{resolved\_state}(E)
@@ -816,7 +816,7 @@ To assist implementers, the following test vectors are provided. They use
 `SHAKE256` element expansion, 16-bit little-endian wrapping lane
 addition/subtraction, and a `BLAKE2b-256` collapse digest encoded as unpadded
 `base64url` (the wire form). Unless a vector specifies a sibling accumulator,
-the domain separation tag is `msc4500_lthash16_v1\x00`.
+the domain separation tag is `msc4500:lthash16:v1`.
 
 ### Empty state
 
@@ -840,22 +840,22 @@ The empty lattice for both sibling accumulators is also 2048 zero bytes and
 therefore collapses to `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`.
 
 For the redaction accumulator, add the same Scenario 1 tuple with
-`msc4500_lthash16_redactions_v1\x00` tag:
+`msc4500:redactions:v1` tag:
 
 - Raw encoded element:
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
-- Expansion prefix (first 16 bytes): `e8f6d24fee80eda443d6a3078978d00e`
-- Collapse digest: `NOWxmUdkDBgFpQvGMSHTDaLbLkMGngxlXVv8xImYPp0`
+- Expansion prefix (first 16 bytes): `658b7e927e6dfb1e005d256b8585f2de`
+- Collapse digest: `agc0p_Rz3alXKNeiOyH3AGl7eYADEyy51Ig3WWf5pfo`
 
 For the resolution-input accumulator, use the one-node labelled record with
 event ID `$event_1`, type `m.room.member`, state key `@alice:example.com`, and
 empty `auth_events` and state-predecessor lists, under the
-`msc4500_lthash16_resolution_inputs_v1\x00` tag:
+`msc4500:resolution_inputs:v1` tag:
 
 - Raw encoded element:
   `0800246576656e745f310d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d0000000000000000`
-- Expansion prefix (first 16 bytes): `f693a14502d2d4d5b63860a53b6cab00`
-- Collapse digest: `j6UmRSysLWmKJI8pUCl_HJAO0bC7nCi0KMDXoRs6y4E`
+- Expansion prefix (first 16 bytes): `9b753e5e920f6efaf5c1d0d7a0901b59`
+- Collapse digest: `-Vh8cQGOWtRZu4YGNhWnswj_QuHJDuCCIuzCuGpX2zs`
 
 ### Scenario 1: one element (addition)
 
@@ -866,9 +866,9 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
 - Element 1 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_1)$):
-  `c6a4f2e8f4016c9aaf9c52e67020f221`
-- Lattice $S_1$ prefix (first 16 bytes): `c6a4f2e8f4016c9aaf9c52e67020f221`
-- Collapse digest: `0mRyt9cOWBGyKqV14a2omLPIOJFUfX0LkJcqpE20LbI`
+  `dbcadc58c85d7be0efca00e478a66697`
+- Lattice $S_1$ prefix (first 16 bytes): `dbcadc58c85d7be0efca00e478a66697`
+- Collapse digest: `bX7ccIPg0lyRZyBYO_UZs5nC4iVitD62L6cJfL2iAiU`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -887,9 +887,9 @@ ID `$event_2`.
 - Raw encoded element: `0b006d2e726f6f6d2e6e616d650000246576656e745f32`
 - Element 2 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_2)$):
-  `8107236052d1e6d7193cada70d85fa2c`
-- Lattice $S_2$ prefix (first 16 bytes): `47ac154946d35272c8d8ff8d7da5ec4e`
-- Collapse digest: `aH8bXDxcQTK2_cA8Bw4BKHsBrsBE6YVgzN_uUBAJzA8`
+  `118e0b32fac730c01f1351378389793a`
+- Lattice $S_2$ prefix (first 16 bytes): `ec58e78ac225aba00ede511bfb2fdfd1`
+- Collapse digest: `uPdh4wkYWs0awGqFQmf3ieHSoFoMXFPwZmdqrwSPhkM`
 
 ### Scenario 4: instant replacement
 
@@ -901,9 +901,9 @@ event ID `$event_3`. This is performed by subtracting the expansion for
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f33`
 - Element 3 expansion prefix (first 16 bytes of
   $SHAKE256(\text{tag} \parallel \text{el}_3)$):
-  `14e9b8900236b9d0d2e07dc6b392fa14`
-- Lattice $S_3$ prefix (first 16 bytes): `95f0dbf054079fa8eb1c2a6ec017f441`
-- Collapse digest: `DB65faOdzCq5z6YcTaMp282OIwuJKnBYOFfJNEJJJ6k`
+  `4f026432409d32757f83fd088659c6c6`
+- Lattice $S_3$ prefix (first 16 bytes): `60906f643a6562359e964e4009e33f01`
+- Collapse digest: `eqev6DfKxlhX6RocDu97tQghpBYRRQ9TfbGXiiQiSZA`
 
 ## Backwards compatibility
 
