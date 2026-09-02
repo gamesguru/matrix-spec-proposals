@@ -5,22 +5,22 @@ can theoretically reverse engineer private keys using Shor's algorithm, breaking
 elliptic-curve and RSA schemes.
 
 This MSC extends the post-quantum migration to E2EE device signing keys and
-cross-signing keys. The cryptographic primitives (`fn-dsa-512`), encoding rules,
+cross-signing keys. The cryptographic primitives (`fndsa512`), encoding rules,
 and server-side federation changes are defined in
 [MSC00E4: Post-quantum server keys and minting](./00E4-quantum-sigs-minting-server-keys.md)
 and companion federation PQC drafts.
 
 ## Proposal
 
-This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by MSC00E4. All encoding
+This MSC uses **FN-DSA-512** (`fndsa512`) as defined by MSC00E4. All encoding
 rules (public key encoding, signature encoding, signing operation) are identical
 to those specified by the server-key profile. Refer to MSC00E4 for algorithm
 parameters, NIST security level rationale, and FIPS 206 dependency details.
 
 > **Note:** For readability, this proposal uses the intended stable identifier
-> `fn-dsa-512` throughout the main text and examples. Until both this MSC and
+> `fndsa512` throughout the main text and examples. Until both this MSC and
 > MSC00E4 are accepted and merged into the Matrix specification, implementations
-> MUST use the unstable identifier `tk.nutra.msc45xx.fn-dsa-512` — the canonical
+> MUST use the unstable identifier `tk.nutra.msc45xx.fndsa512` — the canonical
 > prefix defined by the Federation MSC where the algorithm is specified — in all
 > protocol fields, including E2EE device key IDs, cross-signing key IDs, and
 > signature entries. See [Unstable Prefix](#unstable-prefix) for the full
@@ -32,22 +32,22 @@ The `/keys/upload` endpoint is extended to accept FN-DSA device signing keys:
 
 ```json
 {
-    "device_keys": {
-        "user_id": "@alice:example.com",
-        "device_id": "JLAFKJWSCS",
-        "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
-        "keys": {
-            "curve25519:JLAFKJWSCS": "<base64-curve25519-key>",
-            "ed25519:JLAFKJWSCS": "<base64-ed25519-key>",
-            "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
-        },
-        "signatures": {
-            "@alice:example.com": {
-                "ed25519:JLAFKJWSCS": "<base64-ed25519-self-signature>",
-                "fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
-            }
-        }
+  "device_keys": {
+    "user_id": "@alice:example.com",
+    "device_id": "JLAFKJWSCS",
+    "algorithms": ["m.olm.v1.curve25519-aes-sha2", "m.megolm.v1.aes-sha2"],
+    "keys": {
+      "curve25519:JLAFKJWSCS": "<base64-curve25519-key>",
+      "ed25519:JLAFKJWSCS": "<base64-ed25519-key>",
+      "fndsa512:JLAFKJWSCS": "<base64-fndsa512-key>"
+    },
+    "signatures": {
+      "@alice:example.com": {
+        "ed25519:JLAFKJWSCS": "<base64-ed25519-self-signature>",
+        "fndsa512:JLAFKJWSCS": "<base64-fndsa512-self-signature>"
+      }
     }
+  }
 }
 ```
 
@@ -58,8 +58,8 @@ Clients SHOULD upload FN-DSA device keys alongside Ed25519 keys.
 When a client uploads One-Time Keys (OTKs) or Fallback Keys to the
 `/keys/upload` endpoint, the keys are packaged in a `signatures` dictionary.
 Clients supporting this MSC MUST sign their uploaded OTKs and Fallback Keys with
-both their `ed25519` and `fn-dsa-512` device signing keys. Verifying clients
-fetching these keys via `/keys/claim` MUST verify the `fn-dsa-512` signature if
+both their `ed25519` and `fndsa512` device signing keys. Verifying clients
+fetching these keys via `/keys/claim` MUST verify the `fndsa512` signature if
 present, falling back to `ed25519` only if the FN-DSA signature is absent.
 
 ### Cross-Signing Keys
@@ -72,26 +72,26 @@ dictionary.
 
 ```json
 {
-    "master_key": {
-        "user_id": "@alice:example.com",
-        "usage": ["master"],
-        "keys": {
-            "ed25519:base64+master+key": "<base64-ed25519-master-key>"
-        }
-    },
-    "master_key_pqc": {
-        "user_id": "@alice:example.com",
-        "usage": ["master"],
-        "keys": {
-            "fn-dsa-512:<base64url-sha256-of-pubkey>": "<base64-fn-dsa-512-master-key>"
-        }
+  "master_key": {
+    "user_id": "@alice:example.com",
+    "usage": ["master"],
+    "keys": {
+      "ed25519:base64+master+key": "<base64-ed25519-master-key>"
     }
+  },
+  "master_key_pqc": {
+    "user_id": "@alice:example.com",
+    "usage": ["master"],
+    "keys": {
+      "fndsa512:<base64url-sha256-of-pubkey>": "<base64-fndsa512-master-key>"
+    }
+  }
 }
 ```
 
 The same parallel-object rule applies to self-signing and user-signing keys
 (`self_signing_key_pqc` and `user_signing_key_pqc`). A PQC cross-signing object
-MUST contain exactly one `keys` entry, and that entry MUST use `fn-dsa-512`.
+MUST contain exactly one `keys` entry, and that entry MUST use `fndsa512`.
 Legacy cross-signing objects MUST NOT be made hybrid by adding an FN-DSA entry
 to their `keys` dictionaries.
 
@@ -101,11 +101,11 @@ FN-DSA-512 public keys are 897 bytes, using the full base64-encoded key would
 produce a 1,196-character identifier that exceeds practical storage and
 URL-safety constraints.
 
-For `fn-dsa-512` cross-signing keys, the `<key_id>` MUST be the **unpadded
+For `fndsa512` cross-signing keys, the `<key_id>` MUST be the **unpadded
 base64url encoding of the SHA-256 hash** of the raw public key bytes. This
 guarantees a unique, URL-safe, 43-character identifier. Device keys are
 unaffected — they continue to use the device ID as their `<key_id>` (e.g.,
-`fn-dsa-512:JLAFKJWSCS`).
+`fndsa512:JLAFKJWSCS`).
 
 This E2EE cross-signing `<key_id>` construction is intentionally separate from
 the server-key `key_id` defined by MSC00E4. Server keys use the minting-bound
@@ -138,8 +138,8 @@ MSC.
 **Key Generation.** Clients that support this MSC MUST generate FN-DSA keypairs
 locally for:
 
-- Device signing keys (`fn-dsa-512`) — uploaded via `/keys/upload`
-- Cross-signing keys (`fn-dsa-512`) — uploaded via `/keys/device_signing/upload`
+- Device signing keys (`fndsa512`) — uploaded via `/keys/upload`
+- Cross-signing keys (`fndsa512`) — uploaded via `/keys/device_signing/upload`
 
 Client implementations MUST use a side-channel-resistant FN-DSA library. See MSC
 00E4 for the server-side implementation guidance and Falcon implementation
@@ -167,18 +167,17 @@ Clients do **not** verify PDU signatures or federation HTTP authentication —
 these are exclusively homeserver responsibilities and are specified in the
 federation PQC drafts.
 
-**Hash-to-Key Validation.** When verifying `fn-dsa-512` cross-signing keys,
+**Hash-to-Key Validation.** When verifying `fndsa512` cross-signing keys,
 clients MUST NOT blindly trust the `<key_id>`. The client MUST decode the raw
 public key bytes from the base64 payload, compute the unpadded base64url SHA-256
 hash of those bytes, and ensure it strictly matches the `<key_id>` string. If
 the hash does not match, the key MUST be rejected as malformed.
 
 **Downgrade Protection (Local Cache).** If a client has previously observed and
-successfully verified an `fn-dsa-512` device key or cross-signature for a
-specific user/device, and a subsequent `/keys/query` response omits the FN-DSA
-key but retains a valid Ed25519 key, the client SHOULD warn the user of a
-potential downgrade attack and SHOULD NOT automatically trust the Ed25519
-fallback.
+successfully verified an `fndsa512` device key or cross-signature for a specific
+user/device, and a subsequent `/keys/query` response omits the FN-DSA key but
+retains a valid Ed25519 key, the client SHOULD warn the user of a potential
+downgrade attack and SHOULD NOT automatically trust the Ed25519 fallback.
 
 **What clients do NOT need to do:**
 
@@ -194,6 +193,13 @@ Migration to ML-KEM (FIPS 203) is deferred to a separate MSC. MLS (RFC 9420) and
 its TreeKEM key schedule provide logarithmic key distribution (network
 bandwidth) overhead, making PQC key agreement scalable; see
 [MSC3918](https://github.com/matrix-org/matrix-spec-proposals/pull/3918).
+
+[MSC00E5](./00E5-quantum-sigs-federation-session-negotiation.md) defines an
+ML-KEM-768 (FIPS 203) session-negotiation extension for the _federation_
+transport (`X-Matrix-PQC`), not for Olm/Megolm. It is a plausible template for
+the eventual Olm/Megolm ML-KEM migration mentioned above, but the two are
+independent: this MSC's device/cross-signing keys are unaffected by whether a
+server pair has negotiated an MSC00E5 session.
 
 ## Potential Issues
 
@@ -250,15 +256,15 @@ bandwidth) overhead, making PQC key agreement scalable; see
 
 ## Unstable Prefix
 
-The `fn-dsa-512` algorithm is canonically defined in
+The `fndsa512` algorithm is canonically defined in
 [MSC00E4](./00E4-quantum-sigs-minting-server-keys.md). This MSC reuses the same
 unstable identifier to ensure that servers and clients use a single, consistent
 algorithm name across federation PDU signatures, device keys, and cross-signing
 keys.
 
-| Stable Identifier            | Unstable Identifier           | Defined In |
-| ---------------------------- | ----------------------------- | ---------- |
-| `fn-dsa-512` (key algorithm) | `tk.nutra.msc45xx.fn-dsa-512` | MSC00E4    |
+| Stable Identifier          | Unstable Identifier         | Defined In |
+| -------------------------- | --------------------------- | ---------- |
+| `fndsa512` (key algorithm) | `tk.nutra.msc45xx.fndsa512` | MSC00E4    |
 
 The unstable prefix is used in device key IDs, cross-signing key IDs, and
 signature entries within `/keys/upload` and `/keys/device_signing/upload`
@@ -266,16 +272,16 @@ requests and `/keys/query` responses.
 
 ```json
 {
-    "device_keys": {
-        "keys": {
-            "tk.nutra.msc45xx.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-key>"
-        },
-        "signatures": {
-            "@alice:example.com": {
-                "tk.nutra.msc45xx.fn-dsa-512:JLAFKJWSCS": "<base64-fn-dsa-512-self-signature>"
-            }
-        }
+  "device_keys": {
+    "keys": {
+      "tk.nutra.msc45xx.fndsa512:JLAFKJWSCS": "<base64-fndsa512-key>"
+    },
+    "signatures": {
+      "@alice:example.com": {
+        "tk.nutra.msc45xx.fndsa512:JLAFKJWSCS": "<base64-fndsa512-self-signature>"
+      }
     }
+  }
 }
 ```
 
@@ -286,8 +292,8 @@ identifier, accepting either.
 ## Dependencies
 
 - **[MSC00E4](./00E4-quantum-sigs-minting-server-keys.md):** This MSC depends on
-  MSC00E4 for the definition of `fn-dsa-512` algorithm parameters, encoding
-  rules, and signing operation semantics.
+  MSC00E4 for the definition of `fndsa512` algorithm parameters, encoding rules,
+  and signing operation semantics.
 - **NIST FIPS 206 (FN-DSA):** Transitively via MSC00E4. See MSC00E4 for
   pre-finalization deployment guidance.
 
@@ -297,7 +303,7 @@ This proposal is fully backwards-compatible:
 
 - **Cross-signing continues with Ed25519.** FN-DSA cross-signatures are
   additive. Clients that do not support this MSC will see and ignore the
-  additional PQC cross-signing objects and `fn-dsa-512` signature entries in
+  additional PQC cross-signing objects and `fndsa512` signature entries in
   `/keys/query` responses.
 - **No new endpoints.** Existing key upload and query endpoints are extended
   with new key types.
@@ -312,21 +318,21 @@ This proposal is fully backwards-compatible:
       specified in the MSC's PR description?
 - [ ] Are all MSCs that this MSC depends on already accepted?
 - [ ] For each endpoint that is introduced or modified:
-    - [ ] Have authentication requirements been specified?
-    - [ ] Have rate-limiting requirements been specified?
-    - [ ] Have guest access requirements been specified?
-    - [ ] Are error responses specified?
-        - [ ] Does each error case have a specified `errcode` (i.e.
-              `M_FORBIDDEN`) and HTTP status code?
-            - [ ] If a new `errcode` is introduced, is it clear that it is new?
-    - [x] Are the
-          [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis)
-          honoured?
-        - [x] Do HTTP endpoints `use_underscores_like_this`?
-        - [x] Will the endpoint return unbounded data? If so, has pagination
-              been considered?
-        - [ ] If the endpoint utilises pagination, is it consistent with
-              [the appendices](https://spec.matrix.org/latest/appendices/#pagination)?
+  - [ ] Have authentication requirements been specified?
+  - [ ] Have rate-limiting requirements been specified?
+  - [ ] Have guest access requirements been specified?
+  - [ ] Are error responses specified?
+    - [ ] Does each error case have a specified `errcode` (i.e. `M_FORBIDDEN`)
+          and HTTP status code?
+      - [ ] If a new `errcode` is introduced, is it clear that it is new?
+  - [x] Are the
+        [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis)
+        honoured?
+    - [x] Do HTTP endpoints `use_underscores_like_this`?
+    - [x] Will the endpoint return unbounded data? If so, has pagination been
+          considered?
+    - [ ] If the endpoint utilises pagination, is it consistent with
+          [the appendices](https://spec.matrix.org/latest/appendices/#pagination)?
 - [ ] Will the MSC require a new room version, and if so, has that been made
       clear?
 - [x] Are backwards-compatibility concerns appropriately addressed?
@@ -334,8 +340,8 @@ This proposal is fully backwards-compatible:
       Ideally, the first paragraph should be understandable by a non-technical
       audience.
 - [ ] All outstanding threads are resolved
-    - [ ] All feedback is incorporated into the proposal text itself, either as
-          a fix or noted as an alternative
+  - [ ] All feedback is incorporated into the proposal text itself, either as a
+        fix or noted as an alternative
 - [x] There is a dedicated "Security Considerations" section which detail any
       possible attacks/vulnerabilities this proposal may introduce, even if this
       is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
@@ -344,19 +350,19 @@ This proposal is fully backwards-compatible:
 - [x] The other section headings in the template are optional, but even if they
       are omitted, the relevant details should still be considered somewhere in
       the text of the proposal. Those section headings are:
-    - [x] Introduction
-    - [x] Proposal text
-    - [x] Potential issues
-    - [x] Alternatives
-    - [x] Unstable prefix
-    - [x] Dependencies
+  - [x] Introduction
+  - [x] Proposal text
+  - [x] Potential issues
+  - [x] Alternatives
+  - [x] Unstable prefix
+  - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the
       unstable prefix section
-    - [x] Unstable prefixes
-          [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
-          the awkward accepted-but-not-merged state
-    - [x] Chosen unstable prefixes do not pollute any global namespace (reuses
-          `tk.nutra.msc45xx` from the defining MSC).
+  - [x] Unstable prefixes
+        [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
+        the awkward accepted-but-not-merged state
+  - [x] Chosen unstable prefixes do not pollute any global namespace (reuses
+        `tk.nutra.msc45xx` from the defining MSC).
 - [ ] Changes have applicable
       [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off)
       from all authors/editors/contributors

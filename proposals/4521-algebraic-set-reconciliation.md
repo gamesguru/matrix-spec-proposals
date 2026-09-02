@@ -1,0 +1,1017 @@
+# MSC4521: Adaptive Set Reconciliation via PinSketch
+
+Several federation mechanisms need to know whether two servers contain the same
+set of identifiers. This MSC allows servers to decode candidate 64-bit
+fingerprints for the symmetric difference between large populations, conditional
+on successful decode verification (the accumulator is non-binding and $h_{64}$
+collisions can make distinct identifiers indistinguishable to the decoder, so
+verification cannot unconditionally detect every incorrect decode; see
+[Decode and verification](#decode-and-verification)). This MSC helps ensure
+network synchronization.
+
+Some consumers need that over a room's known event or resolved state set; others
+use it to synchronize key IDs between notaries, or to reconcile ephemeral and
+other identifier populations. This MSC defines the primitive once, as a named
+digest profile, so that consumers can share the field, hash derivation, wire
+encoding, and decoding contract instead of rebuilding them from scratch.
+
+`algebraic_v1` couples a strata estimator, extraction sketch, and 128-bit
+accumulator into one ladder.
+
+It collapses 256-bit integers (ID values) over the 64-bit Galois field, encodes
+them into a syndrome of about $d \cdot \log_2 q$ bits for a size-$d$ difference,
+which is order-optimal for set reconciliation over a field of size $q = 2^{64}$,
+and performs syndrome decoding on the receiver side to recover candidate missing
+fingerprints. The decode result is not self-authenticating: an over-capacity
+decode can spuriously return the wrong set, so every successful decode MUST be
+checked against the accompanying 128-bit accumulator before it is trusted. That
+accumulator check is itself non-binding, with residual collision probability,
+and $h_{64}$ collisions can make distinct identifiers indistinguishable to the
+decoder — so verification cannot unconditionally catch every incorrect decode.
+With that caveat, the profile recovers the exact symmetric difference whenever
+it reports success and verification passes.
+
+The profile targets differences up to 4,096 elements per exchange in populations
+up to $10^7$, keeps the initial depth-0 sketch at most 256 B, and caps a fully
+saturated exchange at 32 KiB of unencoded syndrome data (~42.7 KiB wire-encoded
+as base64url), excluding object payloads. Here $q = 2^{64}$ is the size of the
+finite field used by the syndrome coordinates, so $\log_2 q = 64$. Decoding a
+capacity-$k$ node costs $O(k^2 \log_2 q)$. A difference of size $d$ spread over
+$n$ nodes therefore costs $O\!\left(\frac{d^2}{n}\log_2 q\right)$. While
+invertible Bloom lookup tables (IBLTs) achieve linear decode scaling for massive
+symmetric differences, PinSketch minimizes wire footprint and provides
+deterministic arithmetic capacity extensions without false-positive decode loops
+for differences within the target bound. Larger differences indicate frame
+misalignment rather than frontier reconciliation (see
+[Scalability](#scalability)). More capacity extends a round; it does not restart
+it.
+
+These bounds are load-bearing protocol invariants, not tuning guidance: the
+$k \le 32$ per-node cap constrains single-node CPU cost, while the 4,096-element
+aggregate cap constrains per-exchange wire size and responder work. End-to-end
+performance is therefore bounded by how many round trips it takes to walk the
+frontier, not just by the local decode cost.
+
+## Scope
+
+This profile defines identifier derivation, the 64-bit field and `libminisketch`
+compatibility contract, the level-0 accumulator, the syndrome sketch and its
+capacity bounds, dynamic tree extraction and the strata estimator, the
+decode-and-verify contract, capacity budgets, and the resident structure.
+
+This profile does **not** define frames, negotiation, scheduling, endpoints, or
+authorization; those belong to the consuming MSC. Consumers MUST still verify
+that both sides digest the same population before comparing them.
+
+The decoder returns $h_{64}$ fingerprints, not the original elements. A consumer
+MUST define a mapping from recovered fingerprints to elements. It can resolve
+fingerprints for elements it already holds locally; for remote-only elements,
+the consumer MUST define an authenticated follow-up that supplies or looks up
+the original identifiers. The digest exchange alone cannot recover a remote
+event ID from its fingerprint. This profile therefore does not, by itself,
+define an event-repair protocol.
+
+The 128-bit accumulator does not prove frame agreement. Before subtracting
+strata or extraction sketches, a consuming protocol MUST verify both sides are
+comparing the same frame, snapshot, population kind, digest profile, and element
+canonicalization. If agreement cannot be established, the comparison MUST abort.
+
+## Summary of protocol bounds and recommendations
+
+The following summary consolidates the shared bounds used throughout this MSC.
+
+<!-- markdownlint-disable MD013 -->
+
+| Bound                                |  Value | Normative meaning                                              |
+| ------------------------------------ | -----: | -------------------------------------------------------------- |
+| Request depth cap                    |   `32` | A node MUST NOT split past depth 32.                           |
+| Per-entry capacity cap               |   `32` | A single entry's `capacity` MUST NOT exceed 32.                |
+| Aggregate exchange capacity          | `4096` | The sum of `capacity` across an exchange MUST NOT exceed 4096. |
+| Strata count (trailing-zero buckets) |   `32` | Implementations SHOULD maintain 32 strata entries.             |
+
+<!-- markdownlint-enable MD013 -->
+
+The first three rows are hard protocol bounds. The strata entry count is
+advisory sizing guidance for implementations that expose the pre-decode
+estimator.
+
+### Terminology
+
+- **exchange:** one or more extraction requests sent together as an antichain in
+  a single HTTP request/response cycle; the unit the 4096 aggregate cap applies
+  to (see [Capacity bounds](#dynamic-tree-extraction)).
+- **extraction request:** a single `(depth, prefix, capacity)` triple asking for
+  one tree node's sketch. Not the same as an HTTP `Request` (the whole wire
+  call), which carries a `requests` array of these.
+- **round:** one request/response cycle, waiting on a network round trip. In
+  this protocol one exchange costs exactly one round; "round" is used where the
+  latency cost is the point, "exchange" where the capacity-bounded request batch
+  is the point.
+- **capacity:** the number of elements' worth of syndrome data a sketch can
+  decode: per-node ($k \le 32$) and aggregate across an exchange ($\le 4096$).
+- **strata / stratum:** the 32-entry pre-decode estimator; each stratum groups
+  elements by trailing-zero count of $h_{64}(e)$ and is a 64-byte sketch (see
+  [Strata estimator](#strata-estimator)).
+- **bucket:** informal name for a strata entry (a trailing-zero-count grouping).
+  It does not name a dynamic-tree node: there is no separate "bucket" primitive
+  in tree extraction, only `(depth, prefix)` nodes.
+- **extend / additive extension:** retrying decode at a higher capacity, or
+  continuing an over-capacity comparison, by XOR-subtracting sketches instead of
+  restarting; valid only when frame, hash mapping, field, and coordinate order
+  are unchanged.
+
+## Element derivation
+
+The profile operates over a set $S$ of opaque elements. Each element MUST be
+mapped to a canonical 32-byte digest via a cryptographic hash, or a fixed-length
+prefix of one, applied over a canonical encoding of the element — this is what
+the trie balance (see [Dynamic tree extraction](#dynamic-tree-extraction)) and
+the strata estimator both assume when they treat $h_{64}(e)$ as effectively
+uniform. The room-version rules under
+[Matrix event-ID binding](#matrix-event-id-binding) satisfy this. Consumers
+define what the elements mean; the kernel treats them as an opaque set and does
+not interpret their content.
+
+Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
+
+`libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
+Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network
+byte order (big-endian):
+
+- **$h_{64}(e)$ (64-bit field element):** Scan $D(e)$ in four 8-byte big-endian
+  chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
+  unsigned 64-bit integer, or $1$ if all four chunks are zero.
+- **$h_{128}(e)$ (128-bit accumulator element):** Take the first 16 bytes of
+  $D(e)$ as an unsigned 128-bit big-endian integer. Zero is permitted here; the
+  accumulator is a plain XOR sum, so it does not need the $h_{64}$ non-zero
+  fallback.
+
+### Matrix event-ID binding
+
+For event sets, `D(e)` is derived based on the room version:
+
+<!-- TODO: how should we handle legacy event ID collisions? -->
+
+- **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
+  digest of the UTF-8 event-ID string.
+- **Room version 3**: Strip the leading `$` byte and decode the remaining
+  unpadded standard Base64 payload.
+- **Room versions 4 and later**: Strip leading `$` byte; decode remaining
+  unpadded URL-safe Base64 payload.
+
+Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
+the event-ID string or exclude the event from the population. This profile does
+not use auxiliary hash functions (e.g., `XXH3`).
+
+### State-map binding
+
+For resolved room state (as used by state-set consumers such as MSC4500), each
+element is one occupied `(type, state_key)` slot in the resolved state map at a
+given DAG point. `D(e)` is the `SHA-256` digest of the following injective
+encoding, using UTF-8 bytes and unsigned 16-bit little-endian byte lengths:
+
+```text
+u16le(len(type)) || type ||
+u16le(len(state_key)) || state_key ||
+event_id
+```
+
+Here `event_id` is the literal ID string of the event occupying that slot (for
+example, `$abc123...`) for every room version, rather than the decoded binary
+payload used in [Matrix event-ID binding](#matrix-event-id-binding). Length
+prefixes make the `(type, state_key)` portion unambiguous; `event_id` is final
+and therefore needs no length prefix. Including `event_id` means a slot
+replacement is represented by a removal and an addition in the symmetric
+difference, while insertion and deletion remain single-element changes.
+
+This profile operates over the resolved state at one DAG point at a time. Both
+sides MUST compute it over the identical `before`/`after` position for a
+comparison to be meaningful — the same single-validated-frame requirement
+[Scope](#scope) already states generally.
+
+## Field
+
+The 64-bit Galois field is defined as
+
+$$
+\mathbb{F}_{2^{64}} \cong \mathbb{F}_{2}[x]
+\big/ \langle x^{64} + x^4 + x^3 + x + 1 \rangle
+$$
+
+Bit $i$ is the coefficient of $x^i$; bit $0$ is the least-significant bit and
+bit $63$ the most-significant bit.
+
+Sketches MUST be byte-for-byte compatible with `libminisketch` at field size 64
+for identical input sets. This requirement covers coordinate ordering,
+little-endian encoding, and field arithmetic; any mismatch renders an
+implementation non-conforming, regardless of internal decode success.
+
+The secure-sketch lineage for noisy inputs is discussed by Dodis et al.[^1]. The
+syndrome construction is PinSketch; the field and reduction polynomial follow
+`libminisketch`.[^7] Finite-field set reconciliation originates with Minsky,
+Trachtenberg, and Zippel.[^2] The 128-bit accumulator layer is a bitwise XOR sum
+and operates independently of this field.
+
+## Level-0 accumulator
+
+$$
+\begin{aligned}
+\mathrm{digest} &= \bigoplus_{e \in S} h_{128}(e) \\
+\mathrm{count} &= |S|
+\end{aligned}
+$$
+
+where $\bigoplus$ denotes bitwise XOR over the given elements; the digest is
+serialized as 16 big-endian bytes, then encoded as an unpadded `base64url`
+string.
+
+Insertion and removal use the same operation: XOR $h_{128}(e)$ into the digest
+and update the count. Updates are order-independent and require no state
+rebuilds.
+
+Two peers each hold their own population — $S_A$ and $S_B$, each an instance of
+$S$ above — so $|S_A|$ and $|S_B|$ are locally known via `count`, but
+$|S_A \cap S_B|$ and $|S_A \cup S_B|$ are not knowable to either side alone. The
+reconciliation target is the symmetric difference size
+$d = |S_A \triangle S_B| = |S_A| + |S_B| - 2|S_A \cap S_B|$. The cardinality
+delta $c = \left\lvert|S_A| - |S_B|\right\rvert$ equals $d$ only when divergence
+is one-sided (e.g., a lagging peer, where $S_A \subseteq S_B$ or vice versa); in
+the general two-sided case $c < d$, which is exactly why decoding — not just
+comparing counts — is necessary. Matching digests and counts are consistency and
+fault-detection signals, not an authoritative proof of equality; the decoder,
+frame checks, and population verification remain the source of truth.
+
+The accumulator provides fault detection (integrity) between honest peers. See
+[Decode and verification](#decode-and-verification).
+
+**Wire digest test vector.** Big-endian serialization is visible in the byte
+order of this one-hot accumulator value:
+
+```text
+digest: 0x0000_0000_0000_0000_0000_0000_0000_0001
+wire:   AAAAAAAAAAAAAAAAAAAAAQ
+```
+
+## Syndrome sketch
+
+The extraction layer computes the odd-power syndrome map over
+$\mathbb{F}_{2^{64}}$:
+
+$$
+\sigma_k(S) = \left(
+\sum_{e \in S} h_{64}(e), \sum_{e \in S} h_{64}(e)^3, \dots,
+\sum_{e \in S} h_{64}(e)^{2k-1}
+\right)
+$$
+
+Even powers are omitted because $s_{2i} = s_i^2$ in characteristic 2 via the
+Frobenius endomorphism. This odd-power syndrome representation adapts standard
+Bose–Chaudhuri–Hocquenghem (BCH) error-correction machinery,[^3] forming the
+substrate specialized by PinSketch.
+
+**Serialization.** Syndrome coordinates $(s_1, s_3, \dots, s_{2k-1})$ are
+serialized in ascending odd-power order as unsigned 64-bit **little-endian**
+integers. The distinction between big-endian element parsing (following Matrix
+conventions) and little-endian coordinate serialization (following
+`libminisketch`) is normative and intentional.
+
+A sketch of capacity $k$ is exactly $8k$ bytes, wire-encoded as unpadded
+`base64url`.
+
+**Subtraction.** Subtracting two sketches of equal capacity via XOR yields the
+syndrome of their symmetric difference. This group-valued property allows an
+over-capacity exchange to be extended additively rather than restarted.
+
+## Dynamic tree extraction
+
+A single sketch at `depth = 0` covers the whole population and is exact only
+while the true difference is within its capacity. When it is not, the population
+is localized by recursive binary subdivision over the fixed key space. This is
+splitting over the $h_{64}$ key space itself, not RFC 6962-style dyadic
+splitting over a sequence of leaves in construction order — contrast with the
+Merkle tree overlay in MSC4511 Part B, which is RFC 6962-style.
+
+$h_{64}(e)$ determines an element's path down a binary tree: at depth $d$, an
+element belongs to node `prefix` if and only if the most-significant $d$ bits of
+$h_{64}(e)$ (bits $63$ down to $64 - d$) equal `prefix`. Depth 0 has a single
+node (`prefix = 0`) covering every element — the same population a single flat
+sketch covers. Implementations MUST cap `depth` at 32, so `prefix` is at most 32
+bits wide. If a node still overflows at its requested capacity, the peer that
+detects the failure requests two child sketches at $d + 1$, for prefixes $2p$
+and $2p + 1$. A child that still overflows is split again. A node that still
+overflows at $d = 32$ MUST NOT be split further; the peer that detects the
+failure MUST report failure for that prefix and allow the consuming protocol to
+retry with a larger frame or a different reconciliation mechanism. The recursion
+terminates: each split reduces node population weakly, depth is bounded at 32,
+and a node still overflowing at the cap is reported rather than split further.
+
+Every node, at any depth, is decoded and verified exactly as in
+[Decode and verification](#decode-and-verification), below: it either decodes
+within its capacity and passes the 128-bit accumulator verification, or it fails
+loudly and is split. There is no separate "bucket" primitive and no persistent
+per-node resident state — see [Resident structure](#resident-structure). A
+`(depth, prefix)` pair is computed only when a peer actually requests it.
+
+### Antichain invariant and wire ordering
+
+Requests in a single exchange MUST form an antichain and MUST be transmitted in
+canonical key-space range order. For a request $R=(d,p)$ with depth $d$
+($0 \le d \le 32$) and prefix $p$ ($0 \le p < 2^d$), define:
+
+$$
+\text{start}(R) = p \cdot 2^{32-d}
+$$
+
+$$
+\text{end}(R) = (p + 1) \cdot 2^{32-d}
+$$
+
+A request $R_i$ is an ancestor of $R_j$ if and only if $d_i \le d_j$ and the
+$d_i$ most-significant bits of $p_j$ equal $p_i$.
+
+A valid request sequence $[R_0, R_1, \dots, R_{N-1}]$ MUST satisfy:
+
+$$
+\text{end}(R_i) \le \text{start}(R_{i+1})
+\quad
+\text{for all } 0 \le i < N - 1
+$$
+
+If any pair of requests forms an ancestor-descendant relation, or if the
+sequence violates the ordering condition above, the receiver MUST reject the
+request before performing sketch subtraction or field operations.
+
+Implementation note (non-normative): a receiver can validate a canonically
+ordered slice in place, without heap allocation, by checking each request
+against the previous request's `end` boundary. That yields $O(N)$ time and
+$O(1)$ memory. A binary prefix trie remains a valid alternative internal shape
+for implementations that want a different representation.
+
+**Capacity bounds.** A `sketch` exchange consists of one or more extraction
+requests, each a `(depth, prefix, capacity)` triple. These bounds apply:
+
+- **Per-entry capacity cap**: A single entry's `capacity` MUST NOT exceed 32.
+  This bounds decode cost ($O(k^2 \log_2 q)$ per node).
+- **Aggregate exchange capacity**: The sum of `capacity` across all requests in
+  a single exchange MUST NOT exceed 4096. This bounds total wire size and
+  responder work across a whole exchange.
+- **Depth cap**: A node MUST NOT split past depth 32. This bounds worst-case
+  tree depth given the 64-bit key space.
+
+A future profile MAY raise either cap; `algebraic_v1` MUST NOT.
+
+**Materializing a node.** Producing the syndrome sketch for `(depth, prefix)`
+requires the subset of the population whose $h_{64}(e)$ shares that `depth`-bit
+prefix. A responder MUST NOT satisfy this by scanning its full population per
+request: since $h_{64}(e)$ is a fixed 64-bit key per element, any
+`(depth, prefix)` subset is a contiguous range under $h_{64}$-sorted order.
+Implementations MUST maintain (or build and cache) an index of element
+identifiers ordered by $h_{64}$, so that a node's element subset is a range
+slice — $O(\log n)$ to locate plus the slice size — not a full-population scan.
+This index holds only identifiers and $h_{64}$ keys, not precomputed syndromes;
+it is far cheaper than the resident per-node syndrome structure a fixed
+partition would require (see "Resident structure") — and unlike that structure
+it serves every depth, not one fixed depth.
+
+The depth-limited refine-and-resolve shape mirrors the practical reconciliation
+architecture used by Erlay.[^4] The dynamic tree design adheres to a fixed
+finite field, sizes exchanges before decoding, and splits nodes only when
+capacity is exceeded.
+
+This split is a localization step, not a proof that the peer is wrong: it only
+narrows the candidate population to the prefix that still overflows.
+
+## Strata estimator
+
+Implementations SHOULD maintain a 32-entry strata estimator for pre-decode
+difference sizing. The consuming protocol can require all 32 entries on its
+sketch-sizing preflight; other consumers MAY treat the estimator as a local
+recommendation if they expose it at all.
+
+This is the strata-estimator construction from _What's the Difference?:
+Efficient Set Reconciliation without Prior Context_ (2011).[^5] Use a compact
+pre-decode summary to estimate $d = |S_A \triangle S_B|$ before committing to a
+decoder.
+
+Stratum $s_i$ contains the same odd syndrome coordinates $s_1$ through $s_{15}$
+as an extraction sketch, but only for elements whose $h_{64}(e)$ has exactly $i$
+trailing zero bits. Stratum 31 also includes every value with 31 or more
+trailing zero bits. Each stratum is therefore a 64-byte sketch.
+
+Two peers XOR corresponding strata to estimate $d$ before choosing between a
+single depth-0 extraction, provisioning an initial dynamic-tree request, or
+abandoning the comparison. Beginning at stratum 31 and proceeding downward,
+decode each residual stratum until one fails. Let $r$ be the lowest stratum that
+decoded and $T$ be the sum of decoded cardinalities over strata $r$ through 31.
+Let $k = 8$ be the per-stratum decode capacity used throughout this section.
+
+When $r = 0$, every stratum decoded and no capacity was ever exceeded, so the
+estimate is simply $\hat d = T$.
+
+When $r \ne 0$, stratum $r - 1$ overflowed its capacity-$k$ decode — that is the
+reason decoding stopped at $r$ — which by construction requires $|D_{r-1}| > k$,
+i.e. $d \gtrsim (k+1) \cdot 2^r$. This lower bound holds regardless of what $T$
+turns out to be, and MUST NOT be discarded just because $T$ itself is small: a
+raw $T \cdot 2^r$ estimate silently understates $d$ whenever $T \le k$, not only
+in the $T = 0$ case, since the failed stratum below already proves a materially
+larger difference than $T$ alone suggests. The estimator MUST instead compute
+
+$$\hat d = \max(T,\ k + 1) \cdot 2^r$$
+
+and MUST pair the result with an explicit `low_confidence` indicator whenever
+the $\max$ clamps (i.e. whenever $T \le k$) — precisely the cases where the
+estimate is driven by the capacity-overflow bound rather than by the decoded
+measurement itself, and is therefore a deliberate, conservative lower bound
+rather than a point estimate. Consumers MAY use a low-confidence estimate to
+size an initial extraction request the same as an ordinary estimate, or MAY
+instead provision a smaller-than-indicated starting capacity and rely on
+`capacity_exceeded` to trigger a split; consumers MUST NOT, on confidence
+grounds alone, treat a low-confidence estimate as grounds to refuse a `sketch`
+exchange outright — a consuming protocol's own budget precondition over the
+numeric estimate (e.g. a round-budget check) still applies exactly as it would
+to an ordinary estimate of the same value.
+
+Stratum 31 failing to decode is a distinct, more severe condition and MUST NOT
+be collapsed into the $\max(T, k+1) \cdot 2^r$ case above: stratum 31 is the
+catch-all for every element with 31 or more trailing zero bits, so its own
+decode failure only happens once
+$d \gtrsim (k+1) \cdot 2^{31} \approx 1.9 \times 10^{10}$ — far past any
+divergence this profile is meant to size, and past the point where a lower-bound
+estimate at that magnitude is useful to a consumer. This is genuine saturation:
+the estimator has no usable signal at all. The estimator MUST return `null` in
+place of an integer estimate; consumers MUST treat `null` as unmeasurable, never
+as a literal count, and MUST NOT begin an extraction exchange sized from it.
+
+The estimator is advisory. It MUST NOT override a consumer's population check,
+and it MUST NOT substitute for 128-bit accumulator verification of a decoded
+difference. Strata summaries accurately estimate $d$ only when both sides use
+the same validated frame, stratum assignment, hash mapping, and coordinate
+order. If any of those boundaries shift, the estimate is meaningless. A server
+MUST NOT estimate or subtract across differing frames; the estimator MUST NOT
+substitute for or override frame validation.
+
+In other words, the estimator emits a cardinality estimate for the symmetric
+difference; it does not itself emit a sketch capacity. The requester then
+applies this profile's provisioning rule to that estimate when choosing an
+initial root-sketch capacity. The estimator does not determine whether the
+comparison is correct, nor does it replace decoding or tree splitting.
+
+## Decode and verification
+
+A decoder recovers up to $k$ elements from a capacity-$k$ syndrome residual.
+Decode either succeeds with a set of $h_{64}$ values, or fails.
+
+Decode failure is loud, and this is the central operational property of the
+profile: a failed decode is reported as failure, not as an empty difference.
+Consumers MUST distinguish `decoded` from `capacity_exceeded`.
+
+**Verification.** A decoded difference MUST be checked against the 128-bit
+accumulator before it is trusted. Let $L$ be the set of locally held identifiers
+in the decoded symmetric difference, $A(L)$ their 128-bit accumulator sum, $R$
+the received residual digest, and $E$ the expected opposite-side accumulator:
+
+$$
+E = R \oplus A(L)
+$$
+
+The verifying peer resolves the short IDs it holds locally in $L$, computes
+$A(L)$, and compares against $E$. A mismatch means the decode was wrong or the
+populations differed; the result MUST be discarded. Implementations SHOULD
+re-encode the recovered roots into a temporary sketch and verify that it matches
+the residual syndrome before admitting elements.
+
+A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
+Each side asymmetrically verifies the half it can resolve, the residual digest
+carrying the other half. See [Security considerations](#security-considerations)
+below for adversarial limits.
+
+**Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
+over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
+missing even syndromes are derived or implied. Implementations MAY use
+Berlekamp-Massey or an equivalent recurrence solver to derive a locator
+polynomial of degree at most $k$. Decode failure MUST be classified into one of
+two distinct outcomes, and the two MUST NOT be conflated:
+
+- **`capacity_exceeded`**: the syndrome is well-formed (correct length, valid
+  field elements) but the true difference exceeds the requested capacity $k$ —
+  root searching fails to produce a consistent set of $\le k$ roots for an
+  otherwise-valid input. This is the only case in which the caller MAY split the
+  node and retry at a smaller prefix.
+- **Malformed input**: the syndrome is not well-formed for this profile (wrong
+  length, out-of-range field elements, or other structural violation). A
+  receiver MUST reject a malformed frame outright and MUST NOT retry it as a
+  capacity overflow — retrying malformed input as `capacity_exceeded` risks
+  masking invalid or malicious input as ordinary capacity growth.
+
+Implementations SHOULD enforce a computational work budget across polynomial
+root-finding during an exchange to prevent denial-of-service attacks from many
+nodes each driving the maximum trial count.
+
+## Security considerations
+
+XOR accumulators are fault-detecting, not binding. Any set of 129 `128-bit`
+values is linearly dependent over $\mathbb{F}_2$, so a peer with freedom over
+which identifiers to include can construct a nonempty subset whose accumulator
+is zero. Nothing in this profile relies on the accumulator being binding.
+Consumers MUST verify transferred objects by their own rules and MUST NOT treat
+accumulator agreement as evidence of authenticity.
+
+Deployments needing adversarial robustness MAY define a future profile with
+negotiated per-link salting for transmitted extraction sketches. Such a profile
+MUST specify salt negotiation, salt derivation, the salted identifier mapping,
+and how both sides identify the profile before subtraction. `algebraic_v1`
+defines no salting and its fixed $h_{64}$ mapping MUST remain byte-compatible
+across implementations. Deployments needing transferable accumulator evidence
+should look to an LtHash-style profile under a future `digest_type` rather than
+to `algebraic_v1`.
+
+## Capacity provisioning
+
+The requester provisions extraction capacity from the estimated cardinality
+delta. In the common one-sided lag case,
+$c = \left\lvert|S_A| - |S_B|\right\rvert$ and $d = |S_A \triangle S_B|$ are
+equal. Here $r_{\mathrm{obs}}$ is the observed rate of newly arriving elements
+relevant to the comparison, and $\widehat{\mathrm{t_r}}$ is the estimated
+round-trip time in seconds. The strata estimate guides this requester-side
+provisioning step, but only within the same aggregate-capacity budget described
+in [Scalability](#scalability). The estimator returns a cardinality estimate
+$\hat d$ (or `null` on saturation); the requester applies the rule below to
+$\hat d$, or to an exact one-sided cardinality delta when that is known
+independently.
+
+$$
+k = \min\left(32,\ \left\lceil 1.5c \right\rceil + 4 +
+\left\lceil r_{\mathrm{obs}} \cdot \widehat{\mathrm{t_r}} \right\rceil\right)
+$$
+
+The three terms cover, respectively: measurement slack when divergence is not
+purely one-sided, a small floor for tiny differences, and events arriving
+concurrently during the round trip.
+
+If the unclamped value exceeds 32, the profile uses tree extraction rather than
+a single depth-0 request.
+
+If decode fails at $k$, retry a larger $k$ up to the cap, or split into
+dynamic-tree children to localize a two-sided difference. Because sketches
+subtract, a retry at higher capacity is a continuation of the same comparison,
+not a restart. Additive extension is valid only when the syndrome coordinates
+are strictly prefix-compatible: the frame anchor, hash mapping, field size, and
+coordinate order MUST remain unchanged. If no compatible frame exists, peers
+MUST abort the exchange and retry with a fresh frame.
+
+The escalation sequence is:
+
+1. Validate the frame and abort if the frame anchor does not match.
+2. Execute the compact `algebraic_v1` exchange at depth 0.
+3. Resolve small over-capacity differences by additive syndrome extension.
+4. Isolate failures independently through dynamic tree extraction: split the
+   overflowing node and retry each child.
+5. For a difference so large or so heavy-tailed that it exhausts the 4096
+   aggregate capacity across the tree, or would require recursing to impractical
+   depth, treat it as a frame problem rather than a reconciliation problem — see
+   the scale boundary section below.
+
+### Scalability
+
+Dynamic tree extraction is for bounded interior gaps within an agreed frame, not
+arbitrary divergence. A value of $d \approx 100,000$ forces very wide
+first-round fan-out under a $k = 32$ node cap, which makes end-to-end extraction
+expensive even though per-node decode remains fast. Beyond the aggregate cap,
+applications can still choose to spend more exchange budget, while truly
+structural divergence should switch to frame/DAG alignment.
+
+Non-normative implementation note: a peer can use the strata estimate to
+pre-split a first request into a wider antichain when it expects a large but
+still bounded difference. This trades fewer rounds for a larger first exchange,
+but the cap still applies, and node load remains probabilistic rather than
+uniform in the face of clustering or skew. For lower-allocation lookup, a peer
+can keep a sorted $h_{64}$ index and use binary-search range slicing to locate a
+node in $O(\log N)$ plus slice size, instead of maintaining a persistent
+partition tree.
+
+## Resident structure
+
+To make extraction deployable, implementations SHOULD maintain a resident
+per-population structure:
+
+<!-- markdownlint-disable MD013 -->
+
+| Layer                 | Width            | Size  | Purpose                                      |
+| --------------------- | ---------------- | ----- | -------------------------------------------- |
+| Integrity accumulator | 128 bits         | 16 B  | ETag, level-0 agreement, decode verification |
+| Strata estimator      | 64 bits × 8 × 32 | 2 KiB | pre-decode difference estimation             |
+
+<!-- markdownlint-enable MD013 -->
+
+Fixed resident state is ~2 KiB per population, independent of population size.
+Node sketches are computed on demand from the $h_{64}$-sorted index
+([Dynamic tree extraction](#dynamic-tree-extraction)), which is $O(n)$ in
+identifiers and not part of the fixed state.
+
+**Update procedure.** On inserting or removing element $e$:
+
+1. Compute $y = h_{128}(e)$ and $x = h_{64}(e)$.
+2. XOR $y$ into the integrity accumulator. On insert, increment the count by 1;
+   on remove, decrement by 1.
+3. Choose the estimator stratum from `x.trailing_zeros()`.
+4. Compute $x^2$ once and reuse it for the remaining odd powers.
+5. Update $\left(x, x^3, ..., x^{15}\right)$ by repeatedly multiplying by $x^2$.
+
+In characteristic 2, insertion and removal are the same XOR operation, so no
+separate deletion path is needed.
+
+This update path is the operational side of the same BCH/PinSketch machinery and
+is why the profile remains fully additive while still supporting pre-decode
+sizing.
+
+The strata estimator is an optimization; the consuming protocol can require all
+32 entries on its sketch-sizing preflight, while other consumers MAY treat it as
+a local recommendation if they expose it at all.
+
+## Advertisement
+
+Consumers advertise support through their own capability mechanism. The
+canonical feature flag for this profile is:
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc4521.digest.algebraic_v1": true
+  }
+}
+```
+
+Dynamic tree extraction is part of `algebraic_v1` itself, not a separate
+`digest_type`: a server that supports `algebraic_v1` supports depth-0 sketches
+and their recursive refinement under the same flag, since both use the same
+field, hash derivation, and decoder.
+
+A future profile that changes the field, hash derivation, coordinate ordering,
+or capacity caps MUST use a new `digest_type` name. Profiles are not versioned
+in place because a comparison between two different profiles has no defined
+meaning and must fail at negotiation rather than at decode.
+
+## Potential issues
+
+**Fixed capacity caps.** The 4096 aggregate cap is conservative and chosen for
+the small one-sided differences expected to dominate normal federation repair.
+Populations with routinely large or heavy-tailed differences will hit the cap
+and trigger dynamic tree extraction more often than necessary. Unlike a rateless
+encoding, tree extraction requires no second decoder.
+
+**64-bit collisions.** Two distinct identifiers can share $h_{64}$. Because
+finding a collision requires only $\approx 2^{32}$ evaluations, an adversary can
+easily construct one. A collision corrupts the syndrome for the colliding node,
+which the 128-bit verification step catches, causing the decode to fail cleanly.
+Because colliding identifiers follow identical paths, splitting never separates
+them. Implementations MUST fall back to extremity or backfill for that prefix.
+Implementations MUST NOT interpret repeated verification failure at adequate
+capacity as evidence of peer misbehavior, since decodes can fail for reasons
+unrelated to collisions.
+
+Because $h_{64}$ is deterministic with no per-room salt, a collision found once
+is reusable across all servers. To prevent an adversary from permanently
+disabling $1/2^{32}$ of the key space with a single offline grind,
+implementations MUST NOT treat residual-verified failure as permanent.
+Implementations MUST cache a ladder-failed prefix with a bounded TTL
+(RECOMMENDED to be no longer than the consuming protocol's own state lifetime)
+and MUST re-probe the sketch ladder on TTL expiry. (Mixing `room_id` into $D(e)$
+would scope a grind to a single room and defeat precomputation; this MSC does
+not adopt that change — see [Open questions](#open-questions)).
+
+**Resident state on many small populations.** 2 KiB per population is cheap even
+in aggregate for a server participating in very many mostly-idle rooms.
+Implementations SHOULD still evict resident structures under an LRU or TTL
+policy and rebuild on demand.
+
+## Alternatives
+
+**Fixed-Capacity Invertible Bloom Lookup Tables (IBLT).** Standard IBLTs offer
+linear-time decoding. They are rejected for the baseline because
+BCH/PinSketch-style syndromes are significantly more compact. An IBLT requires
+three fields per cell (`count`, `id_sum`, `hash_sum`) and typically requires
+1.35x to 1.5x the cells as the expected difference size to decode successfully.
+`algebraic_v1` requires exactly one field element per unit of capacity, making
+it both cheaper per exchange and cheaper to provision when dynamic tree
+extraction requests a node's sketch.
+
+**Rateless IBLT (RIBLT).** Rejected. Rateless variants remove the need to choose
+capacity up front, but they need their own wire format and a second decoder.
+Dynamic tree extraction reuses PinSketch's decoder and $D(e)$ digest without a
+capacity guess.
+
+**LtHash / homomorphic hashing.** Provides binding accumulators at substantially
+higher per-update cost. Appropriate where accumulator evidence must be
+transferable to a third party; unnecessary where, as here, transferred objects
+are independently verifiable by signature and hash. Left to a future
+`digest_type`.
+
+**Cuckoo filter reconciliation.** Fingerprint-based reconciliation via cuckoo
+filters[^17] shares the same drawback as fixed-capacity IBLT: fingerprint
+collisions require probabilistic tolerance or a secondary verification pass.
+`algebraic_v1`'s BCH-style decode is exact, and its 128-bit accumulator exists
+only for fault detection, not for element recovery.
+
+Note that while rejected for the `algebraic_v1` baseline due to size constraints
+or secondary decoding passes, IBLTs, Rateless IBLTs, and Bloom/Cuckoo-family
+filters remain entirely valid candidates for future `digest_type` profiles. The
+profile boundary defined in this MSC (frame, hash mapping, field, and decoder
+contract) is specifically designed to allow swapping in these structures should
+the ecosystem's performance requirements shift.
+
+## Theoretical models
+
+The reconciliation mechanisms in this MSC use standard algebraic and
+combinatorial ideas. Implementations need only follow the wire format and decode
+contracts, but these analogies may help understand the protocol.
+
+- **Information-theoretic optimality.** By employing BCH-style syndrome decoding
+  over $GF(2^{64})$, the `algebraic_v1` profile compresses the symmetric
+  difference of the event sets to precisely $d \times 64$ bits. This approaches
+  the Shannon limit for theoretical error correction, operating at the
+  information-theoretic minimum without the probabilistic overhead of Bloom
+  filters or the padding requirements of Invertible Bloom Lookup Tables (IBLTs).
+
+- **Dynamic tree extraction and antichain invariants.** When divergence exceeds
+  a node's capacity, localization proceeds by bit-prefix trie routing over
+  $h_{64}(e)$, splitting the key space rather than a leaf sequence of arbitrary
+  length. Termination follows because each split weakly reduces node population,
+  `depth` is capped at 32, and a node still overflowing at the cap is reported
+  rather than split further. The request antichain invariant keeps each exchange
+  finite and non-overlapping. This matches the termination pattern in Putnam
+  2008 A3.[^9] Dynamic tree extraction is itself an instance of partitioned set
+  reconciliation (PSR): recursive splitting on overflow, same as here. Enhanced
+  PSR[^18] reports nearly halving the communication cost of plain PSR at the
+  same time complexity, by carrying information from failed splits forward
+  instead of discarding it, borrowing techniques from tree algorithms for
+  random-access protocols. `algebraic_v1` does not adopt this refinement; it is
+  a candidate for a future profile revision, not a change to this one.
+
+- **Field, syndrome, accumulator, and strata.** The odd-power syndrome map and
+  its BCH-style recovery, the non-binding 128-bit accumulator, the decode-cost
+  model, and the strata estimator are specified normatively in [Field](#field),
+  [Syndrome sketch](#syndrome-sketch),
+  [Level-0 accumulator](#level-0-accumulator),
+  [Decode and verification](#decode-and-verification), and
+  [Strata estimator](#strata-estimator). See
+  [Security considerations](#security-considerations) for the accumulator's
+  adversarial limits.
+
+## Test vectors
+
+### Field multiplication
+
+The 64-bit field multiply over `GF(2)[x] / <x^64 + x^4 + x^3 + x + 1>` is
+illustrated by[^10]:
+
+```text
+mul(0x0000_0000_0000_0000  ×  0xffff_ffff_ffff_ffff)  =  0x0000_0000_0000_0000
+mul(0x0000_0000_0000_0001  ×  0xffff_ffff_ffff_ffff)  =  0xffff_ffff_ffff_ffff
+mul(0x0000_0000_0000_001b  ×  0x0000_0000_0000_001b)  =  0x0000_0000_0000_0145
+mul(0xffff_ffff_ffff_ffff  ×  0xffff_ffff_ffff_ffff)  =  0x5555_5555_5555_5513
+mul(0x8000_0000_0000_0000  ×  0x8000_0000_0000_0000)  =  0xc000_0000_0000_005a
+```
+
+### Legacy event ID (V1 and V2)
+
+```text
+input:  $legacy:example.org
+D(e):   2633a2037c72be2c8bd68c983934e7be65aae011a71b8e1d15a23e628b9dedaf
+h128:   0x2633_a203_7c72_be2c_8bd6_8c98_3934_e7be
+h64:    0x2633_a203_7c72_be2c
+```
+
+### V3 event ID
+
+For room version 3, strip the leading `$` and decode the remaining unpadded
+standard Base64 payload to recover `D(e)`. Like room version 4 and later, room
+version 3 event IDs decode to a 32-byte SHA-256 payload.
+
+```text
+input:  $ || STANDARD_NO_PAD.encode([0xfb; 32])
+D(e):   fbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfbfb
+h128:   0xfbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb_fbfb
+h64:    0xfbfb_fbfb_fbfb_fbfb
+```
+
+### V4+ event ID
+
+For room version 4 and later, the leading `$` is stripped before decoding the
+remaining unpadded URL-safe base64 payload.
+
+```text
+input:  $ || URL_SAFE_NO_PAD.encode([0x00; 7] ++ [0x2a] ++ [0x00; 24])
+h128:   0x0000_0000_0000_002a_0000_0000_0000_0000
+h64:    0x0000_0000_0000_002a
+```
+
+### All-zero input
+
+```text
+input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
+h128:   0x0000_0000_0000_0000_0000_0000_0000_0000
+h64:    0x0000_0000_0000_0001
+```
+
+### PinSketch wire format
+
+For capacity 2, toggling `1 << 63` and `u64::MAX` encodes to the little-endian
+syndrome bytes before `base64url` encoding:
+
+```text
+FF FF FF FF FF FF FF 7F FD 32 33 33 33 33 33 93
+```
+
+Decoding those bytes round-trips to the same sketch.
+
+For capacity 32, toggling `0x1234` and `0x5678` encodes to the little-endian
+syndrome bytes before `base64url` encoding:
+
+<!-- markdownlint-disable MD013 -->
+
+```text
+4C 44 00 00 00 00 00 00 40 41 96 BE 27 05 00 00 2A B3 F9 7D 92 3C 1E 3C 54 62 CC DE 5C 10 6F D7
+41 74 56 42 69 A2 F2 78 FF C2 11 6D 45 E4 B3 EA AF 36 62 67 C8 E7 2A 94 6C FF 33 8A 89 B4 5B 6F
+D0 40 12 A7 DE 3A C3 50 80 74 7E 77 E0 6D 8E AB D4 DF 23 95 59 BF 21 E7 DF 8E 6E AC 00 7A 81 24
+93 9A 8B 72 A8 20 32 BD F7 2B 62 8F 0F 8A 9C 31 1A 33 34 7E F9 5D A9 0E 5E D3 95 B1 21 53 9D 0B
+B4 DF 33 7D FF E2 5F 40 74 F1 74 59 F3 06 AC CC 61 09 E4 F1 3C BE 9C 87 F1 24 2D 88 43 D8 FF 82
+6E E6 CC BF 8F 46 A2 D8 45 A0 DC FE C6 35 CF D7 F5 FD 88 FC 83 A6 35 7F EB 08 37 7F 4F B4 E3 23
+F0 42 9C 7D 60 B9 88 3D 03 11 6A E0 75 A5 65 C6 53 DE 08 70 D5 99 56 BE F2 B7 5A 02 0E BA B8 00
+FE 7C 2B 35 0D 4C 8B E9 FA 95 88 CE 09 1E 56 E7 D9 32 B3 BA E6 FD 33 99 19 45 A0 84 F2 75 1B 41
+```
+
+<!-- markdownlint-enable MD013 -->
+
+### Strata estimator sentinel
+
+The two special estimator outcomes under [Strata estimator](#strata-estimator)
+are cheap to construct and MUST be covered by conformance tests, since a
+`MUST`-level non-integer return path with no test vector otherwise gets
+implemented three incompatible ways:
+
+- **Low-confidence estimate (`r != 0`, $T \le k$).** Let $S_A$ be the following
+  nine 64-bit values, standing in directly for $h_{64}(e)$ (i.e. treat these as
+  the hash outputs, not as event IDs to be hashed), and let $S_B = \emptyset$,
+  so the residual difference is exactly $S_A$ and the true $d = 9$:
+
+  ```text
+  0x0000000000000003  0x0000000000000005  0x0000000000000007
+  0x0000000000000009  0x000000000000000B  0x000000000000000D
+  0x000000000000000F  0x0000000000000011  0x0000000000000013
+  ```
+
+  Each value is odd, i.e. has trailing-zero count exactly `0`, so all nine land
+  in stratum 0, which exceeds its capacity-8 decode and fails; strata 1 through
+  31 are genuinely empty (no element of $S_A$ or $S_B$ lands there) and decode
+  trivially to empty. A conformance test for this vector MUST assert that the
+  stratum-0 capacity-8 decode fails rather than spuriously returning a
+  size-9-or-smaller candidate set. Decoding downward from 31, the lowest stratum
+  that decoded is $r = 1$ (stratum 0 failed), and the decoded tail (strata
+  1..31) sums to $T = 0 \le k = 8$. The estimator MUST return
+  `{estimate: 18, low_confidence: true}` — i.e.
+  $\max(T, k+1) \cdot 2^r =
+  \max(0, 9) \cdot 2^1 = 18$ — not a literal
+  $T \cdot 2^r = 0$, and not `null`. The true $d$ here is exactly 9; the
+  estimate is a deliberate, conservative over-estimate, which is the safe
+  direction for capacity sizing.
+
+- **Saturation (`null`).** Constructing a genuine stratum-31 decode failure
+  requires $d \gtrsim 9 \cdot 2^{31}$ elements sharing high-order structure,
+  which is impractical to embed literally in this document. Implementations MUST
+  instead test this path by injecting a synthetic stratum-31 sketch that exceeds
+  its capacity-8 decode budget directly (bypassing population construction), and
+  MUST verify the estimator returns `null` rather than a fabricated `T * 2^31`
+  estimate in that case.
+
+## Open questions
+
+- **Should `room_id` be mixed into $D(e)$, or into the $D(e) \to h_{64}$
+  derivation?** As noted under [Potential issues](#potential-issues), $h_{64}$
+  today is deterministic from the event ID alone, so a $\approx 2^{32}$-work
+  offline collision grind against one prefix is reusable against every room on
+  every peer. Mixing `room_id` in would scope any such grind to a single room
+  and defeat precomputation against rooms that do not yet exist, at no cost to
+  the comparison contract (both sides already agree on the room). This MSC does
+  not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
+  invalidating existing test vectors without a clear need beyond the bounded,
+  TTL-scoped fallback already specified. A future profile revision could adopt
+  it if the bounded fallback proves insufficient in practice.
+
+## Unstable prefix
+
+<!-- markdownlint-disable MD013 -->
+
+| Proposed final identifier | Purpose     | Development identifier                 |
+| ------------------------- | ----------- | -------------------------------------- |
+| `algebraic_v1`            | digest type | `algebraic_v1`                         |
+| feature flag              | capability  | `tk.nutra.msc4521.digest.algebraic_v1` |
+
+<!-- markdownlint-enable MD013 -->
+
+## Appendix: exploratory implementer materials (non-normative)
+
+The following are exploratory exercises and scaffolding for testing the theory
+before implementation. They are not part of the normative contract; they are
+collected here to keep the proposal body focused on the wire format and decode
+contracts.
+
+- **XOR accumulator:** _LeetCode 260 (Single Number III)_[^11]. Bitwise XOR
+  reduction.
+- **Power-sum:** _LeetCode 2965 (Find Missing and Repeated Values)_[^12].
+  Recover missing elements via aggregated sums and squares.
+- **Binary prefix routing:** _Codeforces 842D_[^14]. Recursive subdivision over
+  a bit-prefix key space.
+- **Prefix boundary:** _LeetCode 201 (Bitwise AND of Numbers Range)_[^15].
+  Shared bit-prefix / range-bounding logic.
+- **Syndrome decoder:** _Yosupo Library (Find Linear Recurrence)_[^16].
+  Berlekamp-Massey recurrence recovery.
+- **Rateless reconciliation:** _Practical Rateless Set Reconciliation_[^6].
+  Adaptive split-and-continue reconciliation when a fixed-capacity decode
+  overflows.
+
+## Possible consumers
+
+- MSC4242 (State DAGs) — over an index of state events.
+- MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
+  machinery for EDU entries.
+- MSC4500 (state accumulators) — over a room's resolved state map, via the
+  [State-map binding](#state-map-binding) profile.
+- MSC1442 / MSC4297 / MSC1759 — state-resolution lineage that defines the
+  room-state problem this profile can help compare or repair, but not replace.
+
+<!-- ## References -->
+
+[^1]:
+    _Fuzzy extractors: How to generate strong keys from biometrics and other
+    noisy data_ (Dodis et al., 2008).
+    [doi:10.1137/060651380](https://doi.org/10.1137/060651380)
+
+[^2]:
+    _Set reconciliation with nearly optimal communication complexity_ (Minsky et
+    al., 2003).
+    [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
+
+[^3]:
+    _An introduction to BCH codes and finite fields_ (MacWilliams & Sloane,
+    1977). The theory of error-correcting codes.
+    [sciencedirect.com](https://www.sciencedirect.com/science/chapter/bookseries/abs/pii/S0924650908705282)
+
+[^4]:
+    _Erlay: Efficient transaction relay for Bitcoin_ (Naumenko et al., 2019).
+    [doi:10.1145/3319535.3354237](https://doi.org/10.1145/3319535.3354237)
+
+[^5]:
+    _What's the difference?: Efficient set reconciliation without prior context_
+    (Eppstein et al., 2011).
+    [doi:10.1145/2018436.2018462](https://doi.org/10.1145/2018436.2018462)
+
+[^6]:
+    _Practical Rateless Set Reconciliation_ (Yang et al., 2024).
+    [doi:10.1145/3651890.3672219](https://doi.org/10.1145/3651890.3672219)
+
+[^7]:
+    _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
+    GitHub. <https://github.com/bitcoin-core/minisketch>
+
+[^9]:
+    Putnam Questionnaire. 2008 A3, archive PDF:
+    <https://kskedlaya.org/putnam-archive/2008.pdf>
+
+[^10]:
+    Historical snapshot of an example Rust implementation with tests, predating
+    this document's saturation sentinel, low-confidence estimator branch, and
+    64-bit collision fallback scoping — treat as illustrative of the base
+    decode/verify contract only, not as conformant to the current normative
+    text:
+    [`rezzy`](https://github.com/gamesguru/rezzy/tree/788ae96c0e1601790d8f4618754726ac70e7c24b).
+
+    Non-optimized, prototype implementation in Golang:
+    [`gomatrixcrypto`](https://github.com/Wombat-Foundation/gomatrixcrypto/blob/cc5de74441100d21c74d930e60422d997451fa9f/reconcile/algebraic.go).
+
+[^11]:
+    LeetCode 260, Medium, _Single Number III_:
+    <https://leetcode.com/problems/single-number-iii/>
+
+[^12]:
+    LeetCode 2965, Easy, _Find Missing and Repeated Values_:
+    <https://leetcode.com/problems/find-missing-and-repeated-values/>
+
+[^14]:
+    Codeforces 842D, _Vitya and Strange Lesson_:
+    <https://codeforces.com/problemset/problem/842/D>
+
+[^15]:
+    LeetCode 201, Medium, _Bitwise AND of Numbers Range_:
+    <https://leetcode.com/problems/bitwise-and-of-numbers-range/>
+
+[^16]:
+    Yosupo Library, _Find Linear Recurrence_:
+    <https://judge.yosupo.jp/problem/find_linear_recurrence>
+
+[^17]:
+    _Set Reconciliation with Cuckoo Filters_ (Luo et al., 2019).
+    [doi:10.1145/3357384.3358065](https://doi.org/10.1145/3357384.3358065)
+
+[^18]:
+    _Tree algorithms for set reconciliation_ (Lázaro & Stefanović, 2025).
+    <https://arxiv.org/abs/2509.02373>

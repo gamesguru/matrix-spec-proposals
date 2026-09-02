@@ -1,4 +1,4 @@
-# MSC0F02: Federation EDU State Reconciliation
+# MSC0502: Federation EDU State Reconciliation
 
 Matrix federation delivers Ephemeral Data Units (EDUs) via the same `/send`
 transaction mechanism as PDUs. When transactions are dropped — due to rate
@@ -36,14 +36,14 @@ diagnose:
 
 ### Why This Is Different From PDU Reconciliation
 
-MSC0F01 addresses PDU divergence in the room DAG. PDUs are:
+MSC0501 addresses PDU divergence in the room DAG. PDUs are:
 
 - **Persistent** — they are stored permanently and form a cryptographically
   linked graph.
 - **Append-only** — new events reference previous events; the history only
   grows.
-- **Set-reconcilable** — Bloom filters and merge-base walks can identify missing
-  entries in the graph.
+- **Set-reconcilable** — algebraic set reconciliation or merge-base walks over
+  event IDs can identify missing history.
 
 EDUs are fundamentally different:
 
@@ -77,40 +77,51 @@ GET /_matrix/federation/v1/edu_digest
 
 **Query Parameters:**
 
-| Parameter  | Type   | Required | Description                                                                                            |
-| :--------- | :----- | :------- | :----------------------------------------------------------------------------------------------------- |
-| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                        |
-| `since`    | string | No       | Pagination token from previous response. Incremental updates pass `next_batch` from previous response. |
-| `limit`    | int    | No       | Max user entries to return. Default 100, max 1000.                                                     |
+<!-- markdownlint-disable MD013 -->
+
+| Parameter  | Type   | Required | Description                                                                                      |
+| :--------- | :----- | :------- | :----------------------------------------------------------------------------------------------- |
+| `edu_type` | string | Yes      | The EDU type to query. See Supported EDU Types.                                                  |
+| `since`    | string | No       | Opaque pagination token returned as `next_batch` by a previous response for the same `edu_type`. |
+| `limit`    | int    | No       | Max user entries to return. Default 100, max 1000.                                               |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
 ```json
 {
-    "users": {
-        "@alice:example.com": {
-            "version": 1716000042,
-            "content_hash": "xxh3:a1b2c3d4"
-        },
-        "@bob:example.com": {
-            "version": 1716000099,
-            "content_hash": "xxh3:e5f6g7h8"
-        }
+  "users": {
+    "@alice:example.com": {
+      "version": 1716000042,
+      "content_hash": "xxh3:a1b2c3d4e5f60718"
     },
-    "next_batch": "opaque_token_123",
-    "edu_type": "m.presence"
+    "@bob:example.com": {
+      "version": 1716000099,
+      "content_hash": "xxh3:1a2b3c4d5e6f7089"
+    }
+  },
+  "next_batch": "opaque_token_123",
+  "edu_type": "m.presence"
 }
 ```
 
 **Fields (response):**
 
-| Field                  | Type    | Required | Description                                                                                 |
-| ---------------------- | ------- | -------- | ------------------------------------------------------------------------------------------- |
-| `users`                | object  | Yes      | Sorted map of userID-to-version metadata.                                                   |
-| `users.*.version`      | integer | Yes      | Monotonically increasing version counter for user's EDU state. See Version Semantics below. |
-| `users.*.content_hash` | string  | Yes      | Hash of the current EDU content. Allows detecting changes even if version counters drift.   |
-| `next_batch`           | string  | No       | Pagination token. If present, more users are available.                                     |
-| `edu_type`             | string  | Yes      | The EDU type this digest covers.                                                            |
+<!-- markdownlint-disable MD013 -->
+
+| Field                          | Type    | Required | Description                                                                                 |
+| ------------------------------ | ------- | -------- | ------------------------------------------------------------------------------------------- |
+| `users`                        | object  | Yes      | Sorted map of userID-to-version metadata.                                                   |
+| `users.*.version`              | integer | Yes      | Monotonically increasing version counter for user's EDU state. See Version Semantics below. |
+| `users.*.content_hash`         | string  | Yes      | Consistency checksum for the current EDU content body.                                      |
+| `users.*.rooms`                | object  | No       | Per-room EDU snapshots for user-room-scoped types such as receipts.                         |
+| `users.*.rooms.*.version`      | integer | No       | Monotonically increasing version counter for a user-room EDU state.                         |
+| `users.*.rooms.*.content_hash` | string  | No       | Consistency checksum for a user-room EDU content body.                                      |
+| `next_batch`                   | string  | No       | Pagination token. If present, more users are available.                                     |
+| `edu_type`                     | string  | Yes      | The EDU type this digest covers.                                                            |
+
+<!-- markdownlint-enable MD013 -->
 
 **Version Semantics:**
 
@@ -118,26 +129,37 @@ The `version` field MUST be a monotonically increasing integer that advances
 every time the user's EDU state of the given type changes. Servers MUST NOT rely
 solely on `origin_server_ts` as the version, as it is sensitive to clock skew.
 
-Instead, the version acts as a **Lamport sequence number**:
+Instead, the version acts as a per-user, per-EDU-type monotonic counter:
 
 - The server MUST maintain a strict counter per user/EDU-type.
-- When state changes, the server MUST set:
-  `new_version = max(origin_server_ts, previous_version + 1)`.
-- This ensures the version is always strictly increasing even if the physical
-  clock jumps backward.
+- When state changes, the server MUST set `new_version = previous_version + 1`.
+- `origin_server_ts` MAY be stored in the EDU content body for debugging or
+  presentation, but it MUST NOT drive version selection.
 
 The `content_hash` is an XXH3-64 hash of the canonical JSON representation of
-the EDU content body. This serves as a tiebreaker — if two servers have the same
-`version` for a user but different `content_hash` values, their state has
-diverged. In this scenario, the state with the lexicographically larger
-`content_hash` value wins. This ensures deterministic, consistent
-Last-Writer-Wins resolution across all homeservers without split-brain or manual
-negotiation.
+the EDU content body, serialized as `xxh3:` followed by exactly 16 lowercase
+hexadecimal characters (the big-endian byte representation of the 64-bit
+digest). Implementations MUST treat a `content_hash` entry that does not match
+this shape as a mismatch for that user tuple specifically (the same handling as
+a genuine `content_hash` disagreement below), rather than treating it as an
+opaque string that happens not to match. This is a per-entry check: it does not
+invalidate the rest of the response. It is a consistency checksum, not a
+tie-breaker. If two servers have the same `version` for a user but different
+`content_hash` values, their responses are inconsistent. The requester MUST
+treat the returned authoritative value as replacing its cached copy, and MUST
+NOT use the lexicographically larger hash to choose a winner.
 
 **Scoping (Privacy):**
 
 The responding server MUST only include users that share at least one room with
 the requesting server.
+
+For EDU types with a clear origin server, the responding server MUST be
+authoritative for the returned entries. In practice, that means `m.presence` and
+`m.device_list_update` entries MUST be sourced from the user's homeserver, and
+`m.receipt` / `m.typing` entries MUST be sourced from the authoritative room
+server for that stream. Requesters MUST treat entries from a non-authoritative
+server as invalid.
 
 **Authorization (Privacy):**
 
@@ -160,12 +182,14 @@ POST /_matrix/federation/v1/edu_state
 
 ```json
 {
-    "edu_type": "m.presence",
-    "user_ids": ["@alice:example.com", "@bob:example.com"]
+  "edu_type": "m.presence",
+  "user_ids": ["@alice:example.com", "@bob:example.com"]
 }
 ```
 
 **Fields (request):**
+
+<!-- markdownlint-disable MD013 -->
 
 | Field      | Type     | Required | Description                                      |
 | ---------- | -------- | -------- | ------------------------------------------------ |
@@ -173,33 +197,37 @@ POST /_matrix/federation/v1/edu_state
 | `user_ids` | [string] | Yes      | User IDs to fetch state for. Max 200 per request |
 |            |          |          | to prevent abuse.                                |
 
+<!-- markdownlint-enable MD013 -->
+
 **Response:**
 
 ```json
 {
-    "edu_type": "m.presence",
-    "states": {
-        "@alice:example.com": {
-            "version": 1716000042,
-            "content": {
-                "presence": "online",
-                "last_active_ago": 5000,
-                "status_msg": "Working on MSCs"
-            }
-        },
-        "@bob:example.com": {
-            "version": 1716000099,
-            "content": {
-                "presence": "unavailable",
-                "last_active_ago": 300000
-            }
-        }
+  "edu_type": "m.presence",
+  "states": {
+    "@alice:example.com": {
+      "version": 1716000042,
+      "content": {
+        "presence": "online",
+        "last_active_ago": 5000,
+        "status_msg": "Working on MSCs"
+      }
     },
-    "unknown_user_ids": []
+    "@bob:example.com": {
+      "version": 1716000099,
+      "content": {
+        "presence": "unavailable",
+        "last_active_ago": 300000
+      }
+    }
+  },
+  "unknown_user_ids": []
 }
 ```
 
 **Fields (response):**
+
+<!-- markdownlint-disable MD013 -->
 
 | Field              | Type     | Required | Description                                                        |
 | ------------------ | -------- | -------- | ------------------------------------------------------------------ |
@@ -209,9 +237,13 @@ POST /_matrix/federation/v1/edu_state
 | `states.*.content` | object   | Yes      | The full EDU content body.                                         |
 | `unknown_user_ids` | [string] | Yes      | User IDs from the request that the server does not have state for. |
 
+<!-- markdownlint-enable MD013 -->
+
 ### Supported EDU Types
 
 The following EDU types are eligible for state reconciliation:
+
+<!-- markdownlint-disable MD013 -->
 
 | EDU Type               | Scope         | Reconciliation Strategy                   |
 | ---------------------- | ------------- | ----------------------------------------- |
@@ -223,6 +255,8 @@ The following EDU types are eligible for state reconciliation:
 | `m.typing`             | Per-user-room | NOT reconcilable (inherently transient;   |
 |                        |               | stale within seconds)                     |
 
+<!-- markdownlint-enable MD013 -->
+
 **Per-user-room scoping (receipts):**
 
 For EDU types scoped to a user-room pair, the `edu_digest` response includes a
@@ -230,26 +264,26 @@ nested structure:
 
 ```json
 {
-    "users": {
-        "@alice:example.com": {
-            "rooms": {
-                "!room1:example.com": {
-                    "version": 1716000042,
-                    "content_hash": "xxh3:a1b2c3d4"
-                },
-                "!room2:example.com": {
-                    "version": 1716000050,
-                    "content_hash": "xxh3:b2c3d4e5"
-                }
-            }
+  "users": {
+    "@alice:example.com": {
+      "rooms": {
+        "!room1:example.com": {
+          "version": 1716000042,
+          "content_hash": "xxh3:a1b2c3d4e5f60718"
+        },
+        "!room2:example.com": {
+          "version": 1716000050,
+          "content_hash": "xxh3:b2c3d4e5f6078192"
         }
+      }
     }
+  }
 }
 ```
 
-For receipts, the `version` SHOULD be the `origin_server_ts` of the event that
-the receipt points to (not the receipt's own timestamp), ensuring that receipts
-always advance monotonically with the room timeline.
+For receipts, `origin_server_ts` SHOULD be stored in the EDU content body for
+the referenced event, but reconciliation MUST use the monotonic `version`
+counter only. `origin_server_ts` is presentation data, not a version signal.
 
 ### Reconciliation Protocol
 
@@ -288,7 +322,7 @@ no graph to traverse — only snapshots to compare:
 ### Gossip Scheduling
 
 EDU reconciliation SHOULD be scheduled independently from PDU reconciliation
-(MSC0F01), with different intervals reflecting the urgency of each EDU type. To
+(MSC0501), with different intervals reflecting the urgency of each EDU type. To
 prevent cluster-wide "thundering herd" synchronization waves during large
 homeserver restarts or network partition recovery, implementations MUST apply a
 **randomized scheduling jitter of ±15%** to all base scheduling intervals:
@@ -313,20 +347,55 @@ homeserver restarts or network partition recovery, implementations MUST apply a
 ### ETag Optimization
 
 The `edu_digest` endpoint supports conditional requests using the same pattern
-as MSC0F01:
+as MSC0501:
 
 ```http
 GET /_matrix/federation/v1/edu_digest?edu_type=m.presence
-If-None-Match: "xxh3:deadbeef"
+If-None-Match: "xxh3:deadbeefcafebabe"
 ```
 
-The ETag SHOULD be computed as:
+The ETag SHOULD be computed as an order-independent accumulator over the
+returned user tuples. This is a simple XOR-of-hashes construction, conceptually
+similar to — but a distinct algorithm from — the `LtHash16` state accumulator in
+[MSC4500](4500-state-accumulators.md), which combines lane-wise wrapping
+addition over 1024 uint16 lanes rather than XOR:
 
-> `XXH3-64(max(all user versions for this edu_type))`
+> `digest = XOR(H(user_id || version || content_hash) for each user in users)`
 
-Because versions are monotonically increasing, if the maximum version has not
-changed, no user's state has changed. This allows the server to evaluate the
-ETag in O(1) if it maintains a running maximum.
+Because the accumulator is order-independent, a server can update it in O(1)
+when a single user's state changes. Servers MAY combine that page digest with a
+fixed hash of `edu_type` and `next_batch` if they need page-specific validators.
+Servers MUST NOT derive the ETag from a single maximum version counter: unlike
+the order-independent accumulator, a max-version ETag does not advance on a
+tombstone or deletion, so a page can change without the ETag changing and a
+stale `304` results. Reserializing the full page on each update to compute the
+ETag is undesirable for a different reason — it is merely wasted work, since the
+O(1) incremental accumulator above already gives the same validator for less
+cost — so implementations SHOULD avoid it, but doing so anyway does not itself
+produce an incorrect ETag. Conditional requests are most useful on a stable
+first page; page-specific `since` requests should be treated as ordinary
+incremental fetches.
+
+### Capability discovery
+
+Servers advertise support through `GET /_matrix/federation/v1/version`. The
+feature is signaled in `unstable_features` as
+`org.matrix.msc0502.edu_reconciliation`.
+
+```json
+{
+  "unstable_features": {
+    "org.matrix.msc0502.edu_reconciliation": true
+  }
+}
+```
+
+Servers that do not advertise this flag SHOULD be treated as not supporting
+`edu_digest` or `edu_state`. Receivers SHOULD avoid repeated probes to
+unsupported peers; a `501 Not Implemented` response, or a `404` response with
+`M_UNRECOGNIZED` or a non-Matrix body, SHOULD be cached as unsupported for at
+least 24 hours unless an operator explicitly overrides the cache. The cache MUST
+be invalidated on any observed change to the peer's `/version` document.
 
 ## Potential issues
 
@@ -366,21 +435,21 @@ This was rejected because:
 ### Per-Room EDU Sync
 
 An alternative design would scope EDU reconciliation to individual rooms
-(similar to MSC0F01's per-room approach). This was rejected because:
+(similar to MSC0501's per-room approach). This was rejected because:
 
 1. Presence and device lists are per-user, not per-room. A per-room approach
    would require redundant queries for users in multiple shared rooms.
 2. The version-vector approach naturally handles per-user state with a single
    digest query per peer.
 
-### Extending MSC0F01
+### Extending MSC0501
 
-EDU reconciliation could be added as an extension to MSC0F01 rather than a
+EDU reconciliation could be added as an extension to MSC0501 rather than a
 separate proposal. This was rejected because:
 
 1. The data models are fundamentally different (DAG vs. last-writer-wins).
-2. The reconciliation algorithms are different (Bloom filter + merge-base walk
-   vs. version-vector comparison).
+2. The reconciliation algorithms are different (version-vector comparison vs.
+   graph traversal).
 3. Separate proposals allow independent review and implementation timelines.
 4. Gossip scheduling parameters differ significantly between PDUs and EDUs.
 
@@ -419,11 +488,21 @@ version.
 The following mapping will be used for identifiers in this MSC during
 development:
 
-| Proposed final identifier           | Development identifier                                       |
-| ----------------------------------- | ------------------------------------------------------------ |
-| `/_matrix/federation/v1/edu_digest` | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_digest` |
-| `/_matrix/federation/v1/edu_state`  | `/_matrix/federation/unstable/org.matrix.msc0f02/edu_state`  |
+<!-- markdownlint-disable MD013 -->
+
+| Proposed final identifier           | Purpose  | Development identifier                                       |
+| ----------------------------------- | -------- | ------------------------------------------------------------ |
+| `/_matrix/federation/v1/edu_digest` | endpoint | `/_matrix/federation/unstable/org.matrix.msc0502/edu_digest` |
+| `/_matrix/federation/v1/edu_state`  | endpoint | `/_matrix/federation/unstable/org.matrix.msc0502/edu_state`  |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Dependencies
 
-This MSC has no hard dependencies on other unaccepted MSCs.
+This MSC has no hard dependencies on other unaccepted MSCs. Its ETag accumulator
+is only conceptually similar to — not the same construction as — the `LtHash16`
+state accumulator introduced by [MSC4500](4500-state-accumulators.md) (order-
+independent XOR here, versus lane-wise wrapping addition there), and its
+transaction/reconciliation split is designed to be scheduled alongside
+[MSC0501](0501-federation-room-gossip-reconciliation.md)'s PDU reconciliation,
+per the "Why This Is Different From PDU Reconciliation" section above.
