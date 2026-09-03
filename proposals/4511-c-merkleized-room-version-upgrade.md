@@ -304,11 +304,30 @@ prove maximality. A future common-ancestor operation is therefore not a
 cryptographically complete consequence of trie intersection.
 
 Every proof MUST identify the anchor event, algorithm, expected root, and root
-count. Sibling entries carry both hash and count. Verifiers recompute every
-internal hash and count to the anchor's committed root. Runs of canonical empty
-siblings MAY be compressed as `(start_depth, length)`; decompression MUST yield
-the exact `empty[d]` values above. A responder MUST NOT claim completeness from
-a truncated proof.
+count. A proof is an ordered, leaf-to-root list of sibling entries: entry `i` is
+combined at internal-node depth $T - 1 - i$, where $T$ is the proof's terminal
+depth (256 for inclusion; the non-inclusion terminal's depth otherwise), so its
+sibling subtree is rooted one level deeper, at depth $T - i$. Explicit sibling
+entries carry both hash and count; a verifier recomputes every internal hash and
+count to the anchor's committed root, deriving each entry's side from the
+candidate key's bit at depth $T - 1 - i$. An encoding MAY omit this redundant
+side; if it carries a side, the verifier MUST reject it unless it equals the
+key-derived side.
+
+Runs of consecutive canonical-empty siblings — hash `empty[d]` at their sibling
+depth `d`, count 0 — MAY be compressed as `(start_depth, length)`, where
+`start_depth` is the sibling depth `T - i` of the _first_ empty entry in the
+run. Decompression MUST expand the run in proof order, walking toward the root:
+`empty[start_depth]`, `empty[start_depth - 1]`, …,
+`empty[start_depth - length + 1]`, each with count 0 and a side derived from the
+candidate key the same way as an explicit entry (at the corresponding parent
+depth `start_depth - 1`, `start_depth - 2`, …). `start_depth` MUST lie in
+`1..=256` and `length` MUST NOT place any expanded sibling below depth 1, since
+depth 0 is the root and has no parent to be a sibling of. A responder MUST NOT
+claim completeness from a truncated proof. A verifier MUST reject a terminal
+depth outside `0..=256`, a zero-length run, a run whose `start_depth` is not the
+sibling depth expected at its current path position, or an encoding whose
+expansion does not contain exactly `terminal_depth` entries.
 
 The sum does not replace search or hashing. It provides authenticated subtree
 cardinality—useful for sizing reconciliation work and rejecting malformed proofs
@@ -317,11 +336,15 @@ populations; proving equality still requires the root hash.
 
 Of the operations above, inclusion and non-inclusion proof generation and
 verification are implemented in both reference implementations (see "Draft
-causal sparse Merkle sum trie vectors" above). Prefix range, recursive diff,
-multiproof, and the empty-run compression scheme are specified here but not yet
-implemented in either `gomatrixcrypto` or `rezzy`; neither is any wire transport
-(an HTTP endpoint serving these proof objects) — both implementations are
-libraries computing and verifying the hashes and paths locally, not servers.
+causal sparse Merkle sum trie vectors" above). The empty-run compression scheme
+is additionally implemented in `rezzy`
+(`merkle::causal::{compress_causal_path, decompress_causal_path}`), matching the
+`(start_depth, length)` semantics specified above, but not yet in
+`gomatrixcrypto`. Prefix range, recursive diff, and multiproof are specified
+here but not yet implemented in either reference implementation; neither is any
+wire transport (an HTTP endpoint serving these proof objects) — both
+implementations are libraries computing and verifying the hashes and paths
+locally, not servers.
 
 #### Construction and merge cost
 
