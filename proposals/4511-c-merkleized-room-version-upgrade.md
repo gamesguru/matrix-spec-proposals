@@ -776,9 +776,26 @@ The causal-set trie commits to **DAG membership** ($X \in \mathcal{C}(E)$), not
 **resolved state**. A causal-set inclusion proof for a state event proves it is
 in `E`'s causal past—nothing about whether it won state resolution at any point
 $\le E$. Committing to the `(type, state_key) → event_id` map would require a
-separate sparse-Merkle-sum trie keyed by `(type, state_key)`, recomputed after
-each resolution run—out of scope here and unimplemented in both reference
-implementations.
+separate sparse Merkle map keyed by `(type, state_key)`, recomputed after each
+resolution run—out of scope here and unimplemented in both reference
+implementations, deliberately: a locally-computed `state_root` is easy, but an
+event-committed one changes event identity, and that requires federation-wide
+agreement this sketch does not yet define. Unlike `causal_set`, whose scope (the
+closure of `prev_events`, excluding the event itself) is unambiguous, a
+resolved-state commitment has no obvious canonical boundary—does an event commit
+state as of just before it, or as of just after (if the event is itself a state
+event)? Two correct homeservers reaching that decision differently, or holding
+different available inputs when they compute it, would derive different roots
+for the same event and split the federation. Making `state_root` authoritative
+would additionally require room-version-level agreement on the exact
+resolved-state snapshot boundary, the state-resolution algorithm version,
+canonical `(type, state_key, event_id)` encoding, validation behavior when
+required inputs are missing, and backfill/activation behavior—the same category
+of room-version consensus rule `causal_set`'s construction recurrence already
+is, but for a structure whose boundary is not yet pinned down. This sketch and
+its reference implementations therefore keep the resolved-state trie a local,
+unauthoritative primitive—useful for developing proofs, benchmarks, and
+vectors—until a dedicated future MSC specifies and tests that consensus rule.
 
 ## Future extensions
 
