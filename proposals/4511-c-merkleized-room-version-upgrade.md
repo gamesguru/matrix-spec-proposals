@@ -329,23 +329,20 @@ depth outside `0..=256`, a zero-length run, a run whose `start_depth` is not the
 sibling depth expected at its current path position, or an encoding whose
 expansion does not contain exactly `terminal_depth` entries.
 
-An inclusion proof is always exactly 256 entries uncompressed (`empty[256]`'s
-depth is the fixed leaf depth, independent of population), so an uncompressed
-inclusion proof is a fixed ~10.25 KiB (256 × (1-byte side + 32-byte hash +
-8-byte count)) regardless of $|\mathcal{C}(E)|$. Empty-run compression reduces
-this to the explicit siblings at the levels where the candidate key still shares
-a prefix with another member, plus one `EmptyRun` per contiguous empty stretch —
-in the common case of a single divergence point, one `EmptyRun` for everything
-below it. For a causal set of $n$ members, the number of explicit entries is
-bounded by the shared-prefix depth between the candidate and its nearest
-neighbor in key order, which is $O(\log n)$ in expectation for
-independently-derived keys; `rezzy`'s reference implementation measures 5 bytes
-for $n=1$ growing to roughly 600 bytes at $n=10\,000$, versus the fixed ~10.25
-KiB uncompressed, though a pathological key distribution (e.g. deliberately
-colliding prefixes) can still force the proof toward its 256-entry ceiling.
-Non-inclusion proofs are typically much shorter even uncompressed, since the
-key-directed descent stops at whatever depth it first reaches an empty subtree,
-which is usually far shallower than 256 for a well-spread population.
+An inclusion proof always contains exactly 256 sibling entries before empty-run
+compression: the leaf depth is fixed, independent of population. Its raw sibling
+material therefore contains 256 32-byte hashes and 256 64-bit counts, plus the
+sibling-side information, regardless of $|\mathcal{C}(E)|$. Empty-run
+compression reduces this to explicit siblings at levels where the candidate key
+still shares a prefix with another member, plus one `EmptyRun` per contiguous
+empty stretch. For independently-derived keys, the number of explicit siblings
+is $O(\log n)$ in expectation for a causal set of $n$ members, although a
+pathological key distribution (for example, deliberately colliding prefixes) can
+still force a proof toward its 256-entry ceiling. Non-inclusion proofs are
+typically shorter even before compression, because the key-directed descent
+stops when it first reaches an empty subtree. This proposal does not specify a
+wire encoding, so concrete byte counts depend on a future encoding's tags,
+integer representation, and whether it transmits the key-derived side.
 
 The sum does not replace search or hashing. It provides authenticated subtree
 cardinality—useful for sizing reconciliation work and rejecting malformed proofs
