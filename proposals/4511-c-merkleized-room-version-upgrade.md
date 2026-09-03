@@ -329,6 +329,24 @@ depth outside `0..=256`, a zero-length run, a run whose `start_depth` is not the
 sibling depth expected at its current path position, or an encoding whose
 expansion does not contain exactly `terminal_depth` entries.
 
+An inclusion proof is always exactly 256 entries uncompressed (`empty[256]`'s
+depth is the fixed leaf depth, independent of population), so an uncompressed
+inclusion proof is a fixed ~10.25 KiB (256 × (1-byte side + 32-byte hash +
+8-byte count)) regardless of $|\mathcal{C}(E)|$. Empty-run compression reduces
+this to the explicit siblings at the levels where the candidate key still shares
+a prefix with another member, plus one `EmptyRun` per contiguous empty stretch —
+in the common case of a single divergence point, one `EmptyRun` for everything
+below it. For a causal set of $n$ members, the number of explicit entries is
+bounded by the shared-prefix depth between the candidate and its nearest
+neighbor in key order, which is $O(\log n)$ in expectation for
+independently-derived keys; `rezzy`'s reference implementation measures 5 bytes
+for $n=1$ growing to roughly 600 bytes at $n=10\,000$, versus the fixed ~10.25
+KiB uncompressed, though a pathological key distribution (e.g. deliberately
+colliding prefixes) can still force the proof toward its 256-entry ceiling.
+Non-inclusion proofs are typically much shorter even uncompressed, since the
+key-directed descent stops at whatever depth it first reaches an empty subtree,
+which is usually far shallower than 256 for a well-spread population.
+
 The sum does not replace search or hashing. It provides authenticated subtree
 cardinality—useful for sizing reconciliation work and rejecting malformed proofs
 where child counts fail to sum to the parent. Equal counts do not imply equal
@@ -762,6 +780,23 @@ already commits them at the top level. State resolution otherwise runs MSC4242's
 v2.2 algorithm unchanged, operating on `event_root`-derived event IDs instead of
 legacy ones; this sketch does not alter which state wins, only how the events
 participating in resolution are identified and proven.
+
+To be explicit about scope: the causal-set trie commits to **DAG membership**
+($X \in \mathcal{C}(E)$), not to **resolved state**. No field in this sketch
+commits to the `(type, state_key) \to event\_id` map that state resolution
+produces, and a causal-set inclusion proof for a state event only proves that
+event is in `E`'s causal past — it says nothing about whether that event won
+state resolution at any point $\le E$. A resolved-state commitment (letting a
+holder prove "the current winner for `(type, state_key)` is `X`" without running
+state resolution) would need its own sparse-Merkle-sum trie, keyed by
+`(type, state_key)` instead of event ID, recomputed and re-committed after every
+state-resolution run — a distinct root a room version would have to add and
+maintain, not a byproduct of `causal_set`. It is out of scope for this sketch
+and unimplemented in both reference implementations; if a future MSC adds it, it
+would make a given resolution's _output_ efficiently provable and diffable, the
+same way this sketch makes causal-past membership provable — it would not make
+state resolution itself more deterministic or auditable, since it can only
+commit to whatever v2.2 already decided.
 
 ## Future extensions
 
