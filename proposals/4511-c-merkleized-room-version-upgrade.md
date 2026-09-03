@@ -329,20 +329,14 @@ depth outside `0..=256`, a zero-length run, a run whose `start_depth` is not the
 sibling depth expected at its current path position, or an encoding whose
 expansion does not contain exactly `terminal_depth` entries.
 
-An inclusion proof always contains exactly 256 sibling entries before empty-run
-compression: the leaf depth is fixed, independent of population. Its raw sibling
-material therefore contains 256 32-byte hashes and 256 64-bit counts, plus the
-sibling-side information, regardless of $|\mathcal{C}(E)|$. Empty-run
-compression reduces this to explicit siblings at levels where the candidate key
-still shares a prefix with another member, plus one `EmptyRun` per contiguous
-empty stretch. For independently-derived keys, the number of explicit siblings
-is $O(\log n)$ in expectation for a causal set of $n$ members, although a
-pathological key distribution (for example, deliberately colliding prefixes) can
-still force a proof toward its 256-entry ceiling. Non-inclusion proofs are
-typically shorter even before compression, because the key-directed descent
-stops when it first reaches an empty subtree. This proposal does not specify a
-wire encoding, so concrete byte counts depend on a future encoding's tags,
-integer representation, and whether it transmits the key-derived side.
+An uncompressed inclusion proof is a fixed 256 entries (the leaf depth is
+independent of population). Empty-run compression reduces this to explicit
+siblings at prefix-divergence levels plus one `EmptyRun` per contiguous empty
+stretch—$O(\log n)$ entries in expectation for $n$ independently-derived keys,
+though adversarial prefix collisions can force the 256-entry ceiling.
+Non-inclusion proofs are typically shorter even uncompressed, since descent
+stops at the first empty subtree. Concrete byte counts depend on the future wire
+encoding.
 
 The sum does not replace search or hashing. It provides authenticated subtree
 cardinality—useful for sizing reconciliation work and rejecting malformed proofs
@@ -778,22 +772,13 @@ v2.2 algorithm unchanged, operating on `event_root`-derived event IDs instead of
 legacy ones; this sketch does not alter which state wins, only how the events
 participating in resolution are identified and proven.
 
-To be explicit about scope: the causal-set trie commits to **DAG membership**
-($X \in \mathcal{C}(E)$), not to **resolved state**. No field in this sketch
-commits to the `(type, state_key) \to event\_id` map that state resolution
-produces, and a causal-set inclusion proof for a state event only proves that
-event is in `E`'s causal past — it says nothing about whether that event won
-state resolution at any point $\le E$. A resolved-state commitment (letting a
-holder prove "the current winner for `(type, state_key)` is `X`" without running
-state resolution) would need its own sparse-Merkle-sum trie, keyed by
-`(type, state_key)` instead of event ID, recomputed and re-committed after every
-state-resolution run — a distinct root a room version would have to add and
-maintain, not a byproduct of `causal_set`. It is out of scope for this sketch
-and unimplemented in both reference implementations; if a future MSC adds it, it
-would make a given resolution's _output_ efficiently provable and diffable, the
-same way this sketch makes causal-past membership provable — it would not make
-state resolution itself more deterministic or auditable, since it can only
-commit to whatever v2.2 already decided.
+The causal-set trie commits to **DAG membership** ($X \in \mathcal{C}(E)$), not
+**resolved state**. A causal-set inclusion proof for a state event proves it is
+in `E`'s causal past—nothing about whether it won state resolution at any point
+$\le E$. Committing to the `(type, state_key) → event_id` map would require a
+separate sparse-Merkle-sum trie keyed by `(type, state_key)`, recomputed after
+each resolution run—out of scope here and unimplemented in both reference
+implementations.
 
 ## Future extensions
 
