@@ -29,9 +29,10 @@ A compatible future room version modifies event hashing to generate an
 
 - `prev_events_hash`: canonical hash of the event's `prev_events`;
 - `auth_events_hash`: canonical hash of the event's `auth_events`;
-- `prev_state_events_hash`: canonical hash of the event's `prev_state_events`,
-  when the room version defines State DAGs; otherwise this component is the
-  canonical hash of `null`;
+- `state_predecessors_hash`: canonical hash of the event's state-predecessor
+  edges. In room versions defining State DAGs, this is the canonical hash of
+  `prev_state_events`; in earlier room versions, it is the canonical hash of
+  `prev_events` (the fallback state-predecessor relation from MSC4500);
 - `event_header_root`: Merkle root over routing and authorship fields:
   `room_id`, `sender_localpart`, `sender_domain`, `type`, `state_key`,
   `redacts`, `depth`, and `origin_server_ts`;
@@ -88,7 +89,7 @@ content_hash =
 
 event_root =
   SHA3-256("msc4511:root:v1" || prev_events_hash || auth_events_hash ||
-           prev_state_events_hash || event_header_root || content_hash ||
+           state_predecessors_hash || event_header_root || content_hash ||
            other_signed_fields_hash)
 ```
 
@@ -98,14 +99,16 @@ is the UTF-8 encoding of the canonical JSON value; and
 `left_hash`/`right_hash`/component hashes are the raw 32-byte hash outputs.
 
 The top-level component hashes `prev_events_hash`, `auth_events_hash`,
-`prev_state_events_hash`, and `other_signed_fields_hash` are computed with the
-leaf-hash construction above, using the field names `prev_events`,
-`auth_events`, `prev_state_events`, and `other_signed_fields` respectively. For
-room versions without State DAGs, `prev_state_events_hash` is the leaf hash of
-the canonical JSON value `null`. `content_hash` is instead the `inner_hash`
-combination of `redacted_content_hash` and `redactable_content_hash`, each of
-which is itself a leaf hash over the room version's redaction-surviving and
-redaction-stripped event body fields respectively, as shown above.
+`state_predecessors_hash`, and `other_signed_fields_hash` are computed with the
+leaf-hash construction above. `state_predecessors_hash` hashes the field named
+`prev_state_events` when the room version defines State DAGs, or `prev_events`
+as a fallback for earlier room versions (matching the MSC4500
+`state_predecessors` definition). For room versions without State DAGs and
+without the `prev_events` fallback, `state_predecessors_hash` is the leaf hash
+of `null`. `content_hash` is instead the `inner_hash` combination of
+`redacted_content_hash` and `redactable_content_hash`, each of which is itself a
+leaf hash over the room version's redaction-surviving and redaction-stripped
+event body fields respectively, as shown above.
 
 The domain-separation strings use the stable MSC identifier `msc4511` and are
 part of the event ID derivation. Implementations MUST NOT use the unstable
@@ -165,8 +168,8 @@ throughout this document.
 ### Causal sparse Merkle sum trie
 
 Every event `E` MUST commit to the set of event IDs in its strict causal past.
-For a room version with State DAGs, `prev_state_events` are additional causal
-predecessor edges and are included in the same set-union recurrence:
+For a room version with State DAGs, `prev_state_events` edges are additional
+state-predecessor relations and are included in the same set-union recurrence:
 
 $$
 C(E) = \bigcup_{P \in \operatorname{prev\_events}(E) \cup
@@ -281,9 +284,9 @@ relative to a named anchor event `E`. A responder can provide:
   prefix queries are transmitted once.
 
 The causal relation committed here is precisely the `prev_events` and, where
-defined, `prev_state_events` recurrence above. It is not a commitment to every
-navigable Part A edge relation, such as `auth_events`, `relates_to`, or
-`redacts`.
+defined, `prev_state_events` recurrence above — the `state_predecessors` scope.
+It is not a commitment to every navigable Part A edge relation, such as
+`auth_events`, `relates_to`, or `redacts`.
 
 A future wire extension for a room version adopting Part C MAY request a
 membership proof for a named anchor $E$ and candidate $X$. Inclusion proves
