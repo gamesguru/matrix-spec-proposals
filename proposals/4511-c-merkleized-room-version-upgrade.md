@@ -451,6 +451,24 @@ exist, not how they connect to each other. Specifically:
   reachability would require committing to the edge structure, not just the
   vertex set — a fundamentally different data structure.
 
+- **Cross-room and unresolvable `prev_events` references** are not addressed
+  by the causal trie, but they do not need to be: [Part
+  A](4511-a-topological-metadata-query-api.md)'s per-field proofs already solve
+  this without fetching the full referenced event. `room_id` is a leaf inside
+  `event_header_root`; proving it for an event a receiver has only the ID for
+  costs the five sibling top-level component hashes (opaque digests, not the
+  underlying data), a Merkle path within `event_header_root` to the `room_id`
+  leaf, and the signature over the `{room_id, room_version, event_root}`
+  envelope — not the event's `content`, `prev_events`, or `auth_events` values.
+  A receiver checking whether a `prev_event` belongs to their room requests
+  exactly this proof instead of the whole event. If the referenced event is
+  unresolvable, that is indistinguishable from non-existence under
+  content-addressing (see the depth bullet above): no proof, thin or full, can
+  be produced for an event nobody holds. This mechanism proves the referenced
+  hash structure is what it claims to be and is signed; it does not prove the
+  referenced event was validly accepted into any room by that room's auth
+  rules — that remains a separate check.
+
 **Why this constraint is unavoidable.** Cryptographic proofs require the prover
 to possess the data being proven. This cuts two different ways depending on what
 is being claimed. For structural claims about _which_ ancestors exist and at
@@ -473,17 +491,54 @@ and do not perform full recursive re-verification on every event — which is
 sound by the same induction argument as the depth check, provided that trust was
 earned by an honest check the first time each parent was accepted.
 
-**Depth-enriched leaves (optional optimization).** A future revision of this
-trie MAY include depth as a leaf field: each leaf commits to
-`event_id || le64(depth)` instead of `event_id` alone. When parents are not
-already local (e.g., backfill, partial history), this makes depth verification
-O(log n) per parent via trie inclusion proofs instead of requiring the full
-graph. As established above, a claimed depth is already structurally sound given
-a real hash-linked ancestor chain — this leaf field does not add a new
-guarantee, it makes an existing one cheaper to check for a receiver who lacks
-local parent data. The max of subtree depths can provide an authenticated upper
-bound on the depth range in the causal past, useful for sizing reconciliation
-work.
+**Depth-enriched leaves (narrow-audience optimization).** A future revision of
+this trie MAY include depth as a leaf field: each leaf commits to
+`event_id || le64(depth)` instead of `event_id` alone. For any event
+$X \in \mathcal{C}(E)$, since $\mathcal{C}(E)$ is transitively closed, every
+member of `X.prev_events` is also in $\mathcal{C}(E)$; a verifier can then
+check `X.depth == max(depth_p for p in X.prev_events) + 1` using one $O(\log n)$
+trie inclusion proof per parent against the single signed root, instead of
+downloading and signature-validating the ancestor chain back to a trusted
+point.
+
+This benefit is real but has a narrow audience, and this MUST NOT be read as a
+general speedup. **A server that already maintains full local room state gets
+no benefit at all.** Such a server validates each event's depth once, at
+ingestion, against parents it already has locally — an $O(1)$ cached-field
+read, cheaper than constructing or checking an $O(\log n)$ trie proof — and
+caches the result permanently by the trust-on-first-use induction argument
+above. This is what every current homeserver implementation already does; the
+trie adds nothing to it.
+
+The saving is concentrated in exactly one case: a verifier with **no local
+ancestor data** — a light client, a server performing a partial or sparse-state
+join, or a peer checking a claim without pulling full history. For such a
+verifier, the alternative to the trie proof is not an $O(1)$ lookup but an
+$O(\text{depth})$ walk: fetching and signature-validating every ancestor back
+to a point they already trust, which can mean thousands to millions of events
+in a long-lived room. Against that alternative, the trie proof — a handful of
+hashes, $O(\log n)$ in the size of the causal set — is the real win. This is
+the same class of consumer targeted by [Part A](4511-a-topological-metadata-query-api.md)'s
+hint-only queries and Part B's responder-scoped attestations, not a benefit to
+full participating homeservers.
+
+The max of subtree depths can provide an authenticated upper bound on the
+depth range in the causal past, useful for sizing reconciliation work.
+
+**This is not automatically enforced.** Depth-enriched leaves make the
+recurrence check cheap; they do not make anyone perform it. Nothing in this
+proposal currently obligates a verifier to check the recurrence, lazily or
+exhaustively, before trusting a `causal_set` as valid — the same gap that lets
+implementation bugs (the historical `2^53 - 1` clamping) go unnoticed today. A
+room version that wants this to be an enforced invariant, not merely a cheaper
+available check, needs to say so explicitly: a verifier MUST hold or obtain
+trie inclusion proofs for the immediate `prev_events` of any event whose depth
+it relies on, and MUST reject `causal_set` as invalid if the recurrence fails
+at any checked leaf. Even with that requirement, a verifier who checks only
+one hop is still trusting that its parents' depths were validated by whoever
+accepted them first — the same induction assumption as today, just cheaper to
+discharge at each step, and still broken by a single non-compliant
+implementation anywhere upstream.
 
 **Cross-checking via root comparison.** An honest server that independently
 holds the real parent events can recompute the causal trie root from those
