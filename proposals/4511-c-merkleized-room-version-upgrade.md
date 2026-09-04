@@ -1060,6 +1060,35 @@ signed overlay is the deployable, responder-scoped alternative for current room
 versions. This Part C sketch is stronger but requires a future room version
 because the metadata commitment must participate in event identity.
 
+**Running the causal-set/state-inclusion trie construction over a room that
+never adopted this sketch downgrades it to a Part B guarantee, not a Part C one,
+and implementers reusing the code MUST NOT present the result as the latter.**
+The trie code itself — build a set of `event_id`s, root it, produce and verify
+inclusion/non-inclusion proofs — has no room-version dependency and runs
+unchanged over any event-ID set, including one pulled from a legacy room that
+predates this proposal. What changes is what the output means. A Part C proof is
+verifiable because `causal_set` is a leaf folded into `other_signed_fields_hash`
+and thus into `event_root` (see "Header tree construction"): the anchor event's
+own sender signs the root, so "$X$ is/isn't an ancestor of $E$" is a claim the
+anchor's sender is bound to. `state_root` has no such binding even in a room
+that _has_ adopted this sketch — it is deliberately kept a local,
+unauthoritative primitive for the reasons given in "State DAG interaction",
+precisely because no event's signature commits to it. A `causal_set` computed
+over a legacy, pre-adoption room lands in that same unbound category, but for a
+different reason: not because the doc withholds the binding by design, as with
+`state_root`, but because the binding mechanism (`causal_set` folded into
+`event_root`) exists and would apply, except no legacy event ever signed a
+`causal_set` field to begin with. Either way, the trie root computed after the
+fact over such a room is a locally-computed, unauthoritative primitive — a proof
+only in the sense that whoever computed it can sign the root themselves and
+stand behind it as a responder, Part B's trust model, not that any room
+participant committed to it as part of event identity. Implementers building
+tooling against pre-adoption rooms (e.g. verifying ancestry in an
+already-downloaded DAG) get the same $O(\log n)$ proof mechanics either way;
+they do not get Part C's sender-committed guarantee unless the room actually
+adopted this room version and the events being proven over actually signed the
+relevant root.
+
 [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242)
 changes the room model by adding state-DAG edges and authorization semantics in
 a new room version; see "State DAG interaction" under "Adopting room version
