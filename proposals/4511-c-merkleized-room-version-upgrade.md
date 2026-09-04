@@ -988,52 +988,58 @@ vectors—until a dedicated future MSC specifies and tests that consensus rule.
 #### `depth_state`: a state-predecessor depth analogue
 
 `depth` counts hops along `prev_events` edges back to `m.room.create`. A room
-version with State DAGs MAY define an analogous scalar,
-`depth_state(type, state_key)`, that counts hops along `prev_state_events` edges
-back to the first state event of that specific `(type, state_key)`:
+version with State DAGs MAY define an analogous global scalar, `depth_state`,
+that counts hops along `prev_state_events` edges alone — the same recursion as
+`depth`, restricted to the state-predecessor edge set rather than the full DAG
+edge set:
 
 ```text
 depth_state(X) = 1
-  if X.prev_state_events is empty for its (type, state_key)
+  if X.prev_state_events is empty
 depth_state(X) = max(depth_state(p) for p in X.prev_state_events) + 1
   otherwise
 ```
 
-This is the same recursion shape as `depth`, and the same soundness argument
-applies unchanged: `prev_state_events` entries are content hashes (the same
-argument as `prev_events` — see the depth bullet in "Scope and limitations"), so
-a claimed `depth_state` is structurally sound the moment a real hash-linked
-state-predecessor chain exists, by induction from a single axiomatic base case.
-It differs from `depth` in one respect that matters: **the base case is
-per-`(type, state_key)`, not global.** `depth` has exactly one base case for the
-whole room (`m.room.create`, depth 1); `depth_state` has one independent base
-case _per state key_ — the first event ever sent for that `(type, state_key)`,
-which need not be, and usually is not, the room creation event. `depth_state` is
-therefore not a room-wide scalar like `depth`; it is a per-key edit-count,
-answering "how many times has this specific piece of state been superseded"
-rather than "how far into the room's history is this."
+`prev_state_events(E)` here is the same edge set already used in the
+`causal_set` recurrence under "Causal sparse Merkle sum trie" above — it is not
+restricted to a single `(type, state_key)`; a state event's `prev_state_events`
+may reference the current frontier across multiple keys, just as `prev_events`
+references the current DAG frontier. `depth_state` is therefore a single
+room-wide scalar with one base case, `m.room.create` (depth 1, mirroring
+`depth`'s base case) — not a per-key edit count. It measures how many state-DAG
+generations deep an event is in the _aggregate_ state history, independent of
+ordinary DAG depth: an event can be many hops deep in `depth` (lots of non-state
+traffic in between) while shallow in `depth_state` (little state churn), or the
+reverse.
+
+The same soundness argument as `depth` applies unchanged: `prev_state_events`
+entries are content hashes (the same argument as `prev_events` — see the depth
+bullet in "Scope and limitations"), so a claimed `depth_state` is structurally
+sound the moment a real hash-linked state-predecessor chain exists, by induction
+from the single `m.room.create` base case.
 
 The same cost analysis from "Depth-enriched leaves" applies without
 modification: a server maintaining full local room state already has
 `depth_state` (or can derive it) at `O(1)` from its own state-predecessor index
 and gains nothing from a trie proof; the benefit is concentrated in verifiers
-with no local state-predecessor history for that key (light clients,
-partial/sparse joins) who would otherwise need an `O(depth_state(X))` walk of
-that key's edit history to establish it. As with `depth`, this MUST NOT be read
-as automatically enforced — a room version adopting `depth_state` leaves as trie
-fields needs the same explicit MUST obligating verifiers to check the recurrence
-before trusting a claimed value.
+with no local state-predecessor history (light clients, partial/sparse joins)
+who would otherwise need an `O(depth_state(X))` walk of the state-DAG history to
+establish it. As with `depth`, this MUST NOT be read as automatically enforced —
+a room version adopting a `depth_state` leaf needs the same explicit MUST
+obligating verifiers to check the recurrence before trusting a claimed value.
 
-The concrete motivation for `depth_state` is different from `depth`'s, though:
-`depth` mainly matters for basic DAG ordering, while `depth_state`'s edit-count
-framing is directly useful for sizing and anti-abuse purposes — for example,
-letting [MSC4521](4521-algebraic-set-reconciliation.md) estimate the
-reconciliation cost for a churning `(type, state_key)` without walking its full
-history, or letting a server cheaply detect and rate-limit a `(type, state_key)`
-under an unusually deep edit history (state-churn griefing) without resolving
-state at every point. Like the resolved-state trie above, this is a local,
-non-normative primitive sketched here for future use, not a room-version
-consensus rule this MSC adopts.
+The concrete motivation is the same shape as `depth`'s but for the state
+subgraph specifically: giving [MSC4521](4521-algebraic-set-reconciliation.md) a
+cheap way to estimate reconciliation cost for the state-DAG portion of a
+divergence without walking it, or letting a server cheaply gauge overall state
+churn without resolving state at every point. A narrower,
+per-`(type, state_key)` variant — counting edits to one specific piece of state
+rather than the aggregate — is a straightforward further restriction of the same
+recursion, useful specifically for detecting state-churn griefing on a single
+key, but is a distinct quantity from the room-wide `depth_state` defined here
+and would need its own leaf if wanted. Like the resolved-state trie above,
+`depth_state` is a local, non-normative primitive sketched here for future use,
+not a room-version consensus rule this MSC adopts.
 
 ## Future extensions
 
