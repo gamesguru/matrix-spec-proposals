@@ -402,21 +402,48 @@ properties of the **graph**, not the **set**. The trie commits to which events
 exist, not how they connect to each other. Specifically:
 
 - **Depth** is defined as `max(parent_depths) + 1`, a function of the graph
-  structure. The trie can carry depth as a leaf field (see "Depth-enriched
-  leaves" below), making depth proofs a byproduct of membership proofs, but it
-  cannot prevent a sender from claiming a false depth. The sender controls what
-  they insert into their trie; the trie root commits to whatever they claim.
-  Depth enforcement remains a receiver-side auth rule, not a cryptographic
-  property.
+  structure, but it is not freely forgeable: because `prev_events` entries are
+  content hashes, a claimed depth of $N$ is structurally sound — objectively
+  backed by an actual unbroken, hash-linked chain of $N$ distinct real ancestors
+  terminating at `m.room.create` — the moment such a chain exists and is
+  broadcast, independent of whether any given server has accepted it. This is
+  the same soundness argument as commit depth in a Merkle DAG (git, a
+  blockchain): you cannot fake having walked a chain you did not walk, because
+  each link is a hash you cannot invert. This is a narrower claim than "the
+  event passes auth": the single-hop rule `depth == max(parent_depths) + 1` is
+  only one of several auth checks (sender authorization, power levels,
+  membership, and so on), and an event can be structurally depth-sound yet still
+  be rejected for unrelated auth reasons — or, on the flip side, no server's
+  rejection of an event for unrelated reasons retroactively makes its depth
+  chain fake. Given that narrower depth check specifically, enforcement is sound
+  by induction — an honest party need only check the single hop against parents
+  it has already verified once, not recurse to genesis on every event. The trie
+  can additionally carry depth as a leaf field (see "Depth-enriched leaves"
+  below), making depth proofs a byproduct of membership proofs for receivers who
+  lack local parent data. The residual gap is not forgeability but **enforcement
+  correctness**: a server that fails to perform the single-hop check (e.g. the
+  historical `2^53 - 1` overflow clamping in some implementations, which
+  silently repeats the same depth forever once hit) breaks the induction for
+  everything downstream. That is an implementation defect, not a cryptographic
+  limitation, and is out of scope for this trie.
 
 - **Graph completeness** ("I have the real `prev_events`, not a fabricated
-  subgraph") cannot be proven by any local commitment. The sender can construct
-  a valid trie over a fabricated subgraph, sign it, and the receiver has no
-  local means to distinguish it from the honest graph. This is the **DAG honesty
-  problem**, and it requires protocol-level mechanisms — divergence detection
-  ([MSC4500](4500-state-accumulators.md)) and set reconciliation
-  ([MSC4521](4521-algebraic-set-reconciliation.md)) — not cryptographic
-  commitments.
+  subgraph") cannot be proven by any local commitment — and framing the threat
+  as a "fabricated" subgraph is itself imprecise: because `prev_events` entries
+  are content hashes (see the depth bullet above), an event's ancestors cannot
+  be forged out of nothing. Every event a sender presents, once validly signed
+  and accepted by the auth rules, _is_ real history — there is no ground truth
+  above the DAG for it to be dishonest relative to. The actual residual risk is
+  **divergence and selective disclosure**, not forgery: a sender can construct
+  two different valid extensions of history and show each to different peers (a
+  fork neither peer can locally detect), or withhold real events it holds from a
+  specific requester (censorship by omission that leaves no local trace). Every
+  individual event passes every check available to its recipient; only comparing
+  independently-obtained views exposes the gap. This is the **DAG honesty
+  problem**, and it requires protocol-level mechanisms that compare views across
+  servers — divergence detection ([MSC4500](4500-state-accumulators.md)) and set
+  reconciliation ([MSC4521](4521-algebraic-set-reconciliation.md)) — not
+  cryptographic commitments on a single event or a single server's trie.
 
 - **Reachability** (can event $A$ reach event $B$ via `prev_events` edges?) is a
   graph-traversal property. The trie can prove both $A$ and $B$ are in
@@ -425,30 +452,38 @@ exist, not how they connect to each other. Specifically:
   vertex set — a fundamentally different data structure.
 
 **Why this constraint is unavoidable.** Cryptographic proofs require the prover
-to possess the data being proven. A child event is constructed before the
-receiver verifies the parent chain. The child can only _claim_ properties about
-its parents — it cannot _prove_ them, because proof requires the actual parent
-data, and the child does not carry it. Every scheme that attempts to bind parent
-properties into the child (including the parent's `event_root`, a Merkle proof
-of the parent's existence, or the parent's signature) runs into the same wall:
-the child controls what it includes, so it can always lie about what it is
-including. A receiver seeking a full cryptographic guarantee would need to fetch
-each parent, check its signature, and validate its auth rules — including the
-depth derivation — recursively up to the room creation event. In practice,
-servers trust cached and previously-validated parent state and do not perform
-full recursive re-verification on every event.
+to possess the data being proven. This cuts two different ways depending on what
+is being claimed. For structural claims about _which_ ancestors exist and at
+what depth, content-addressing already provides the bound (see the depth bullet
+above): you cannot reference an ancestor without either possessing it or being
+able to produce a preimage for its hash, so those claims are sound the moment a
+real chain exists. What remains genuinely unbindable is _content_ and _view_ —
+the parent's actual field values beyond its ID/hash, and which parts of the
+graph the sender chooses to disclose to a given receiver. No scheme that has the
+child merely restate or reference parent data (a copied `event_root`, a
+self-supplied Merkle proof, a copied signature) adds anything: the child already
+commits to the parent's ID, which is already the parent's content hash, so
+nothing new is bound, and none of it addresses selective disclosure, which is
+about what the sender chooses to _send_, not what the child _commits to_. A
+receiver seeking a full cryptographic guarantee of the entire ancestor chain's
+authorization (not just its depth) would need to fetch each parent, check its
+signature, and validate its auth rules recursively up to the room creation
+event. In practice, servers trust cached and previously-validated parent state
+and do not perform full recursive re-verification on every event — which is
+sound by the same induction argument as the depth check, provided that trust was
+earned by an honest check the first time each parent was accepted.
 
 **Depth-enriched leaves (optional optimization).** A future revision of this
 trie MAY include depth as a leaf field: each leaf commits to
 `event_id || le64(depth)` instead of `event_id` alone. When parents are not
 already local (e.g., backfill, partial history), this makes depth verification
 O(log n) per parent via trie inclusion proofs instead of requiring the full
-graph. It does not prevent depth spoofing — the sender still controls the
-trie — but it makes the receiver-side auth check cheap enough that servers are
-more likely to actually enforce it. The max of subtree depths can provide an
-authenticated upper bound on the depth range in the causal past, useful for
-sizing reconciliation work, but not for validating any individual depth claim
-without parent proofs.
+graph. As established above, a claimed depth is already structurally sound given
+a real hash-linked ancestor chain — this leaf field does not add a new
+guarantee, it makes an existing one cheaper to check for a receiver who lacks
+local parent data. The max of subtree depths can provide an authenticated upper
+bound on the depth range in the causal past, useful for sizing reconciliation
+work.
 
 **Cross-checking via root comparison.** An honest server that independently
 holds the real parent events can recompute the causal trie root from those
@@ -459,8 +494,8 @@ across servers detects divergence without requiring either party to walk the
 full graph. [MSC4521](4521-algebraic-set-reconciliation.md) then provides the
 set-reconciliation protocol to identify and repair the specific differing
 events. The causal trie makes this comparison cheap (one hash comparison) but
-does not make it automatic — servers must actually perform the comparison,
-which is a protocol-level obligation, not a cryptographic guarantee.
+does not make it automatic — servers must actually perform the comparison, which
+is a protocol-level obligation, not a cryptographic guarantee.
 
 ### Draft test vectors
 
