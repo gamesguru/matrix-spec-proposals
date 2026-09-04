@@ -451,23 +451,37 @@ exist, not how they connect to each other. Specifically:
   reachability would require committing to the edge structure, not just the
   vertex set — a fundamentally different data structure.
 
-- **Cross-room and unresolvable `prev_events` references** are not addressed
-  by the causal trie, but they do not need to be: [Part
-  A](4511-a-topological-metadata-query-api.md)'s per-field proofs already solve
-  this without fetching the full referenced event. `room_id` is a leaf inside
-  `event_header_root`; proving it for an event a receiver has only the ID for
-  costs the five sibling top-level component hashes (opaque digests, not the
-  underlying data), a Merkle path within `event_header_root` to the `room_id`
-  leaf, and the signature over the `{room_id, room_version, event_root}`
-  envelope — not the event's `content`, `prev_events`, or `auth_events` values.
-  A receiver checking whether a `prev_event` belongs to their room requests
-  exactly this proof instead of the whole event. If the referenced event is
-  unresolvable, that is indistinguishable from non-existence under
-  content-addressing (see the depth bullet above): no proof, thin or full, can
-  be produced for an event nobody holds. This mechanism proves the referenced
-  hash structure is what it claims to be and is signed; it does not prove the
-  referenced event was validly accepted into any room by that room's auth
-  rules — that remains a separate check.
+- **Single-field facts about a referenced-but-unfetched event** (cross-room
+  `prev_events`, mismatched `auth_events`, a `redacts` target, and similar) are
+  not addressed by the causal trie, but they do not need to be:
+  [Part A](4511-a-topological-metadata-query-api.md)'s per-field proofs already
+  solve this class of check for any event ID a receiver holds, without fetching
+  the full referenced event. Any `event_header_root` leaf — `room_id`, `type`,
+  `state_key`, `sender_domain`, and so on — is provable this way: the five
+  sibling top-level component hashes (opaque digests, not the underlying data),
+  a Merkle path within `event_header_root` to the leaf in question, and the
+  signature over the `{room_id, room_version, event_root}` envelope — not the
+  event's `content`, `prev_events`, or `auth_events` values. This generalizes
+  past the `room_id` case:
+  - a receiver checking whether a `prev_events` or `redacts` target belongs to
+    their room requests a `room_id` proof;
+  - a receiver shape-validating an `auth_events` set before running the
+    expensive resolved-state check requests `type`/`state_key` proofs to confirm
+    a referenced ID is plausibly _a_ power-levels event, join-rules event, or
+    the right member event, without fetching its content;
+  - a receiver making a federation trust decision requests a `sender_domain`
+    proof for a referenced event without pulling the whole thing.
+
+  If the referenced event is unresolvable, that is indistinguishable from
+  non-existence under content-addressing (see the depth bullet above): no proof,
+  thin or full, can be produced for an event nobody holds. This mechanism proves
+  the referenced hash structure is what it claims to be and is signed; it does
+  not prove the referenced event was validly accepted into any room by that
+  room's auth rules, and it does not prove an `auth_events` set is the _correct_
+  one per state resolution — only that its members have the claimed shape.
+  Auth-events correctness is a resolved-state property, out of scope for the
+  same reason the "State DAG interaction" section keeps `state_root` a local,
+  unauthoritative primitive.
 
 **Why this constraint is unavoidable.** Cryptographic proofs require the prover
 to possess the data being proven. This cuts two different ways depending on what
@@ -495,35 +509,35 @@ earned by an honest check the first time each parent was accepted.
 this trie MAY include depth as a leaf field: each leaf commits to
 `event_id || le64(depth)` instead of `event_id` alone. For any event
 $X \in \mathcal{C}(E)$, since $\mathcal{C}(E)$ is transitively closed, every
-member of `X.prev_events` is also in $\mathcal{C}(E)$; a verifier can then
-check `X.depth == max(depth_p for p in X.prev_events) + 1` using one $O(\log n)$
-trie inclusion proof per parent against the single signed root, instead of
-downloading and signature-validating the ancestor chain back to a trusted
-point.
+member of `X.prev_events` is also in $\mathcal{C}(E)$; a verifier can then check
+`X.depth == max(depth_p for p in X.prev_events) + 1` using one $O(\log n)$ trie
+inclusion proof per parent against the single signed root, instead of
+downloading and signature-validating the ancestor chain back to a trusted point.
 
 This benefit is real but has a narrow audience, and this MUST NOT be read as a
-general speedup. **A server that already maintains full local room state gets
-no benefit at all.** Such a server validates each event's depth once, at
-ingestion, against parents it already has locally — an $O(1)$ cached-field
-read, cheaper than constructing or checking an $O(\log n)$ trie proof — and
-caches the result permanently by the trust-on-first-use induction argument
-above. This is what every current homeserver implementation already does; the
-trie adds nothing to it.
+general speedup. **A server that already maintains full local room state gets no
+benefit at all.** Such a server validates each event's depth once, at ingestion,
+against parents it already has locally — an $O(1)$ cached-field read, cheaper
+than constructing or checking an $O(\log n)$ trie proof — and caches the result
+permanently by the trust-on-first-use induction argument above. This is what
+every current homeserver implementation already does; the trie adds nothing to
+it.
 
 The saving is concentrated in exactly one case: a verifier with **no local
 ancestor data** — a light client, a server performing a partial or sparse-state
 join, or a peer checking a claim without pulling full history. For such a
 verifier, the alternative to the trie proof is not an $O(1)$ lookup but an
-$O(\text{depth})$ walk: fetching and signature-validating every ancestor back
-to a point they already trust, which can mean thousands to millions of events
-in a long-lived room. Against that alternative, the trie proof — a handful of
-hashes, $O(\log n)$ in the size of the causal set — is the real win. This is
-the same class of consumer targeted by [Part A](4511-a-topological-metadata-query-api.md)'s
-hint-only queries and Part B's responder-scoped attestations, not a benefit to
-full participating homeservers.
+$O(\text{depth})$ walk: fetching and signature-validating every ancestor back to
+a point they already trust, which can mean thousands to millions of events in a
+long-lived room. Against that alternative, the trie proof — a handful of hashes,
+$O(\log n)$ in the size of the causal set — is the real win. This is the same
+class of consumer targeted by
+[Part A](4511-a-topological-metadata-query-api.md)'s hint-only queries and Part
+B's responder-scoped attestations, not a benefit to full participating
+homeservers.
 
-The max of subtree depths can provide an authenticated upper bound on the
-depth range in the causal past, useful for sizing reconciliation work.
+The max of subtree depths can provide an authenticated upper bound on the depth
+range in the causal past, useful for sizing reconciliation work.
 
 **This is not automatically enforced.** Depth-enriched leaves make the
 recurrence check cheap; they do not make anyone perform it. Nothing in this
@@ -531,14 +545,14 @@ proposal currently obligates a verifier to check the recurrence, lazily or
 exhaustively, before trusting a `causal_set` as valid — the same gap that lets
 implementation bugs (the historical `2^53 - 1` clamping) go unnoticed today. A
 room version that wants this to be an enforced invariant, not merely a cheaper
-available check, needs to say so explicitly: a verifier MUST hold or obtain
-trie inclusion proofs for the immediate `prev_events` of any event whose depth
-it relies on, and MUST reject `causal_set` as invalid if the recurrence fails
-at any checked leaf. Even with that requirement, a verifier who checks only
-one hop is still trusting that its parents' depths were validated by whoever
-accepted them first — the same induction assumption as today, just cheaper to
-discharge at each step, and still broken by a single non-compliant
-implementation anywhere upstream.
+available check, needs to say so explicitly: a verifier MUST hold or obtain trie
+inclusion proofs for the immediate `prev_events` of any event whose depth it
+relies on, and MUST reject `causal_set` as invalid if the recurrence fails at
+any checked leaf. Even with that requirement, a verifier who checks only one hop
+is still trusting that its parents' depths were validated by whoever accepted
+them first — the same induction assumption as today, just cheaper to discharge
+at each step, and still broken by a single non-compliant implementation anywhere
+upstream.
 
 **Cross-checking via root comparison.** An honest server that independently
 holds the real parent events can recompute the causal trie root from those
@@ -970,6 +984,56 @@ is, but for a structure whose boundary is not yet pinned down. This sketch and
 its reference implementations therefore keep the resolved-state trie a local,
 unauthoritative primitive—useful for developing proofs, benchmarks, and
 vectors—until a dedicated future MSC specifies and tests that consensus rule.
+
+#### `depth_state`: a state-predecessor depth analogue
+
+`depth` counts hops along `prev_events` edges back to `m.room.create`. A room
+version with State DAGs MAY define an analogous scalar,
+`depth_state(type, state_key)`, that counts hops along `prev_state_events` edges
+back to the first state event of that specific `(type, state_key)`:
+
+```text
+depth_state(X) = 1
+  if X.prev_state_events is empty for its (type, state_key)
+depth_state(X) = max(depth_state(p) for p in X.prev_state_events) + 1
+  otherwise
+```
+
+This is the same recursion shape as `depth`, and the same soundness argument
+applies unchanged: `prev_state_events` entries are content hashes (the same
+argument as `prev_events` — see the depth bullet in "Scope and limitations"), so
+a claimed `depth_state` is structurally sound the moment a real hash-linked
+state-predecessor chain exists, by induction from a single axiomatic base case.
+It differs from `depth` in one respect that matters: **the base case is
+per-`(type, state_key)`, not global.** `depth` has exactly one base case for the
+whole room (`m.room.create`, depth 1); `depth_state` has one independent base
+case _per state key_ — the first event ever sent for that `(type, state_key)`,
+which need not be, and usually is not, the room creation event. `depth_state` is
+therefore not a room-wide scalar like `depth`; it is a per-key edit-count,
+answering "how many times has this specific piece of state been superseded"
+rather than "how far into the room's history is this."
+
+The same cost analysis from "Depth-enriched leaves" applies without
+modification: a server maintaining full local room state already has
+`depth_state` (or can derive it) at `O(1)` from its own state-predecessor index
+and gains nothing from a trie proof; the benefit is concentrated in verifiers
+with no local state-predecessor history for that key (light clients,
+partial/sparse joins) who would otherwise need an `O(depth_state(X))` walk of
+that key's edit history to establish it. As with `depth`, this MUST NOT be read
+as automatically enforced — a room version adopting `depth_state` leaves as trie
+fields needs the same explicit MUST obligating verifiers to check the recurrence
+before trusting a claimed value.
+
+The concrete motivation for `depth_state` is different from `depth`'s, though:
+`depth` mainly matters for basic DAG ordering, while `depth_state`'s edit-count
+framing is directly useful for sizing and anti-abuse purposes — for example,
+letting [MSC4521](4521-algebraic-set-reconciliation.md) estimate the
+reconciliation cost for a churning `(type, state_key)` without walking its full
+history, or letting a server cheaply detect and rate-limit a `(type, state_key)`
+under an unusually deep edit history (state-churn griefing) without resolving
+state at every point. Like the resolved-state trie above, this is a local,
+non-normative primitive sketched here for future use, not a room-version
+consensus rule this MSC adopts.
 
 ## Future extensions
 
