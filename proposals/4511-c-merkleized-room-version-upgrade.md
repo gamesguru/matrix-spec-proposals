@@ -382,6 +382,71 @@ or compressed union witnesses alongside events for at least as long as they
 expect to serve the corresponding history. This is a deliberate room-version
 trade-off, not a backwards-compatible optimization for existing rooms.
 
+#### Scope and limitations
+
+The causal trie commits to **set membership**: it proves that a set of event IDs
+is the strict causal past of some anchor event $E$. It does not commit to
+**graph structural properties** such as depth, edge completeness, or
+reachability. This distinction is fundamental and cannot be resolved by changing
+the trie's data layout.
+
+**What the trie proves (set membership).** A causal-set inclusion proof for
+event $X$ against anchor $E$ proves $X \in \mathcal{C}(E)$: the event exists in
+$E$'s strict causal past. The trie root, committed by $E$'s `event_root`,
+authenticates this set. The sender signs `event_root`, so the set membership
+claim is cryptographically bound to the sender's identity.
+
+**What the trie cannot prove (graph structure).** The depth of an event, the
+completeness of its `prev_events`, and the reachability between two events are
+properties of the **graph**, not the **set**. The trie commits to which events
+exist, not how they connect to each other. Specifically:
+
+- **Depth** is defined as `max(parent_depths) + 1`, a function of the graph
+  structure. The trie can carry depth as a leaf field (see "Depth-enriched
+  leaves" below), making depth proofs a byproduct of membership proofs, but it
+  cannot prevent a sender from claiming a false depth. The sender controls what
+  they insert into their trie; the trie root commits to whatever they claim.
+  Depth enforcement remains a receiver-side auth rule, not a cryptographic
+  property.
+
+- **Graph completeness** ("I have the real `prev_events`, not a fabricated
+  subgraph") cannot be proven by any local commitment. The sender can construct
+  a valid trie over a fabricated subgraph, sign it, and the receiver has no
+  local means to distinguish it from the honest graph. This is the **DAG honesty
+  problem**, and it requires protocol-level mechanisms — divergence detection
+  ([MSC4500](4500-state-accumulators.md)) and set reconciliation
+  ([MSC4521](4521-algebraic-set-reconciliation.md)) — not cryptographic
+  commitments.
+
+- **Reachability** (can event $A$ reach event $B$ via `prev_events` edges?) is a
+  graph-traversal property. The trie can prove both $A$ and $B$ are in
+  $\mathcal{C}(E)$, but it cannot prove there is a path between them. Proving
+  reachability would require committing to the edge structure, not just the
+  vertex set — a fundamentally different data structure.
+
+**Why this constraint is unavoidable.** Cryptographic proofs require the prover
+to possess the data being proven. A child event is constructed before the
+receiver verifies the parent chain. The child can only _claim_ properties about
+its parents — it cannot _prove_ them, because proof requires the actual parent
+data, and the child does not carry it. Every scheme that attempts to bind parent
+properties into the child (including the parent's `event_root`, a Merkle proof
+of the parent's existence, or the parent's signature) runs into the same wall:
+the child controls what it includes, so it can always lie about what it is
+including. The receiver must independently verify the parent chain by fetching
+each parent, checking its signature, and validating its auth rules — including
+the depth derivation — recursively up to the room creation event.
+
+**Depth-enriched leaves (optional optimization).** A future revision of this
+trie MAY include depth as a leaf field: each leaf commits to
+`event_id || le64(depth)` instead of `event_id` alone. This makes depth
+verification O(log n) per parent (via trie inclusion proofs) instead of
+O(|graph|) (via full graph walks). It does not prevent depth spoofing — the
+sender still controls the trie — but it makes the receiver-side auth check cheap
+enough that servers are more likely to actually enforce it. The sum or max of
+subtree depths can provide authenticated bounds on the depth range in the causal
+past, useful for sizing reconciliation work, but not for validating any
+individual depth claim without parent proofs.
+
 ### Draft test vectors
 
 The following vectors are non-normative implementation regression vectors for
