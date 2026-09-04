@@ -432,20 +432,35 @@ data, and the child does not carry it. Every scheme that attempts to bind parent
 properties into the child (including the parent's `event_root`, a Merkle proof
 of the parent's existence, or the parent's signature) runs into the same wall:
 the child controls what it includes, so it can always lie about what it is
-including. The receiver must independently verify the parent chain by fetching
-each parent, checking its signature, and validating its auth rules — including
-the depth derivation — recursively up to the room creation event.
+including. A receiver seeking a full cryptographic guarantee would need to fetch
+each parent, check its signature, and validate its auth rules — including the
+depth derivation — recursively up to the room creation event. In practice,
+servers trust cached and previously-validated parent state and do not perform
+full recursive re-verification on every event.
 
 **Depth-enriched leaves (optional optimization).** A future revision of this
 trie MAY include depth as a leaf field: each leaf commits to
-`event_id || le64(depth)` instead of `event_id` alone. This makes depth
-verification O(log n) per parent (via trie inclusion proofs) instead of
-O(|graph|) (via full graph walks). It does not prevent depth spoofing — the
-sender still controls the trie — but it makes the receiver-side auth check cheap
-enough that servers are more likely to actually enforce it. The sum or max of
-subtree depths can provide authenticated bounds on the depth range in the causal
-past, useful for sizing reconciliation work, but not for validating any
-individual depth claim without parent proofs.
+`event_id || le64(depth)` instead of `event_id` alone. When parents are not
+already local (e.g., backfill, partial history), this makes depth verification
+O(log n) per parent via trie inclusion proofs instead of requiring the full
+graph. It does not prevent depth spoofing — the sender still controls the
+trie — but it makes the receiver-side auth check cheap enough that servers are
+more likely to actually enforce it. The max of subtree depths can provide an
+authenticated upper bound on the depth range in the causal past, useful for
+sizing reconciliation work, but not for validating any individual depth claim
+without parent proofs.
+
+**Cross-checking via root comparison.** An honest server that independently
+holds the real parent events can recompute the causal trie root from those
+events and compare it to the sender's claimed root. Divergence proves the
+sender's trie does not match the honest graph. This is the mechanism that
+[MSC4500](4500-state-accumulators.md) exploits: accumulator or root comparison
+across servers detects divergence without requiring either party to walk the
+full graph. [MSC4521](4521-algebraic-set-reconciliation.md) then provides the
+set-reconciliation protocol to identify and repair the specific differing
+events. The causal trie makes this comparison cheap (one hash comparison) but
+does not make it automatic — servers must actually perform the comparison,
+which is a protocol-level obligation, not a cryptographic guarantee.
 
 ### Draft test vectors
 
