@@ -537,10 +537,11 @@ When `proofs` is named in the Part A `include` array and the queried room
 version supports split canonicalization, a server SHOULD include proof material
 for provable requested dense fields inside the `proofs` sidecar object keyed by
 the corresponding `event_id`. A room version adopting this format enables
-cryptographic proof generation for committed header leaves (such as `state_key`,
-`redacts`, `sender_domain`, `origin_server_ts`, and `depth`), proving their
-authenticity against `event_root` via Merkle inclusion paths without requiring
-full event fetching.
+cryptographic proof generation for committed components — both header tree
+leaves (such as `state_key`, `redacts`, `sender_domain`, `origin_server_ts`, and
+`depth`) and top-level fields (such as `prev_events`, `auth_events`, and
+`prev_state_events`) — proving their authenticity against `event_root` via
+Merkle inclusion paths without requiring full event fetching.
 
 Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
 provides any required top-level component hashes needed to reconstruct
@@ -853,10 +854,10 @@ The hint-reputation heuristics defined in
 [Part A, Security considerations](4511-a-topological-metadata-query-api.md#security-considerations)
 apply unchanged. Two proof-specific notes apply:
 
-- Fields such as `sender`, `type`, `depth`, `prev_events`, and `auth_events` are
-  directly verifiable against `event_root` in room versions that adopt this
-  sketch, so contradicted metadata is provably false rather than merely
-  suspicious.
+- Fields such as `sender`, `type`, `depth`, `prev_events`, `auth_events`, and
+  `prev_state_events` are directly verifiable against `event_root` in room
+  versions that adopt this sketch, so contradicted metadata is provably false
+  rather than merely suspicious.
 - `candidate_servers` is not event-intrinsic and is not part of this native
   proof model; a poor candidate may simply be stale or unavailable rather than
   provably false.

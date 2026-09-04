@@ -26,6 +26,14 @@ MUST reject `prev_state_events` with `M_UNSUPPORTED_ROOM_VERSION` when the room
 version does not define that relation. State-DAG traversal remains a hint-only
 query; it does not replace state resolution or authorize accepting an event.
 
+For all room versions 3 and later, `state_predecessors` is a universal
+state-predecessor edge type. In room versions defining State DAGs (MSC4242), it
+follows the same edges as `prev_state_events`. In earlier room versions, it
+follows `prev_events` as a fallback — the general DAG predecessor edges double
+as the state-predecessor relation, matching the resolution-input accumulator
+definition in [MSC4500][msc4500]. This enables state-DAG-like queries against
+pre-MSC4242 rooms without requiring synthetic edge construction.
+
 ## Proposal
 
 ### The query form
@@ -36,7 +44,8 @@ single bounded-closure query defined as a 5-tuple $(S, R, b, \phi, \pi)$:
 - $S$ — **Seed selector**: an initial set of events in the room, named
   explicitly by event ID or resolved from current room state.
 - $R$ — **Edge relations**: a subset of edge types to traverse (`prev_events`,
-  `auth_events`, `relates_to`, `redacts`, `prev_state_events`).
+  `auth_events`, `relates_to`, `redacts`, `prev_state_events`,
+  `state_predecessors`).
 - $b$ — **Bound vector**: literal resource and recursion limits (`depth`,
   `records`, `nodes`, `candidate_servers`, `compute_pairs`, `common_ancestors`).
 - $\phi$ — **Node predicate (`select`)**: a boolean filter over event properties
@@ -153,7 +162,8 @@ The canonical request body adheres to the following JSON schema:
           "auth_events",
           "relates_to",
           "redacts",
-          "prev_state_events"
+          "prev_state_events",
+          "state_predecessors"
         ]
       },
       "uniqueItems": true
@@ -321,6 +331,11 @@ The `edge_types` list defines the edge relations $R$ to follow during traversal:
 - `prev_state_events`: follows State DAG predecessor edges in room versions
   defining MSC4242. If requested in a room version that does not define State
   DAGs, the server MUST reject the request with `M_UNSUPPORTED_ROOM_VERSION`.
+- `state_predecessors`: follows state-predecessor edges. In MSC4242 room
+  versions, this is identical to `prev_state_events`. In room versions 3–12.x
+  (without State DAGs), this follows `prev_events` instead, providing a
+  backward-compatible state-DAG-like traversal. The server MUST NOT reject this
+  edge type for room versions 3 and later.
 
 Unrecognized edge types MUST cause the request to fail with `M_INVALID_PARAM` to
 prevent silent semantic divergence.
@@ -380,6 +395,9 @@ Dense fields available for projection include:
 - `prev_events`: list of previous-event edge IDs.
 - `auth_events`: list of auth-event edge IDs.
 - `prev_state_events`: list of State DAG edge IDs (MSC4242 room versions only).
+- `state_predecessors`: list of state-predecessor edge IDs. In MSC4242 rooms,
+  identical to `prev_state_events`. In pre-MSC4242 rooms, the event's
+  `prev_events`.
 - `relates_to`: relation target object `{"event_id": "...", "rel_type": "..."}`.
 - `redacts`: target event ID redacted by this event.
 - `sender`: full MXID of the event sender.
@@ -797,6 +815,10 @@ Requesters SHOULD negatively cache a peer's unsupported
 - [MSC4242: State DAGs](https://github.com/matrix-org/matrix-spec-proposals/pull/4242):
   MSC4511A natively traverses `prev_state_events` edges when supported by the
   room version.
+- [MSC4500: State accumulators](4500-state-accumulators.md): MSC4511A's
+  `state_predecessors` edge type follows the same `prev_state_events` /
+  `prev_events` fallback as the MSC4500 resolution-input accumulator's
+  `state_predecessors` field.
 - [MSC4511C: Verifiable Room State and Event Metadata](4511-c-merkleized-room-version-upgrade.md):
   Completes MSC4511A's algebra by materializing the unbounded ancestor closure
   $C(E)$ into authenticated causal tries, allowing a future proof extension to
