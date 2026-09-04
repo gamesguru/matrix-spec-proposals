@@ -932,7 +932,22 @@ are replaced entirely by the envelope signature over
 above. Concretely:
 
 - Room version 12's `hashes` field is removed; `content_hash` (see above) is its
-  replacement for content integrity, already covered by `event_root`.
+  replacement for content integrity, already covered by `event_root`. This is a
+  removal, not a soft deprecation, for three reasons. First, the backward-
+  compatibility case for keeping it is weaker than it looks: adopting this room
+  version is already a hard compatibility break — an implementation that doesn't
+  understand `event_root`-derived event IDs can't meaningfully participate in
+  the room at all, `hashes` or not, so keeping the field unlocks no interop that
+  isn't already gone. Second, keeping both would be a live hazard, not mere
+  redundancy: `hashes.sha256` and the
+  `redacted_content_hash`/`redactable_content_hash` split are two independent
+  computations over "what survives redaction," and any future drift between them
+  — beyond the redaction-key-table synchronization this sketch already requires
+  above — is exactly the shape of dual-verification-path bug that gets exploited
+  by a lenient reader trusting whichever field is wrong. Third, `content_hash`
+  is strictly more capable, not just a rename: it is split into independently
+  provable redacted/redactable leaves, which `hashes.sha256` never was, so
+  nothing is lost by removing the legacy field.
 - Existing auth rules that reference an event by ID are unchanged in substance:
   they now receive `"$" || unpadded_base64url(event_root)` instead of the legacy
   SHA-256 event ID, and auth-rule signature checks verify the envelope signature
