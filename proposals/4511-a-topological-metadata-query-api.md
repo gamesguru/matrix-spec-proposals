@@ -322,7 +322,7 @@ The `edge_types` list defines the edge relations $R$ to follow during traversal:
   property of `m.room.redaction` events.
 - `prev_state_events`: follows state-predecessor edges. In MSC4242 room
   versions, these are the explicit `prev_state_events` edges declared by each
-  event. In room versions 3–12.x (without State DAGs), this follows
+  event. In room versions that do not define State DAGs, this follows
   `prev_events` instead — the general DAG predecessor edges double as the
   state-predecessor relation, matching the MSC4500 resolution-input
   accumulator's `state_predecessors` field.

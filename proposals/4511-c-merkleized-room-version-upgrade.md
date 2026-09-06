@@ -724,11 +724,15 @@ When `proofs` is named in the Part A `include` array and the queried room
 version supports split canonicalization, a server SHOULD include proof material
 for provable requested dense fields inside the `proofs` sidecar object keyed by
 the corresponding `event_id`. A room version adopting this format enables
-cryptographic proof generation for committed components — both header tree
-leaves (such as `state_key`, `redacts`, `sender_domain`, `origin_server_ts`, and
-`depth`) and top-level fields (such as `prev_events`, `auth_events`, and
-`prev_state_events`) — proving their authenticity against `event_root` via
-Merkle inclusion paths without requiring full event fetching.
+cryptographic proof generation for committed components via two distinct
+mechanisms: header tree leaves (such as `state_key`, `redacts`, `sender_domain`,
+`origin_server_ts`, and `depth`) are proven via RFC 6962 Merkle inclusion paths
+against `event_header_root`, while top-level component hashes (such as
+`prev_events_hash`, `auth_events_hash`, and `state_predecessors_hash`) are
+proven by revealing the component hash and recomputing the flat concatenation
+that produces `event_root` — no tree structure at that layer, just a fixed set
+of opaque siblings. Both mechanisms prove authenticity against `event_root`
+without requiring full event fetching.
 
 Each `proofs` entry explicitly maps the proven fields to their Merkle paths,
 provides any required top-level component hashes needed to reconstruct
