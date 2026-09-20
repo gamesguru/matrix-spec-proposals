@@ -749,7 +749,7 @@ contracts, but these analogies may help understand the protocol.
 - **Near-optimal syndrome capacity.** By employing BCH-style syndrome
   decoding[^3] over $GF(2^{64})$, the `algebraic_v1` profile recovers any
   symmetric difference of size up to $k$ from $k \times 64$ bits of sketch,
-  meeting the counting lower bound for syndrome decoding[^7], modulo the
+  meeting the counting lower bound for syndrome decoding[^8], modulo the
   capacity provisioned per node ($\lceil 1.5d \rceil + 4$, to absorb estimation
   error). This avoids the probabilistic overhead of Bloom filters or the padding
   requirements of Invertible Bloom Lookup Tables (IBLTs).
@@ -992,6 +992,11 @@ contracts.
 [^7]:
     _libminisketch byte-compatibility reference for 64-bit field_ (Wuille).
     GitHub. <https://github.com/bitcoin-core/minisketch>
+
+[^8]:
+    _Set Reconciliation with Nearly Optimal Communication Complexity_ (Minsky,
+    Trachtenberg & Zippel, 2003). IEEE Transactions on Information Theory
+    49(9). [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
 
 [^9]:
     Putnam Questionnaire. 2008 A3, archive PDF:
