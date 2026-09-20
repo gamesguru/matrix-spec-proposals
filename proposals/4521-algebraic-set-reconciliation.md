@@ -995,8 +995,8 @@ contracts.
 
 [^8]:
     _Set Reconciliation with Nearly Optimal Communication Complexity_ (Minsky,
-    Trachtenberg & Zippel, 2003). IEEE Transactions on Information Theory
-    49(9). [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
+    Trachtenberg & Zippel, 2003). IEEE Transactions on Information Theory 49(9).
+    [doi:10.1109/TIT.2003.815784](https://doi.org/10.1109/TIT.2003.815784)
 
 [^9]:
     Putnam Questionnaire. 2008 A3, archive PDF:
