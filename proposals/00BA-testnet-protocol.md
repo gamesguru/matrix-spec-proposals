@@ -148,10 +148,10 @@ events.
   verify historical signing keys for offline or unreachable servers, parallel
   network homeservers MUST NOT query mainnet key notaries. Instead, dedicated
   fallback notaries must be operated:
-    - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for
-      `testnet`)
-    - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for
-      `stagenet`)
+  - **Testnet Notary:** `notary.testnet.matrix.org` (exclusive fallback for
+    `testnet`)
+  - **Stagenet Notary:** `notary.stagenet.matrix.org` (exclusive fallback for
+    `stagenet`)
 
 ### Traffic bypass; negotiation and server discovery
 
@@ -164,17 +164,16 @@ discovery and ingress dropping are enforced.
 Testnet and Stagenet homeservers MUST adhere to a strict discovery algorithm:
 
 1. **Distinct `.well-known` path:**
-    - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead
-      of `server`).
-    - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead
-      of `server`).
-    - **Schema:** The JSON schema for these parallel `.well-known` endpoints
-      MUST be strictly identical to the standard `/.well-known/matrix/server`
-      file (e.g., returning an `m.server` key mapping to the target host and
-      port).
+   - Testnet servers MUST query `/.well-known/matrix/testnet-server` (instead of
+     `server`).
+   - Stagenet servers MUST query `/.well-known/matrix/stagenet-server` (instead
+     of `server`).
+   - **Schema:** The JSON schema for these parallel `.well-known` endpoints MUST
+     be strictly identical to the standard `/.well-known/matrix/server` file
+     (e.g., returning an `m.server` key mapping to the target host and port).
 2. **Distinct SRV Records:**
-    - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
-    - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
+   - Testnet federation discovery MUST look for `_matrix-testnet-fed._tcp`.
+   - Stagenet federation discovery MUST look for `_matrix-stagenet-fed._tcp`.
 3. **Halt Discovery:** If discovery fails to resolve a valid destination via
    either the network-specific `.well-known` endpoint or the network-specific
    SRV record, the homeserver MUST immediately abort discovery and raise an
@@ -201,10 +200,10 @@ To allow clients to securely discover homeservers on parallel networks when
 triggered via network-specific URIs or custom Client settings:
 
 - **Distinct `.well-known` Client Paths:**
-    - Clients operating on the Testnet MUST query
-      `/.well-known/matrix/testnet-client`.
-    - Clients operating on the Stagenet MUST query
-      `/.well-known/matrix/stagenet-client`.
+  - Clients operating on the Testnet MUST query
+    `/.well-known/matrix/testnet-client`.
+  - Clients operating on the Stagenet MUST query
+    `/.well-known/matrix/stagenet-client`.
 - **Schema:** The JSON schema for these endpoints MUST be strictly identical to
   the standard `/.well-known/matrix/client` file (e.g., returning homeserver
   base URLs and identity server addresses).
@@ -341,7 +340,27 @@ starvation attacks against production infrastructure.
 
 ## Dependencies
 
-This MSC does not depend on any currently unmerged MSCs.
+This MSC does not depend on any currently unmerged MSCs, but it is the natural
+deployment ground for several other draft proposals that need
+production-adjacent trial conditions before stabilizing:
+
+- [MSC0F04](00B1-mandatory-lexicographic-production-room-semver-format.md)
+  explicitly permits unstable/experimental room version identifiers outside its
+  mandated format; `testnet`/`stagenet` room versions are a natural home for
+  exercising that carve-out.
+- [MSC0F03](00F3-WIP-proof-of-work-requirements.md) (proof-of-work spam
+  mitigation) and [MSC00FF](00FA-WIP-dag-finality-majority-creators.md) (DAG
+  finality via creator majority) are both DAG-level behavior changes that
+  benefit from `testnet`'s "anything goes" tolerance for state-resolution forks
+  and abuse traffic before being trialed on `stagenet`.
+- The quantum-signature series
+  ([MSC00E2](00E2-quantum-sigs-federation-room-pdu.md),
+  [MSC00E4](00E4-quantum-sigs-minting-server-keys.md),
+  [MSC00E5](00E5-quantum-sigs-federation-session-negotiation.md),
+  [MSC00EA](00EA-quantum-sigs-e2ee.md)) and
+  [MSC00DA](00DA-bls-signatures-non-interactive-aggregation.md) introduce new
+  federation signing primitives that are safer to interoperability-test on an
+  isolated network than on `mainnet`.
 
 ## Unstable prefix
 

@@ -5,7 +5,7 @@ reverse engineer private keys using Shor's algorithm, breaking elliptic-curve
 and RSA schemes — allowing an attacker to forge new events in a server's name.
 
 This MSC introduces a **new room version** in which PDUs are signed with the
-post-quantum signature scheme `fn-dsa-512`, and upgrades federation transport
+post-quantum signature scheme `fndsa512`, and upgrades federation transport
 verification from advisory to mandatory for traffic scoped to such rooms.
 
 It builds directly on
@@ -20,7 +20,7 @@ MSC. E2EE device and cross-signing key migration is addressed separately in
 
 ## Proposal
 
-This MSC uses **FN-DSA-512** (`fn-dsa-512`) as defined by the companion
+This MSC uses **FN-DSA-512** (`fndsa512`) as defined by the companion
 post-quantum server-key MSCs. Public key encodings, signature encodings, and the
 signing operation (Canonical JSON of the event with `signatures` and `unsigned`
 removed; pure mode; empty context) are inherited from that server-key profile
@@ -28,10 +28,10 @@ and are not redefined here. Server signing keys are minted, published,
 discovered, pinned, and rotated per MSC00E4 and MSC4499.
 
 > **Note:** For readability, this proposal uses the intended stable identifiers
-> `fn-dsa-512` (key algorithm, defined by MSC00E4) and a stable room version
+> `fndsa512` (key algorithm, defined by MSC00E4) and a stable room version
 > throughout the main text and examples. Until the relevant MSCs are accepted
 > and merged into the Matrix specification, implementations MUST use the
-> unstable identifiers `tk.nutra.msc45xx.fn-dsa-512` (algorithm — the canonical
+> unstable identifiers `tk.nutra.msc45xx.fndsa512` (algorithm — the canonical
 > prefix defined by the server-key MSC where the algorithm is specified) and
 > `tk.nutra.msc45yy.pqc.v1` (room version). See
 > [Unstable Prefix](#unstable-prefix) for the full mapping.
@@ -44,24 +44,24 @@ versions are unchanged.
 #### Legacy Room Versions
 
 In older room versions, servers continue to sign and verify PDUs using Ed25519
-only. Servers MUST NOT append `fn-dsa-512` signatures to PDUs in legacy rooms,
-as this introduces unnecessary bloat and risks consensus divergence.
+only. Servers MUST NOT append `fndsa512` signatures to PDUs in legacy rooms, as
+this introduces unnecessary bloat and risks consensus divergence.
 
 #### PQC-Required Room Versions
 
 In room versions that require PQC signatures (see
 [Room Version Requirements](#room-version-requirements)):
 
-- Origin servers MUST sign all outgoing PDUs with `fn-dsa-512`.
+- Origin servers MUST sign all outgoing PDUs with `fndsa512`.
 - Origin servers MUST NOT include `ed25519` signatures on PDUs in PQC room
   versions.
-- Receiving servers MUST require a valid `fn-dsa-512` signature from the server
+- Receiving servers MUST require a valid `fndsa512` signature from the server
   whose signature is required by the existing event signature verification rules
   for that room version. If no valid FN-DSA signature is present, the event MUST
   be rejected.
-- Receiving servers MUST reject the event if the required `fn-dsa-512` signature
+- Receiving servers MUST reject the event if the required `fndsa512` signature
   references a malformed key ID, or if the referenced key was advertised under a
-  `short_key_id` that does not match the first 20 base64url characters of the
+  `short_key_id` that does not match the first 22 base64url characters of the
   key's full `key_id`, as defined by MSC00E4.
 - Receiving servers MUST NOT trial-verify multiple FN-DSA key bodies for the
   same `(server_name, algorithm, short_key_id)` tuple. Collisions are handled by
@@ -80,11 +80,11 @@ In room versions that require PQC signatures (see
 
 ```json
 {
-    "signatures": {
-        "example.com": {
-            "fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
-        }
+  "signatures": {
+    "example.com": {
+      "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fndsa512-signature>"
     }
+  }
 }
 ```
 
@@ -102,10 +102,10 @@ is placed alongside the existing content hash in the `hashes` object:
 
 ```json
 {
-    "hashes": {
-        "sha256": "<content-hash-excluding-signatures>",
-        "canonical_sha256": "<hash-over-entire-event-including-signatures>"
-    }
+  "hashes": {
+    "sha256": "<content-hash-excluding-signatures>",
+    "canonical_sha256": "<hash-over-entire-event-including-signatures>"
+  }
 }
 ```
 
@@ -197,7 +197,7 @@ leaving legacy traffic untouched:
   rejection, provided the Ed25519 `Authorization` header is valid.
 - **Legacy servers:** Servers that do not support the post-quantum server-key
   profile ignore the `X-Matrix-PQC` header entirely — and cannot participate in
-  PQC-required rooms, since they can neither produce nor verify `fn-dsa-512` PDU
+  PQC-required rooms, since they can neither produce nor verify `fndsa512` PDU
   signatures.
 
 #### Enforcement Order of Operations
@@ -217,6 +217,8 @@ as long as any legacy room version exists in the federation.
 
 ### Interaction Sequence
 
+<!-- markdownlint-disable MD013 -->
+
 ```mermaid
 sequenceDiagram
     autonumber
@@ -226,24 +228,26 @@ sequenceDiagram
 
     Note over S1: Publishes both keys via /_matrix/key/v2/server (MSC00E4)
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fn-dsa-512 (transport auth)<br/>Event (legacy room): {ed25519 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519 (legacy auth)<br/>X-Matrix-PQC: fndsa512 (transport auth)<br/>Event (legacy room): {ed25519 only}
     activate S2
     Note over S2: Verifies X-Matrix-PQC transport header (advisory).<br/>Verifies ed25519 PDU signature (legacy rule).
     S2-->>S1: 200 OK
     deactivate S2
 
-    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (legacy room): {ed25519 only}
+    S1->>S3: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fndsa512<br/>Event (legacy room): {ed25519 only}
     activate S3
     Note over S3: Ignores X-Matrix-PQC header.<br/>Verifies ed25519 PDU signature.
     S3-->>S1: 200 OK
     deactivate S3
 
-    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fn-dsa-512<br/>Event (PQC room): {fn-dsa-512 only}
+    S1->>S2: PUT /_matrix/federation/v1/send/...<br/>Authorization: ed25519<br/>X-Matrix-PQC: fndsa512<br/>Event (PQC room): {fndsa512 only}
     activate S2
-    Note over S2: Requires and verifies X-Matrix-PQC (mandatory, this MSC).<br/>Verifies fn-dsa-512 PDU signature (PQC rule).
+    Note over S2: Requires and verifies X-Matrix-PQC (mandatory, this MSC).<br/>Verifies fndsa512 PDU signature (PQC rule).
     S2-->>S1: 200 OK
     deactivate S2
 ```
+
+<!-- markdownlint-enable MD013 -->
 
 ### Migration Timeline
 
@@ -254,7 +258,7 @@ Phase 1 pre-distributes and pins keys across the federation before anything
 depends on them.
 
 **Phase 2 — PQC Room Version (this MSC)** A new room version is formalized which
-makes `fn-dsa-512` the sole, authoritative PDU signature scheme, and makes PQC
+makes `fndsa512` the sole, authoritative PDU signature scheme, and makes PQC
 transport authentication mandatory for traffic scoped to such rooms. Users and
 administrators may upgrade existing rooms to this version to gain post-quantum
 PDU signatures. Legacy rooms remain untouched.
@@ -264,15 +268,15 @@ PDU signatures. Legacy rooms remain untouched.
 This MSC requires a **new room version**. All PQC changes are scoped to this
 version — existing room versions are unaffected.
 
-- **PDU signing:** Origin servers MUST sign PDUs with `fn-dsa-512`. Origin
-  servers MUST NOT include `ed25519` signatures. Receiving servers MUST ignore
+- **PDU signing:** Origin servers MUST sign PDUs with `fndsa512`. Origin servers
+  MUST NOT include `ed25519` signatures. Receiving servers MUST ignore
   unrecognized or legacy signature entries — their presence MUST NOT cause
   rejection (see [PQC-Required Room Versions](#pqc-required-room-versions) for
   rationale).
 - **Signature verification in auth rules:** Step 5 of the
   [checks performed on receipt of a PDU](https://spec.matrix.org/v1.14/server-server-api/#checks-performed-on-receipt-of-a-pdu)
   ("Passes signature checks...") is modified to require strict verification of
-  the `fn-dsa-512` signature from the server whose signature is required by the
+  the `fndsa512` signature from the server whose signature is required by the
   existing event signature verification rules for that room version. If no valid
   FN-DSA signature from the expected server is present, the event MUST be
   rejected. Additional signatures from unrecognized or legacy algorithms are
@@ -351,31 +355,30 @@ The new room version does **not** change:
   signature set of event N, theoretically allowing the original signatures to be
   pruned once a successor exists. This is fundamentally incompatible with
   Matrix's zero-trust federation model:
-    1. **Zero-trust violation.** Independent verification is a core invariant.
-       Every server must independently verify historical signatures during state
-       resolution, backfill, or gap-fill. If signatures are pruned, late-joining
-       servers must blindly trust the chain rather than verifying the
-       cryptography.
-    2. **Identity mutation DoS.** If signatures were part of the Event ID, any
-       intermediary server could fork the DAG by appending a spurious signature
-       to an event in transit — creating a mathematically distinct Event ID for
-       identical content. This is the exact class of attack that motivated the
-       Room Version 3 redesign (MSC1659).
-    3. **Co-signing paradox.** The `/send_join` protocol requires the resident
-       server to append its co-signature to the joining server's event. If
-       signatures were hashed into the Event ID, the joining server and the rest
-       of the federation would compute different Event IDs for the same join
-       event, permanently splintering the DAG.
-    4. **DAG topology.** Matrix's DAG contains forks and merges. There is no
-       single linear canonical successor to cleanly anchor a signature
-       commitment.
+  1. **Zero-trust violation.** Independent verification is a core invariant.
+     Every server must independently verify historical signatures during state
+     resolution, backfill, or gap-fill. If signatures are pruned, late-joining
+     servers must blindly trust the chain rather than verifying the
+     cryptography.
+  2. **Identity mutation DoS.** If signatures were part of the Event ID, any
+     intermediary server could fork the DAG by appending a spurious signature to
+     an event in transit — creating a mathematically distinct Event ID for
+     identical content. This is the exact class of attack that motivated the
+     Room Version 3 redesign (MSC1659).
+  3. **Co-signing paradox.** The `/send_join` protocol requires the resident
+     server to append its co-signature to the joining server's event. If
+     signatures were hashed into the Event ID, the joining server and the rest
+     of the federation would compute different Event IDs for the same join
+     event, permanently splintering the DAG.
+  4. **DAG topology.** Matrix's DAG contains forks and merges. There is no
+     single linear canonical successor to cleanly anchor a signature commitment.
 
-    Matrix explicitly excludes signatures from the Event ID so that the DAG
-    commits to content, not authorship, by design (Room Version 3+). Changing
-    this would be a fundamental protocol redesign, not an optimization. The
-    [`canonical_sha256`](#canonical-event-hash-canonical_sha256) field provides
-    the useful subset of this idea — mutation detection — without touching event
-    identity.
+  Matrix explicitly excludes signatures from the Event ID so that the DAG
+  commits to content, not authorship, by design (Room Version 3+). Changing this
+  would be a fundamental protocol redesign, not an optimization. The
+  [`canonical_sha256`](#canonical-event-hash-canonical_sha256) field provides
+  the useful subset of this idea — mutation detection — without touching event
+  identity.
 
 - **Extending Olm/Megolm to PQC.** Key agreement migration (Curve25519 → ML-KEM)
   is orthogonal and far more complex. Bundling would delay everything. Signature
@@ -441,11 +444,15 @@ negotiation are addressed in MSC00E5; they are not room-version concerns.
 
 While this MSC is in development, the following unstable identifiers are used:
 
-| Stable Identifier            | Unstable Identifier                                |
-| ---------------------------- | -------------------------------------------------- |
-| PQC room version             | `tk.nutra.msc45yy.pqc.v1`                          |
-| `fn-dsa-512` (key algorithm) | `tk.nutra.msc45xx.fn-dsa-512` (defined by MSC00E4) |
-| `canonical_sha256` (hashes)  | `tk.nutra.msc45yy.canonical_sha256`                |
+<!-- markdownlint-disable MD013 -->
+
+| Stable Identifier           | Unstable Identifier                              |
+| --------------------------- | ------------------------------------------------ |
+| PQC room version            | `tk.nutra.msc45yy.pqc.v1`                        |
+| `fndsa512` (key algorithm)  | `tk.nutra.msc45xx.fndsa512` (defined by MSC00E4) |
+| `canonical_sha256` (hashes) | `tk.nutra.msc45yy.canonical_sha256`              |
+
+<!-- markdownlint-enable MD013 -->
 
 The algorithm identifier is namespaced under MSC00E4, where the algorithm is
 specified; this MSC does not define a second algorithm prefix. During the
@@ -453,16 +460,16 @@ unstable period, PDU `signatures` entries use the unstable algorithm identifier:
 
 ```json
 {
-    "room_version": "tk.nutra.msc45yy.pqc.v1",
-    "hashes": {
-        "sha256": "<content-hash>",
-        "tk.nutra.msc45yy.canonical_sha256": "<canonical-hash>"
-    },
-    "signatures": {
-        "example.com": {
-            "tk.nutra.msc45xx.fn-dsa-512:5FQ2xg4sWqj3Kp9N": "<base64-fn-dsa-512-signature>"
-        }
+  "room_version": "tk.nutra.msc45yy.pqc.v1",
+  "hashes": {
+    "sha256": "<content-hash>",
+    "tk.nutra.msc45yy.canonical_sha256": "<canonical-hash>"
+  },
+  "signatures": {
+    "example.com": {
+      "tk.nutra.msc45xx.fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fndsa512-signature>"
     }
+  }
 }
 ```
 
@@ -519,42 +526,42 @@ verification:
 - [ ] Are all MSCs that this MSC depends on already accepted? (Depends on MSC
       00E4 and MSC00E5.)
 - [x] For each endpoint that is introduced or modified:
-    - [x] Have authentication requirements been specified? (Room-scoped PQC
-          transport authentication on existing federation endpoints; no new
-          endpoints.)
-    - [x] Have rate-limiting requirements been specified? (Unchanged from
-          existing federation endpoints.)
-    - [x] Have guest access requirements been specified? (N/A — server-to-server
-          API.)
-    - [x] Are error responses specified?
-        - [x] Does each error case have a specified `errcode` (i.e.
-              `M_FORBIDDEN`) and HTTP status code? (`401 Unauthorized` for
-              missing/invalid PQC transport authentication on PQC-room traffic.)
-            - [x] If a new `errcode` is introduced, is it clear that it is new?
-                  (No new errcodes.)
-    - [x] Are the
-          [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis)
-          honoured?
-        - [x] Do HTTP endpoints `use_underscores_like_this`?
-        - [x] Will the endpoint return unbounded data? If so, has pagination
-              been considered? (N/A.)
-        - [x] If the endpoint utilises pagination, is it consistent with
-              [the appendices](https://spec.matrix.org/latest/appendices/#pagination)?
-              (N/A.)
+  - [x] Have authentication requirements been specified? (Room-scoped PQC
+        transport authentication on existing federation endpoints; no new
+        endpoints.)
+  - [x] Have rate-limiting requirements been specified? (Unchanged from existing
+        federation endpoints.)
+  - [x] Have guest access requirements been specified? (N/A — server-to-server
+        API.)
+  - [x] Are error responses specified?
+    - [x] Does each error case have a specified `errcode` (i.e. `M_FORBIDDEN`)
+          and HTTP status code? (`401 Unauthorized` for missing/invalid PQC
+          transport authentication on PQC-room traffic.)
+      - [x] If a new `errcode` is introduced, is it clear that it is new? (No
+            new errcodes.)
+  - [x] Are the
+        [endpoint conventions](https://spec.matrix.org/latest/appendices/#conventions-for-matrix-apis)
+        honoured?
+    - [x] Do HTTP endpoints `use_underscores_like_this`?
+    - [x] Will the endpoint return unbounded data? If so, has pagination been
+          considered? (N/A.)
+    - [x] If the endpoint utilises pagination, is it consistent with
+          [the appendices](https://spec.matrix.org/latest/appendices/#pagination)?
+          (N/A.)
 - [x] Will the MSC require a new room version, and if so, has that been made
       clear?
-    - [x] Is the reason for a new room version clearly stated? For example,
-          modifying the set of redacted fields changes how event IDs are
-          calculated, thus requiring a new room version. (PDU signature
-          requirements and the `hashes` event format change are consensus rules,
-          and so must be gated on a room version.)
+  - [x] Is the reason for a new room version clearly stated? For example,
+        modifying the set of redacted fields changes how event IDs are
+        calculated, thus requiring a new room version. (PDU signature
+        requirements and the `hashes` event format change are consensus rules,
+        and so must be gated on a room version.)
 - [x] Are backwards-compatibility concerns appropriately addressed?
 - [x] An introduction exists and clearly outlines the problem being solved.
       Ideally, the first paragraph should be understandable by a non-technical
       audience.
 - [ ] All outstanding threads are resolved
-    - [ ] All feedback is incorporated into the proposal text itself, either as
-          a fix or noted as an alternative
+  - [ ] All feedback is incorporated into the proposal text itself, either as a
+        fix or noted as an alternative
 - [x] There is a dedicated "Security Considerations" section which detail any
       possible attacks/vulnerabilities this proposal may introduce, even if this
       is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
@@ -563,19 +570,19 @@ verification:
 - [x] The other section headings in the template are optional, but even if they
       are omitted, the relevant details should still be considered somewhere in
       the text of the proposal. Those section headings are:
-    - [x] Introduction
-    - [x] Proposal text
-    - [x] Potential issues
-    - [x] Alternatives
-    - [x] Unstable prefix
-    - [x] Dependencies
+  - [x] Introduction
+  - [x] Proposal text
+  - [x] Potential issues
+  - [x] Alternatives
+  - [x] Unstable prefix
+  - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the
       unstable prefix section
-    - [x] Unstable prefixes
-          [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
-          the awkward accepted-but-not-merged state
-    - [x] Chosen unstable prefixes do not pollute any global namespace (use
-          "tk.nutra.msc45yy", not "tk.nutra").
+  - [x] Unstable prefixes
+        [consider](https://github.com/matrix-org/matrix-spec-proposals/blob/main/README.md#unstable-prefixes)
+        the awkward accepted-but-not-merged state
+  - [x] Chosen unstable prefixes do not pollute any global namespace (use
+        "tk.nutra.msc45yy", not "tk.nutra").
 - [ ] Changes have applicable
       [Sign Off](https://github.com/matrix-org/matrix-spec-proposals/blob/main/CONTRIBUTING.md#sign-off)
       from all authors/editors/contributors

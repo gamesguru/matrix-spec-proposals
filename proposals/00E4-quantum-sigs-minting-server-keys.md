@@ -2,33 +2,183 @@
 
 This draft contains notary observations, detached notary provenance bundles, and
 TLS 1.3 compact provenance material split from the archived 00E1 draft, plus the
-[Key minting Proof-of-Work](#key-minting-proof-of-work) mechanism. The version
-of that mechanism here supersedes the plain SHA-256 key identifier construction
+[profile-bound key minting](#canonical-key-object) mechanism. The version of
+that mechanism here supersedes the plain SHA-256 key identifier construction
 still on record in the now-frozen 00E1 draft: this file is normative for FN-DSA
 key minting and observation going forward.
 
-## Algorithm profile (`fn-dsa-512`)
+## Algorithm profile (`fndsa512`)
 
-This MSC defines `fn-dsa-512` as the post-quantum server signing algorithm for
+This section defines the only key-minting profile currently registered by this
+MSC. It supersedes the legacy construction retained later in this document for
+historical context; the legacy construction is non-normative and MUST NOT be
+accepted by implementations of this profile.
+
+The profile token is the opaque string `tk.nutra.msc45xx.serverkey.v1`.
+Implementations MUST compare it by exact string equality against a closed
+registry. They MUST NOT parse it to recover algorithm parameters. The registry
+entry fixes FN-DSA-512, SHA3-256, Matrix Canonical JSON, Cuckatoo
+`edge_bits = 29`, `proof_size = 42`, the short-ID encoding, and the action tags
+below.
+
+### Canonical key object
+
+The normative shape is:
+
+```json
+{
+  "server_name": "nutra.tk",
+  "valid_until_ts": 1815632341240,
+  "verify_keys": {
+    "fndsa512:<short_key_id>": {
+      "key": "<unpadded-base64-fn-dsa-512-public-key>",
+      "profile": "tk.nutra.msc45xx.serverkey.v1",
+      "pow": {
+        "nonce": 110,
+        "solution": [15721871, 27250623, 517987690, 517987691]
+      }
+    }
+  },
+  "signatures": {
+    "nutra.tk": {
+      "fndsa512:<short_key_id>": "<signature>"
+    }
+  }
+}
+```
+
+`trusted_notary_keys`, `claims`, `fips_206_revision`, `pow.algorithm`, and empty
+optional containers are not part of this profile. Empty optional containers MUST
+be omitted. Every field inside a `verify_keys` entry is either fixed by the
+profile or committed by the key ID preimage; therefore one key name identifies
+one key entry.
+
+The key name uses unpadded base64url encoding and the fixed algorithm token
+`fndsa512`. The short ID is the unpadded RFC 4648 §5 URL-safe base64 encoding of
+the first 16 bytes (128 bits) of the recomputed SHA3-256 key ID. Key names are
+compared by exact string equality and MUST NOT be base64-decoded during
+verification.
+
+### Bound preimages
+
+Let `N` be an integer with `0 <= N < 2^32`, `P` the exact profile token, `S` the
+server name, and `K` the decoded public-key bytes. `base64_unpadded(K)` is the
+canonical public-key string in the object. The graph seed is:
+
+$$
+G = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+  "action": "tk.nutra.msc45xx.serverkey.v1.graph",
+  "nonce": N,
+  "profile": P,
+  "public_key": \operatorname{base64\_unpadded}(K),
+  "server_name": S
+}))
+$$
+
+The 32 bytes of `G` are interpreted as four little-endian unsigned 64-bit words
+`k0`, `k1`, `k2`, and `k3`, in that order. These four words are loaded directly
+as the internal SipHash-2-4 state words `v0`, `v1`, `v2`, and `v3`; the standard
+SipHash key-initialisation constants are NOT applied (this matches John Tromp's
+256-bit-keyed Cuckatoo SipHash construction).
+
+For edge index `i` (`0 ≤ i < 2^29`), compute 64-bit unsigned integers `2*i` and
+`2*i+1`. Passing `2*i` and `2*i+1` (each encoded as an 8-byte unsigned
+little-endian integer) into this 256-bit-state SipHash-2-4 function produces the
+64-bit outputs; masking each output with `(2^29 - 1)` yields the partition
+endpoints `U` and `V` respectively.
+
+_Test vector:_ For graph seed
+`G = 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f` and edge
+index `i = 0`:
+
+- Endpoint `U` (`2*0 = 0`) masked to 29 bits = `6597635` (`0x0064ac03`)
+- Endpoint `V` (`2*0+1 = 1`) masked to 29 bits = `142045839` (`0x0877728f`)
+
+These action tags, widths, and masking rules are normative; implementations MUST
+NOT use the legacy SHA-256 graph function.
+
+The key ID is:
+
+$$
+I = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+  "action": "tk.nutra.msc45xx.serverkey.v1.keyid",
+  "nonce": N,
+  "profile": P,
+  "public_key": \operatorname{base64\_unpadded}(K),
+  "server_name": S,
+  "solution": [e_0,\ldots,e_{41}]
+}))
+$$
+
+The solution is exactly 42 strictly ascending edge indices, each less than
+`2^29`. The profile registry defines the short-ID truncation and encoding. There
+is no separately serialized full key ID, algorithm parameter string, or nonce
+suffix.
+
+### Verification
+
+A verifier MUST reject at the first failed step and MUST perform these checks in
+order:
+
+1. Match `profile` exactly against the closed registry.
+2. Decode `key` and require exactly the registry's public-key length.
+3. Require exactly 42 unsigned solution entries, strictly ascending, with each
+   entry less than `2^29`; require `0 <= nonce < 2^32`.
+4. Compute `G`, interpret its 32 bytes as four unsigned 64-bit little-endian
+   words `(k0, k1, k2, k3)` for SipHash-2-4, derive bipartite graph endpoints
+   $u_j = \operatorname{SipHash-2-4}(2 \cdot e_j) \mathbin{\&} (2^{29} - 1)$ in
+   partition U and
+   $v_j = \operatorname{SipHash-2-4}(2 \cdot e_j + 1) \mathbin{\&} (2^{29} - 1)$
+   in partition V for each edge index $e_j \in [e_0, \ldots, e_{41}]$ (with
+   $2 \cdot e_j$ and $2 \cdot e_j + 1$ encoded as 64-bit unsigned little-endian
+   integers), and verify that the 42 edges form a valid closed 42-cycle in the
+   graph with no repeated vertices per partition.
+5. Compute `I` and require the map key to equal `fndsa512:` followed by the
+   registry-defined short form of `I`.
+6. Require the top-level `server_name` to be the name used in the preimages and
+   verify `signatures[server_name][key_name]` over the canonical signing bytes.
+
+The proof is a co-generation stamp, not proof of private-key possession. The
+self-signature supplies possession; both checks are mandatory. FN-DSA signatures
+MUST have the exact registry-defined length and any fixed-length padding bytes
+MUST be zero; nonzero padding is invalid.
+
+Implementations MUST reject duplicate, unsorted, out-of-range, non-integer, or
+non-canonical proof values before graph evaluation. A valid proof may expose a
+small number of additional valid cycles. The security property is that a key ID
+cannot be exhibited without a valid proof, and the expected number of key IDs
+per solved graph is `1 + O(1/42)`; strict one-proof-per-key-ID is not claimed.
+
+There is no deployed v0 compatibility path. A change to the profile, graph
+parameters, hash, canonicalization, action tags, or key-ID encoding MUST use a
+new opaque profile token and a separately registered profile.
+
+The remaining algorithm and key-generation text below is retained only as
+historical background. Where it conflicts with `tk.nutra.msc45xx.serverkey.v1`,
+the profile, preimages, object shape, and validation procedure above control.
+
+### FN-DSA implementation background
+
+This MSC defines `fndsa512` as the post-quantum server signing algorithm for
 Matrix federation. It targets FN-DSA-512 (`n=512`, `q=12289`) as specified by
 the NIST FIPS 206 draft revision identified by the key object's
 `fips_206_revision` metadata. Until FIPS 206 is finalized, deployments MUST use
-the unstable identifier `tk.nutra.msc45xx.fn-dsa-512` in protocol fields.
+the unstable identifier `tk.nutra.msc45xx.fndsa512` in protocol fields.
 
 FN-DSA-512 has 897-byte public keys and 666-byte raw signatures. Standard Matrix
 base64 encoding expands a 666-byte signature to 888 base64 characters without
 padding.
 
 **Public key encoding.** The public key is the raw FN-DSA-512 public key byte
-string as defined by FIPS 206. It is encoded as unpadded base64 using the
-standard RFC 4648 alphabet.
+string as defined by FIPS 206. It is encoded as unpadded standard base64 using
+the standard RFC 4648 §4 alphabet.
 
 **Signature encoding.** The signature is the raw FN-DSA-512 signature byte
 string as defined by FIPS 206. Unlike the original Falcon submission, which used
 variable-length signatures, FIPS 206 mandates a fixed-length encoding padded
 with zeros. For FN-DSA-512, the raw signature is exactly 666 bytes.
 Implementations MUST reject signatures of any other length. Signatures are
-encoded as unpadded base64 using the standard RFC 4648 alphabet.
+encoded as unpadded standard base64 using the standard RFC 4648 §4 alphabet.
 
 **Signing operation.** Unless a more specific Matrix object definition says
 otherwise, the message signed is the UTF-8 byte sequence of the Matrix Canonical
@@ -37,12 +187,11 @@ consistent with existing Matrix signing conventions. FN-DSA is invoked in pure
 (non-prehash) mode with an empty context string. Implementations MUST reject
 non-canonical public key and signature encodings.
 
-FN-DSA key objects SHOULD include `fips_206_revision` before FIPS 206
-finalization. They MAY include `claims`, a list of auditable implementation
-claims such as `constant-time-keygen` and `constant-time-signing`. These claims
-are advisory metadata: they are signed as part of the key object, but receivers
-MUST NOT treat the presence of such claims as proof that the implementation is
-actually side-channel resistant.
+For general or un-profiled FN-DSA key objects, metadata like `fips_206_revision`
+or `claims` MAY be present. However, under the production profile
+`tk.nutra.msc45xx.serverkey.v1`, `claims`, `fips_206_revision`, and
+`pow.algorithm` MUST NOT be present in the wire key object, as all algorithm and
+implementation parameters are strictly fixed by the profile token.
 
 Servers MUST rotate an FN-DSA server key if a later FIPS 206 draft or final
 standard changes the public key encoding, signature encoding, or signing
@@ -116,34 +265,36 @@ that preserves verifier safety:
   during migration, and rely on a follow-up MSC or room version before becoming
   mandatory.
 
-## Key minting Proof-of-Work
+## Legacy key minting construction (non-normative)
 
-Homeservers and notaries that support this MSC MUST require a valid
-co-generation proof-of-work for every newly generated FN-DSA key body — the
-initial minting of a server's first FN-DSA key and every subsequent key-body
-rotation — before accepting or attesting to that key. This requirement is
-unconditional: there is no exemption for TOFU, notary-sourced, or
-otherwise-trusted key objects, and no implementation-level opt-out. A receiving
-server or notary MUST reject an FN-DSA key object that lacks a valid embedded
-`pow` proof conforming to this section, regardless of whether the accompanying
-Ed25519/notary authentication is otherwise valid.
+Historical implementations and notaries supporting this legacy construction
+required a valid co-generation proof-of-work for every newly generated FN-DSA
+key body — the initial minting of a server's first FN-DSA key and every
+subsequent key-body rotation — before accepting or attesting to that key. Under
+that construction, this requirement was unconditional: there was no exemption
+for TOFU, notary-sourced, or otherwise-trusted key objects, and no
+implementation-level opt-out. A receiving server or notary rejected an FN-DSA
+key object that lacked a valid embedded `pow` proof conforming to this
+historical section, regardless of whether the accompanying Ed25519/notary
+authentication was otherwise valid.
 
 The proof is a non-interactive, cacheable stamp produced by the origin. It is
-not issued separately by each receiver. The proof MUST be carried inside the
-corresponding FN-DSA key object as the `pow` field. This placement is part of
-the Matrix signing object, so the stamp is covered by the origin's server-key
-signatures, included in `server_key_package_sha256`, and preserved by notary
-redistribution without special handling.
+not issued separately by each receiver. The proof was required to be carried
+inside the corresponding FN-DSA key object as the `pow` field. This placement is
+part of the Matrix signing object, so the stamp is covered by the origin's
+server-key signatures, included in `server_key_package_sha256`, and preserved by
+notary redistribution without special handling.
 
 ### Trusted notary historical keys
 
-An origin MAY include a top-level `trusted_notary_keys` array in its
+An origin could include a top-level `trusted_notary_keys` array in its
 `/_matrix/key/v2/server` response. Each entry is a full content-addressed FN-DSA
-server-key identifier of the form `fn-dsa-512:<key_id>`, where `<key_id>` is the
-unpadded base64url encoding of the 32-byte SHA3-256 `key_id` defined in this
-MSC. The field is part of the Matrix signing object and therefore covered by the
-origin's server-key signatures. If present but empty, it explicitly authorizes
-no notary-supplied historical keys.
+server-key identifier of the form `fndsa512:<short_key_id>`, where
+`<short_key_id>` is the registry-defined 22-character unpadded base64url
+encoding of the first 16 bytes of the SHA3-256 `key_id` defined in this MSC. The
+field is part of the Matrix signing object and therefore covered by the origin's
+server-key signatures. If present but empty, it explicitly authorizes no
+notary-supplied historical keys.
 
 `trusted_notary_keys` lets the origin extend its own signed publication without
 embedding every historical key body in `old_verify_keys`. A listed identifier is
@@ -152,17 +303,17 @@ their own cache, a notary cache, federation gossip, or some other retained
 archive before they can verify a signature made by that key. Because each listed
 identifier is content-addressed, a notary cannot fabricate a different FN-DSA
 key body to match it. Verifiers recompute the minting-bound `key_id` from the
-returned key body and proof, and the value MUST equal the listed full
-identifier. A verifier MUST NOT accept a notary-supplied historical key merely
-because its short key ID matches an allow-list entry.
+returned key body and proof, and the value was required to equal the listed full
+identifier. A verifier was not permitted to accept a notary-supplied historical
+key merely because its short key ID matches an allow-list entry.
 
-A notary returning a key because of `trusted_notary_keys` MUST return the full
-key object it retained, including the original `pow` field and any applicable
-retirement metadata or expiry claim. Receiving servers MUST validate the
-returned key object exactly as they validate a key from `verify_keys` or
-`old_verify_keys`: recompute the content-addressed `key_id`, verify the
-proof-of-work, check any signatures or expiry claims required for that object
-shape, and apply the First Seen Wins binding rules from MSC4499.
+A notary returning a key because of `trusted_notary_keys` was required to return
+the full key object it retained, including the original `pow` field and any
+applicable retirement metadata or expiry claim. Receiving servers were required
+to validate the returned key object exactly as they validate a key from
+`verify_keys` or `old_verify_keys`: recompute the content-addressed `key_id`,
+verify the proof-of-work, check any signatures or expiry claims required for
+that object shape, and apply the First Seen Wins binding rules from MSC4499.
 `trusted_notary_keys` is not a notary attestation and does not relax collision
 handling; it only lets the origin name additional historical keys by content
 address without embedding all of their key material in every server-key
@@ -175,16 +326,16 @@ copied from another server's response) can mint a valid co-generation proof for
 it. The proof's only job is to rate-limit and anti-spam-gate key minting and
 rotation; it is not an identity credential. Possession of the FN-DSA private key
 is established exclusively by the FN-DSA self-signature: once a server publishes
-an FN-DSA key, its `/_matrix/key/v2/server` response MUST include an FN-DSA
-self-signature in the `signatures` field, keyed by that key's `short_key_id`,
-alongside the existing Ed25519 signature. Receiving servers and notaries MUST
-verify this self-signature before trusting the FN-DSA key, independently of and
-in addition to verifying `pow`. Both checks are mandatory and neither
-substitutes for the other: a syntactically valid `pow` on a key the origin does
-not hold the private key for MUST still be rejected, because the response cannot
-carry a valid FN-DSA self-signature without the private key, and a validly
-self-signed key without a valid `pow` MUST still be rejected per the requirement
-above.
+an FN-DSA key, its `/_matrix/key/v2/server` response was required to include an
+FN-DSA self-signature in the `signatures` field, keyed by that key's
+`short_key_id`, alongside the existing Ed25519 signature. Receiving servers and
+notaries were required to verify this self-signature before trusting the FN-DSA
+key, independently of and in addition to verifying `pow`. Both checks are
+mandatory and neither substitutes for the other: a syntactically valid `pow` on
+a key the origin does not hold the private key for was still required to be
+rejected, because the response cannot carry a valid FN-DSA self-signature
+without the private key, and a validly self-signed key without a valid `pow` was
+still required to be rejected per the requirement above.
 
 Unlike a plain hash of the public key, the key's identifier here is
 proof-of-work-bound. The Cuckoo graph is selected from the key body,
@@ -200,7 +351,7 @@ is unknown until the proof solution is known.
 ```text
 minting_object = {
     "action": "fn-dsa-minting-object",
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
     "nonce": nonce,
     "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "server_name": "example.com",
@@ -212,53 +363,59 @@ key_id = SHA3-256(canonical_json(minting_object))
 
 where `canonical_json` is Matrix Canonical JSON serialization, `solution` is the
 strictly increasing 42-edge proof solution carried in the `pow` object, and
-`nonce` is the prover-chosen integer (`0 ≤ nonce < 2^64`). The canonical minting
+`nonce` is the prover-chosen integer (`0 ≤ nonce < 2^32`). The canonical minting
 object is reconstructed by the verifier from the enclosing key object and the
 validated `pow` fields; it is not transmitted as a separate object and does not
 include `short_key_id`, signatures, `valid_until_ts`, `claims`, notary metadata,
 or unknown future extension fields. `key_id` — the identity digest used
 throughout this MSC family to name a specific key body — is the SHA3-256 digest
 of this canonical minting object, not a plain hash of the public key and not the
-pre-solve Cuckoo graph selector. `short_key_id` is the first 20 base64url
-characters of `key_id`, unpadded; it is not a separate digest. `key_id` is a
-SHA3-256 output under this proof class, not a plain SHA-256 output — the two are
-distinct algorithms despite the similar name.
+pre-solve Cuckatoo graph selector. `short_key_id` is the 22-character unpadded
+base64url encoding of the first 16 bytes (128 bits) of `key_id`; it is not a
+separate digest. `key_id` is a SHA3-256 output under this proof class, not a
+plain SHA-256 output — the two are distinct algorithms despite the similar name.
 
-The 20-character `short_key_id` is approximately a 120-bit prefix. This is not
-relied on as a standalone anti-grinding control: an attacker choosing public
-keys and nonces can still search for favorable prefixes, but the prefix is not
-known until a valid 42-cycle solution has been found and committed into
-`key_id`. Receivers rely on the combination of minting cost, full `key_id`
-validation, and MSC4499 First Seen Wins binding rather than trial-verifying
-colliding `short_key_id` candidates.
+The 22-character `short_key_id` is a 128-bit prefix. This is not relied on as a
+standalone anti-grinding control: an attacker choosing public keys and nonces
+can still search for favorable prefixes, but the prefix is not known until a
+valid 42-cycle solution has been found and committed into `key_id`. Receivers
+rely on the combination of minting cost, full `key_id` validation, and MSC4499
+First Seen Wins binding rather than trial-verifying colliding `short_key_id`
+candidates.
 
 ```json
 {
-    "fn-dsa-512:<short_key_id>": {
-        "key": "<unpadded-base64-fn-dsa-512-pubkey>",
-        "pow": {
-            "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
-            "nonce": 8137226,
-            "solution": [123, 456, 789, "..."]
-        }
+  "fndsa512:<short_key_id>": {
+    "key": "<unpadded-base64-fn-dsa-512-pubkey>",
+    "pow": {
+      "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
+      "nonce": 110,
+      "solution": [
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+        20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37,
+        38, 39, 40, 41
+      ]
     }
+  }
 }
 ```
 
 The verifier derives the Cuckoo graph from the advertised public key,
 `server_name`, and supplied `nonce`; verifies the Cuckoo Cycle solution against
 that graph; then computes `key_id` from the canonical minting object. The
-enclosing key's advertised `short_key_id` MUST equal the first 20 base64url
-characters of that final `key_id`.
+enclosing key's advertised `short_key_id` was required to equal the 22-character
+unpadded base64url encoding of the first 16 bytes of that final `key_id`.
 
-**Graph derivation.** A given graph contains a 42-cycle only with some
-probability, so the prover iterates the nonce until the resulting graph is
-solvable. For each nonce, compute:
+### Graph derivation
+
+A given graph contains a 42-cycle only with some probability, so the prover
+iterates the nonce until the resulting graph is solvable. For each nonce,
+compute:
 
 ```text
 SHA3-256(
     canonical_json({
-        "action": "fn-dsa-key-graph",
+        "action": "tk.nutra.msc45xx.serverkey.v1.graph",
         "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
         "server_name": "example.com"
     }) || uint64_le(nonce)
@@ -270,8 +427,8 @@ words `k0..k3` forming the SipHash-2-4 key. The bipartite graph has `2^29` edges
 and `2^29` nodes in each partition. Edge `i` (for `0 ≤ i < 2^29`) connects:
 
 ```text
-u(i) = siphash-2-4(k0..k3, 2i)     mod 2^29   (partition U)
-v(i) = siphash-2-4(k0..k3, 2i + 1) mod 2^29   (partition V)
+u(i) = siphash-2-4(k0..k3, 2i)     & (2^29 - 1)   (partition U)
+v(i) = siphash-2-4(k0..k3, 2i + 1) & (2^29 - 1)   (partition V)
 ```
 
 A valid proof is a set of 42 edge indices whose edges form a single cycle of
@@ -285,61 +442,67 @@ hardware. This is a target for parameter selection, not a guarantee on
 individual attempts: because a randomly seeded graph contains a 42-cycle only
 with some probability, realized solve time is stochastic — the prover retries
 with new nonces until a solvable graph is found, so any single attempt may
-finish well under or well over the target. Verifiers MUST NOT reject a proof for
-arriving unusually quickly or slowly; the minting stamp has no timing acceptance
-bound. Implementations calibrating a different deployment's expected solve time
-MUST NOT do so by changing `edge_bits` without minting a new, explicitly
-identified algorithm profile (see
+finish well under or well over the target. Verifiers were not permitted to
+reject a proof for arriving unusually quickly or slowly; the minting stamp has
+no timing acceptance bound. Implementations calibrating a different deployment's
+expected solve time were not permitted to do so by changing `edge_bits` without
+minting a new, explicitly identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
-`tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting` names one fixed
+`tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen` names one fixed
 parameterization so that all conforming implementations impose the same cost.
 
 The proof response is:
 
 ```json
 {
-    "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting",
-    "nonce": 8137226,
-    "solution": [123, 456, 789, "..."]
+  "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
+  "nonce": 110,
+  "solution": [
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
+    21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39,
+    40, 41
+  ]
 }
 ```
 
-(The example `solution` is truncated for illustration.) The `solution` array
-MUST contain exactly 42 unsigned integer edge indices in strictly increasing
-order (the canonical form of the edge set). Each edge index MUST be less than
-`2^29`, and `nonce` MUST be an integer in `[0, 2^64)`. Verification MUST reject
-duplicate, unsorted, out-of-range, or non-integer entries before evaluating the
-Cuckoo Cycle proof; it then recomputes the Cuckoo graph for the supplied nonce,
-derives the 84 endpoints of the 42 supplied edges, and checks that they form a
-single 42-cycle. Only after the solution verifies does the verifier compute
-`key_id` from the canonical minting object. The minting stamp has no
-receiver-issued challenge and no expiry time; it remains valid for the committed
-`(server_name, key_id)` tuple. If either committed value changes, the origin
-MUST produce a new proof (a new key body or new `server_name` selects different
-Cuckoo graphs for every nonce, and a different solution changes the canonical
-minting object and therefore `key_id`, so a stale proof cannot be reused).
-Receivers SHOULD cache successful stamp verification by `key_id`.
+(The example `solution` is truncated for illustration.) The `solution` array was
+required to contain exactly 42 unsigned integer edge indices in strictly
+increasing order (the canonical form of the edge set). Each edge index was
+required to be less than `2^29`, and `nonce` was required to be an integer in
+`[0, 2^32)`. Verification was required to reject duplicate, unsorted,
+out-of-range, or non-integer entries before evaluating the Cuckoo Cycle proof;
+it then recomputes the Cuckoo graph for the supplied nonce, derives the 84
+endpoints of the 42 supplied edges, and checks that they form a single 42-cycle.
+Only after the solution verifies does the verifier compute `key_id` from the
+canonical minting object. The minting stamp has no receiver-issued challenge and
+no expiry time; it remains valid for the committed `(server_name, key_id)`
+tuple. If either committed value changes, the origin was required to produce a
+new proof (a new key body or new `server_name` selects different Cuckoo graphs
+for every nonce, and a different solution changes the canonical minting object
+and therefore `key_id`, so a stale proof cannot be reused). Receivers SHOULD
+cache successful stamp verification by `key_id`.
 
 ### Key object validation procedure
 
-The checks above are scattered across the preceding prose as individual MUSTs.
-This section states them as one ordered procedure. Receiving servers and
-notaries MUST validate an advertised `fn-dsa-512:<short_key_id>` key object in
-this order, rejecting the entire key at the first failing step and performing no
-later step once a step has failed:
+The checks above are scattered across the preceding prose as individual
+requirements. This section states them as one ordered procedure. Receiving
+servers and notaries were required to validate an advertised
+`fndsa512:<short_key_id>` key object in this order, rejecting the entire key at
+the first failing step and performing no later step once a step has failed:
 
-1. **Field presence and shape.** The key object MUST contain `key` (a
+1. **Field presence and shape.** The key object was required to contain `key` (a
    well-formed, unpadded base64 FN-DSA-512 public key of the expected length)
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
-2. **Algorithm identifier.** `pow.algorithm` MUST exactly equal
-   `tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha3-256-key-minting`. Any other
-   value fails validation here as unrecognized; do not fall back to treating it
-   as the old plain-hash construction.
-3. **Solution and nonce shape.** `pow.solution` MUST contain exactly 42 unsigned
-   integers, each strictly less than `2^29`, in strictly increasing order, with
-   no duplicates. `pow.nonce` MUST be an integer in `[0, 2^64)`. Any violation
-   fails validation here, before any hashing is performed.
+2. **Algorithm identifier.** `pow.algorithm` was required to exactly equal
+   `tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen`. Any other value fails
+   validation here as unrecognized; do not fall back to treating it as the old
+   plain-hash construction.
+3. **Solution and nonce shape.** `pow.solution` was required to contain exactly
+   42 unsigned integers, each strictly less than `2^29`, in strictly increasing
+   order, with no duplicates. `pow.nonce` was required to be an integer in
+   `[0, 2^32)`. Any violation fails validation here, before any hashing is
+   performed.
 4. **Cuckoo graph selection.** From the enclosing response's advertised `key`
    and `server_name`, plus the supplied `nonce`, compute the 32-byte value
    specified in [Graph derivation](#graph-derivation). This step cannot itself
@@ -352,12 +515,12 @@ later step once a step has failed:
    a receiver reject cheaply before reaching it.
 6. **`short_key_id` match.** Compute `key_id` from the canonical minting object,
    then compare the enclosing dictionary key's `short_key_id` (the string
-   following `fn-dsa-512:`) against the first 20 base64url characters of
-   `key_id`. A mismatch fails validation here.
+   following `fndsa512:`) against the 22-character unpadded base64url encoding
+   of the first 16 bytes of that `key_id`. A mismatch fails validation here.
 7. **Self-signature.** Independently of steps 1-6: verify the FN-DSA
    self-signature over the enclosing response, keyed by the same `short_key_id`,
    using the advertised `key` (see the self-signature requirement above). This
-   check does not depend on `pow` and MAY be performed before, after, or
+   check does not depend on `pow` and could be performed before, after, or
    concurrently with steps 1-6, but the key is not valid unless both this step
    and step 6 pass — neither substitutes for the other.
 
@@ -377,7 +540,7 @@ needed for deployment.
 
 ```http
 Authorization: X-Matrix origin="example.com",destination="matrix.org",key="ed25519:auto",sig="<base64-ed25519-signature>"
-X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fn-dsa-512:<short_key_id>",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
+X-Matrix-PQC: origin="example.com",destination="matrix.org",key="fndsa512:<short_key_id>",origin_ts_at="1798847900000",sig="<base64-fn-dsa-signature>"
 ```
 
 The FN-DSA signature MUST be computed over the same JSON signing object used for
@@ -466,10 +629,10 @@ Notaries MUST validate the remote server's FN-DSA self-signature for the queried
 `server_name`, recompute and validate the minting-derived `short_key_id` from
 the advertised key body, `server_name`, proof nonce, and canonical proof
 solution, and verify the proof-of-work as specified in
-[Key minting Proof-of-Work](#key-minting-proof-of-work) before attesting to the
-key; if any check fails, the notary MUST NOT include that FN-DSA key in its
-response. Notary responses are themselves signed objects; notaries that support
-this MSC MUST include FN-DSA signatures on their responses.
+[profile-bound key minting](#canonical-key-object) before attesting to the key;
+if any check fails, the notary MUST NOT include that FN-DSA key in its response.
+Notary responses are themselves signed objects; notaries that support this MSC
+MUST include FN-DSA signatures on their responses.
 
 Before attesting to an FN-DSA key, a notary MUST also check its retained
 observations for the same `(server_name, algorithm, short_key_id)` with a
@@ -515,35 +678,35 @@ server-key validation and MUST NOT change acceptance semantics.
 
 ```json
 {
-    "notary_observations": [
-        {
-            "notary_server_name": "notary.example",
-            "observed_server_name": "example.com",
-            "observed_at": 1798848000000,
-            "fetch_uri": "https://example.com/_matrix/key/v2/server",
-            "transport": "https",
-            "tls": {
-                "leaf_spki_sha256": "<unpadded-base64url-sha256>",
-                "leaf_cert_sha256": "<unpadded-base64url-sha256>",
-                "tls_13_provenance": {
-                    "transcript_hash_algorithm": "sha256",
-                    "handshake_transcript_hash": "<unpadded-base64url-hash>",
-                    "certificate_verify_signature_scheme": "ecdsa_secp256r1_sha256",
-                    "server_certificate_verify_signature": "<unpadded-base64url-signature>"
-                }
-            },
-            "key_id": "<unpadded-base64url-key-id>",
-            "server_key_package_sha256": "<unpadded-base64url-sha256>",
-            "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
-            "valid_until_ts": 1798848000000,
-            "signatures": {
-                "notary.example": {
-                    "ed25519:auto": "<base64-ed25519-signature>",
-                    "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
-                }
-            }
+  "notary_observations": [
+    {
+      "notary_server_name": "notary.example",
+      "observed_server_name": "example.com",
+      "observed_at": 1798848000000,
+      "fetch_uri": "https://example.com/_matrix/key/v2/server",
+      "transport": "https",
+      "tls": {
+        "leaf_spki_sha256": "<unpadded-base64url-sha256>",
+        "leaf_cert_sha256": "<unpadded-base64url-sha256>",
+        "tls_13_provenance": {
+          "transcript_hash_algorithm": "sha256",
+          "handshake_transcript_hash": "<unpadded-base64url-hash>",
+          "certificate_verify_signature_scheme": "ecdsa_secp256r1_sha256",
+          "server_certificate_verify_signature": "<unpadded-base64url-signature>"
         }
-    ]
+      },
+      "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
+      "server_key_package_sha256": "<unpadded-base64url-sha256>",
+      "provenance_bundle_sha256": "<unpadded-base64url-sha256>",
+      "valid_until_ts": 1798848000000,
+      "signatures": {
+        "notary.example": {
+          "ed25519:auto": "<base64-ed25519-signature>",
+          "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fn-dsa-signature>"
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -725,7 +888,7 @@ Trust and enforcement boundaries:
   fidelity.
 
 FN-DSA keys follow identical validity semantics to Ed25519 keys: a signature
-made by `fn-dsa-512:<short_key_id>` is valid if the key was valid at the time of
+made by `fndsa512:<short_key_id>` is valid if the key was valid at the time of
 the signed operation. Retired FN-DSA keys appear in `old_verify_keys` with an
 `expired_ts`. The `valid_until_ts` field governs cache lifetime for the entire
 key response, identically to existing behavior.
@@ -759,37 +922,39 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
 
 ```json
 {
-    "notary_equivocations": [
-        {
-            "record_version": 1,
-            "observed_server_name": "example.com",
-            "algorithm": "fn-dsa-512",
-            "short_key_id": "<short_key_id>",
-            "first": {
-                "key_id": "<unpadded-base64url-key-id>",
-                "server_key_package_sha256": "<unpadded-base64url-sha256>",
-                "first_observed_ts": 1798848000000,
-                "observed_via": "direct"
-            },
-            "conflicting": {
-                "key_id": "<unpadded-base64url-key-id>",
-                "server_key_package_sha256": "<unpadded-base64url-sha256>",
-                "first_observed_ts": 1798848600000,
-                "observed_via": "notary"
-            },
-            "first_response": { "...": "optional, full origin key response" },
-            "conflicting_response": {
-                "...": "optional, full origin key response"
-            },
-            "notary_server_name": "notary.example",
-            "signatures": {
-                "notary.example": {
-                    "ed25519:auto": "<base64-ed25519-signature>",
-                    "fn-dsa-512:<short_key_id>": "<base64-fn-dsa-signature>"
-                }
-            }
+  "notary_equivocations": [
+    {
+      "record_version": 1,
+      "observed_server_name": "example.com",
+      "algorithm": "fndsa512",
+      "short_key_id": "5FQ2xg4sWqj3Kp9N8mQhVA",
+      "first": {
+        "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
+        "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
+        "server_key_package_sha256": "<unpadded-base64url-sha256>",
+        "first_observed_ts": 1798848000000,
+        "observed_via": "direct"
+      },
+      "conflicting": {
+        "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
+        "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
+        "server_key_package_sha256": "<unpadded-base64url-sha256>",
+        "first_observed_ts": 1798848600000,
+        "observed_via": "notary"
+      },
+      "first_response": { "...": "optional, full origin key response" },
+      "conflicting_response": {
+        "...": "optional, full origin key response"
+      },
+      "notary_server_name": "notary.example",
+      "signatures": {
+        "notary.example": {
+          "ed25519:auto": "<base64-ed25519-signature>",
+          "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA": "<base64-fn-dsa-signature>"
         }
-    ]
+      }
+    }
+  ]
 }
 ```
 
@@ -802,9 +967,16 @@ Field semantics:
   conflicting key bodies. Despite the naming, the pair is unordered for dedup
   purposes (see below); `first` denotes whichever observation this notary
   learned of earlier, per its own `first_observed_ts`.
-- `key_id` in each observation is the unpadded base64url-encoded full key
+- `key_id` in each observation is the canonical `<algorithm>:<short_key_id>`
   identifier for that key body, derived as specified in
-  [Key minting Proof-of-Work](#key-minting-proof-of-work).
+  [profile-bound key minting](#canonical-key-object). Both observations share
+  the same key_id and short_key_id. Verifiers MUST recompute or validate that
+  `key_id` in both `first` and `conflicting` entries equals
+  `<algorithm>:<short_key_id>` and MUST reject any record where `key_id` does
+  not match.
+- `full_key_id` in each observation is the unpadded base64url 32-byte SHA3-256
+  Key ID digest computed over that observation's key body, providing a unique
+  full-digest identifier for collision proof and unordered deduplication.
 - `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest
   of that observation's origin `/_matrix/key/v2/server` response, after Matrix
   Canonical JSON serialization with `signatures` and `unsigned` removed,
@@ -885,7 +1057,10 @@ conflicting.observed_via
 [Notary observations](#notary-observations). Embedded full responses, when
 present, are not covered by this signature input; their integrity is instead
 verified independently via each embedded response's own self-signature, matched
-against `server_key_package_sha256`.
+against `server_key_package_sha256`. Similarly, `key_id` is a derived
+convenience field covered by the signed `algorithm` and `short_key_id` fields;
+verifiers MUST verify that `key_id` equals `<algorithm>:<short_key_id>` before
+using it.
 
 - Dedup identity: a record is identified by the tuple
   `(observed_server_name, algorithm, short_key_id, first.key_id, conflicting.key_id)`,

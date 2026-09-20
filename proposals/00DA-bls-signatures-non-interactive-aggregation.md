@@ -201,3 +201,21 @@ state.
 ## Dependencies
 
 None. Dependent companion MSCs are strictly descendants, not ancestors.
+
+[MSC00FF](00FA-WIP-dag-finality-majority-creators.md) (DAG finality via creator
+majority sign-off) deliberately avoids "complex multi-signature cryptographic
+schemes" in favor of plain `m.room.finality` state events, and this MSC is the
+aggregation scheme it declines to depend on. The two are not in conflict —
+MSC00FF's per-creator state events remain valid regardless of this MSC's status
+— but a future revision of MSC00FF could use the aggregate signature object
+defined here to compress an $M$-of-$N$ creator sign-off into a single verifiable
+artifact instead of $M$ separate state events.
+
+This MSC's algorithm profile (BLS12-381) is unrelated to the post-quantum
+signing work in [MSC00E2](00E2-quantum-sigs-federation-room-pdu.md),
+[MSC00E4](00E4-quantum-sigs-minting-server-keys.md), and
+[MSC00EA](00EA-quantum-sigs-e2ee.md): BLS is a classical pairing-based scheme
+and is not post-quantum secure. A deployment adopting both this MSC and the
+quantum-signature series would need to treat them as independent, non-fungible
+algorithm families in the Recognized Signing Algorithms table introduced by
+[MSC00A1](00A1-deprecate-nonstandard-signing-algorithms.md).

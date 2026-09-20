@@ -1,4 +1,4 @@
-# MSC00DB: Bulk Backfill over Homomorphic Compression
+# MSC00DB: Bulk Backfill with Verifiable Compressed Chunks
 
 Matrix backfill currently retrieves historical events through APIs optimized for
 modest timeline gaps. Very large gaps, archival imports, and post-outage
@@ -13,11 +13,13 @@ bounded range of history, stream compressed event payloads, and validate the
 batch against compact commitments before admitting the events to normal
 authorization and persistence paths.
 
-This proposal depends on
-[MSC00DA: BLS Signatures and Non-Interactive Aggregation](./00DA-bls-signatures-non-interactive-aggregation.md)
-for optional aggregate signature proofs. It also aligns with the accumulator
-model in [MSC4500](./4500-state-accumulators.md), but does not require MSC4500
-transaction digests to be deployed for ordinary federation.
+The chunked compression profile in this MSC is transport encoding, not
+homomorphic compression. Optional integrity profiles can be layered on top: this
+MSC aligns with the accumulator model in
+[MSC4500](./4500-state-accumulators.md), and
+[MSC00DA](./00DA-bls-signatures-non-interactive-aggregation.md) can define a
+severable BLS aggregate extension for the same endpoint. Neither MSC4500 nor
+MSC00DA is required for ordinary bulk backfill.
 
 ## Proposal
 
@@ -31,6 +33,26 @@ Servers MAY use the bulk endpoint when both sides advertise support. A receiver
 MUST be able to fall back to existing backfill APIs if the sender does not
 support this MSC, cannot serve the requested range, or returns commitments the
 receiver cannot verify.
+
+This proposal is distinct from
+[MSC4016: Streaming and resumable E2EE file transfer with random access](https://github.com/matrix-org/matrix-spec-proposals/pull/4016).
+MSC4016 concerns encrypted media/file payloads, random access, resumable upload,
+and per-block AEAD authentication. Its open Merkle-tree question is about
+binding encrypted file chunks so a media server cannot reorder or substitute
+chunks while still satisfying local block checks. MSC00DB concerns federated
+history backfill of already-signed Matrix PDUs. Chunk hashes in this proposal
+are transport integrity checks for compressed event batches; they do not
+authenticate secret media contents, do not replace event hashes or signatures,
+and do not make chunk order authoritative for the room DAG.
+
+### Relationship to MSC0501 frames
+
+This MSC extends a history frame downward. In MSC0501 terminology, the
+`edges.oldest` array in a successful bulk response is an antichain frame anchor:
+after the receiver validates and ingests the returned segment, it can reconcile
+above that new floor with MSC0501's set-reconciliation endpoint. Conversely,
+MSC0501 repairs holes inside an already agreed frame, while this MSC fetches a
+contiguous historical range to move the frame boundary.
 
 ### Capability discovery
 
@@ -67,6 +89,10 @@ The request body is:
   "limit": 10000,
   "direction": "backwards",
   "min_depth": 1234,
+  "resume": {
+    "transfer_id": "01J2Y4J3M2HG6N6WDFN8H8X3EB",
+    "first_chunk": 12
+  },
   "compression": ["tk.nutra.msc00db.xzip"],
   "include_bls_aggregate": true,
   "aggregate_policy": "required",
@@ -80,6 +106,11 @@ The request body is:
 - `direction`: `backwards` in this MSC. Future extensions may define forward
   historical repair.
 - `min_depth`: Optional lower depth bound.
+- `resume`: Optional resumability hint object containing `transfer_id` and
+  `first_chunk`. Senders MUST validate request parameters and index bounds
+  against the original transfer as specified in the resumability rules below;
+  invalid, mismatched, or expired requests MUST be rejected with
+  `400 M_INVALID_PARAM` before streaming.
 - `compression`: Ordered list of compression encodings the receiver accepts. The
   sender MUST choose `encoding` from this list.
 - `include_bls_aggregate`: Whether the receiver wants an MSC00DA aggregate proof
@@ -100,14 +131,34 @@ backfill. If no mutually supported state-commitment format exists, the sender
 MUST omit `state_commitments` unless a future profile makes state commitments
 mandatory.
 
-The response body is:
+The response has content type `application/octet-stream`. The body is not
+Base64-wrapped in JSON. `manifest_len` MUST be at least 1 and MUST NOT exceed
+`1 MiB` (1,048,576 bytes). Receivers MUST reject zero or oversized values before
+allocating a manifest buffer or reading the declared payload. The body starts
+with a 32-bit little-endian manifest length, followed by that many bytes of
+Matrix canonical JSON response manifest, followed by the raw compressed chunk
+stream for the selected `encoding`:
+
+```text
+manifest_len uint32-le
+manifest      manifest_len bytes of Matrix canonical JSON
+chunk_stream  remaining bytes
+```
+
+Receivers MUST read the four-byte little-endian `manifest_len` value before
+allocating or reading the manifest. Values of zero or greater than 1 MiB MUST
+cause the response to be rejected as malformed and processing aborted without
+allocating memory based on the untrusted size.
+
+The manifest has this shape:
 
 ```json
 {
   "room_id": "!room:example.com",
   "encoding": "tk.nutra.msc00db.xzip",
-  "chunk_id": "01J2Y4J3M2HG6N6WDFN8H8X3EB",
-  "events": "<unpadded-standard-base64-compressed-event-stream>",
+  "transfer_id": "01J2Y4J3M2HG6N6WDFN8H8X3EB",
+  "first_chunk": 0,
+  "chunk_count": 19,
   "event_count": 9481,
   "edges": {
     "requested_start": ["$eventA:example.com"],
@@ -159,30 +210,55 @@ not one of the `compression` values requested in the request, if a supplied
 requested in the request, or if the request's `aggregate_policy` is `required`
 and `bls_aggregate` is absent.
 
+`transfer_id` is scoped to the responding server and the complete original
+request: room ID, start, limit, direction, depth bounds, encoding, compression
+preferences, aggregate policy, state-commitment options, and every other
+response-affecting option. A resumed request MUST match those parameters and the
+sender MUST preserve the original full-transfer manifest, hashes, and
+commitments. `chunk_count` and `resume.first_chunk` MUST be non-negative
+integers strictly less than `2^31 - 1` (`2147483647`) to ensure safe allocation
+in 32-bit runtimes and comply with Matrix Canonical JSON integer bounds (which
+permit values up to `2^53 - 1`). `resume.first_chunk` MUST be less than the
+original `chunk_count`; senders MUST reject invalid or out-of-range values
+before streaming. A receiver MAY resume a dropped transfer by repeating the
+request with `resume.first_chunk` set to the first missing chunk. Senders SHOULD
+keep transfer IDs resumable for at least 10 minutes, but MAY expire them earlier
+under resource pressure. A resumed response contains the suffix beginning at
+`first_chunk`, but its manifest describes the complete transfer: `chunk_count`,
+`event_count`, `edges`, state commitments, and the global hashes retain their
+original full-transfer meaning. The receiver MUST retain the previously verified
+prefix and combine it with the resumed suffix before checking the global hashes,
+final event count, and boundary commitments. The expected number of chunks in a
+resumed suffix is `chunk_count - first_chunk`.
+
 ### Event stream
 
-The `events` field is encoded as unpadded standard Base64 using the RFC 4648
-section 4 alphabet. After Base64 decoding and decompression, the event stream is
-a deterministic sequence of Matrix PDU JSON objects. Events MUST be serialized
-as Matrix Canonical JSON, length prefixed with an unsigned 32-bit little-endian
-byte count, and ordered from newest to oldest for `direction: backwards`.
+After decompression, the event stream is a deterministic sequence of Matrix PDU
+JSON objects. Events MUST be serialized as Matrix Canonical JSON, length
+prefixed with an unsigned 32-bit little-endian byte count, and ordered from
+newest to oldest for `direction: backwards`.
 
 The decoded canonical event stream is the concatenation of those length-prefixed
 canonical JSON byte strings. `canonical_events_sha256` is computed over that
-decoded stream and encoded as unpadded standard Base64. `content_sha256` is
-computed over the decoded compressed event-stream bytes, not over the Base64
-text, and encoded as unpadded standard Base64.
+decoded stream and encoded as unpadded standard Base64 (RFC 4648 §4).
+`content_sha256` is computed over `chunk_stream`, excluding the manifest length
+and manifest bytes, and encoded as unpadded standard Base64 (RFC 4648 §4).
+`canonical_events_sha256` duplicates the per-chunk `decoded_sha256` coverage,
+but is retained as defense-in-depth over the complete decoded event sequence and
+event order.
 
-Receivers MUST verify both `content_sha256` and `canonical_events_sha256` before
-parsing events for authorization. Receivers MUST count events while decoding,
-abort if the decoded event count exceeds the request `limit`, and verify that
-the final decoded count equals `event_count` and is less than or equal to
-`limit` before persisting any event from the response.
+Receivers MUST verify both `content_sha256` and `canonical_events_sha256` over
+the complete transfer before parsing events for authorization. For a resumed
+response, this means combining the retained verified prefix with the received
+suffix first. Receivers MUST count events while decoding, abort if the complete
+decoded event count exceeds the request `limit`, and verify that the final
+decoded count equals `event_count` and is less than or equal to `limit` before
+persisting any event from the response.
 
 ### `xzip` compression profile
 
 This MSC uses the identifier `tk.nutra.msc00db.xzip` for the initial
-experimental homomorphic compression profile.
+experimental compressed chunk profile.
 
 The `tk.nutra.msc00db.xzip` profile is intentionally scoped to transport
 encoding. It MUST NOT change Matrix event JSON, event IDs, event hashes, room
@@ -218,7 +294,12 @@ version and maximum decompression window size in the stream header. Receivers
 MUST reject streams with an unknown `version`, a `max_window_size` greater than
 their local configured limit, malformed chunk framing, or a chunk whose decoded
 bytes do not match its `decoded_sha256`. Each chunk is decoded and verified
-independently before its events are passed to the event-stream decoder.
+independently before its events are passed to the event-stream decoder. Chunk
+indices are zero-based and refer to this stream order. A resumed response whose
+manifest `first_chunk` is nonzero contains the same stream format starting at
+that chunk index. Its xzip header MUST set `chunk_count` to the suffix count,
+`original_chunk_count - first_chunk`; receivers MUST reject a mismatch before
+decoding. The manifest retains the complete-transfer `chunk_count`.
 
 ### Receiver contract
 
@@ -232,8 +313,8 @@ receiver MUST:
 3. Verify event IDs and content hashes according to the room version.
 4. Verify required event signatures according to the room version.
 5. If the request's `aggregate_policy` is `required`, reject responses without
-   `bls_aggregate`; if `bls_aggregate` is present, verify it according to
-   MSC00DA.
+   `bls_aggregate`; if `bls_aggregate` is present, verify it according to the
+   severable BLS aggregate extension defined by MSC00DA.
 6. Run normal authorization rules for every event before admitting it.
 7. Persist only events that pass the same acceptance rules as ordinary
    federation backfill.
@@ -244,7 +325,9 @@ an otherwise invalid event to be accepted.
 ### State commitments
 
 When the sender supports the `lthash16` state commitment from MSC4500, it SHOULD
-include `before_oldest` and `after_newest` commitments. These commitments let
+include `before_oldest` and `after_newest` commitments. `before_oldest` commits
+to state after `edges.oldest` as resolved by the sender. `after_newest` commits
+to state after `edges.newest` as resolved by the sender. These commitments let
 the receiver compare the imported segment against known local state boundaries
 or perform follow-up accumulator queries when a mismatch is detected.
 
@@ -271,9 +354,9 @@ CPU time per request. If a request is too large, the sender SHOULD return
 ## Potential issues
 
 This MSC touches federation transport, storage pressure, compression, and
-cryptographic proof plumbing. Splitting BLS aggregation into MSC00DA keeps the
-pairing-cryptography review separate from the backfill API review, but the
-implementation remains substantial.
+chunk-integrity plumbing. BLS aggregation is intentionally severable into
+MSC00DA so pairing-cryptography review does not gate the compressed backfill API
+itself, but the implementation remains substantial.
 
 Large compressed chunks can create denial-of-service risk if receivers allocate
 based on claimed decoded sizes or defer validation until after parsing. The
@@ -301,8 +384,9 @@ Compression MUST NOT be used as an oracle over secrets. The event payloads in
 this endpoint are historical PDUs already available through federation backfill;
 servers MUST NOT mix secret material into the compressed stream.
 
-BLS aggregate proofs are optimization proofs only. They do not replace event
-authorization, room-version signature requirements, or state resolution.
+BLS aggregate proofs, when supported through the MSC00DA extension, are
+optimization proofs only. They do not replace event authorization, room-version
+signature requirements, or state resolution.
 
 State commitments can reveal coarse information about room state size and
 boundary state. Servers SHOULD apply the same access controls they apply to
@@ -320,9 +404,8 @@ Until accepted into the Matrix specification, implementations MUST use:
 
 ## Dependencies
 
-This MSC depends on
-[MSC00DA](./00DA-bls-signatures-non-interactive-aggregation.md) for BLS
-aggregate signatures.
+This MSC has no hard dependency on MSC00DA. MSC00DA can define the optional BLS
+aggregate extension for the `bls_aggregate` field.
 
 This MSC can use [MSC4500](./4500-state-accumulators.md) state commitments when
 available, but ordinary event validation remains authoritative.

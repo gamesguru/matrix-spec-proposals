@@ -39,8 +39,8 @@ applicable (server-to-server API).
 
 ```json
 {
-    "algorithm": "ml-kem-768",
-    "encapsulation_key": "<unpadded-base64-ml-kem-768-ek>"
+  "algorithm": "ml-kem-768",
+  "encapsulation_key": "<unpadded-base64-ml-kem-768-ek>"
 }
 ```
 
@@ -54,9 +54,9 @@ before encapsulating, rejecting invalid keys with `400 M_INVALID_PARAM`.
 
 ```json
 {
-    "session_id": "<opaque-string>",
-    "ciphertext": "<unpadded-base64-ml-kem-768-ciphertext>",
-    "expires_ts": 1798848000000
+  "session_id": "<opaque-string>",
+  "ciphertext": "<unpadded-base64-ml-kem-768-ciphertext>",
+  "expires_ts": 1798848060000
 }
 ```
 
@@ -139,3 +139,16 @@ not provide confidentiality (TLS continues to provide transport encryption) and
 symmetric MACs do not provide non-repudiation, which transport authentication
 does not require. Anti-replay properties are inherited from TLS, identically to
 the existing `X-Matrix` scheme.
+
+## Relationship to other proposals
+
+This MSC negotiates ML-KEM-768 sessions for the _federation_ transport only
+(`X-Matrix-PQC`/`X-Matrix-PQC-Session`), amortizing per-request signature cost
+between server pairs. It is unrelated to
+[MSC00E2](./00E2-quantum-sigs-federation-room-pdu.md)'s PDU signing, which this
+session mechanism does not replace. It is also independent of
+[MSC00EA](./00EA-quantum-sigs-e2ee.md) (post-quantum E2EE device and
+cross-signing keys), which explicitly defers Olm/Megolm's own ML-KEM migration
+to a separate MSC — this document's session-negotiation design is a plausible
+template for that future work, but adopting one does not require adopting the
+other.

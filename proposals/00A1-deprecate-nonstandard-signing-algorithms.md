@@ -80,10 +80,18 @@ that taxonomy. It does not redefine soft-fail, outlier, or auth-rejection.
 
 The following signing algorithms are recognized for Matrix federation:
 
-| Algorithm    | Status      | Specification                                                             |
-| ------------ | ----------- | ------------------------------------------------------------------------- |
-| `ed25519`    | **Active**  | Matrix spec                                                               |
-| `fn-dsa-512` | **Pending** | [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1) |
+<!-- markdownlint-disable MD013 -->
+
+| Algorithm                                | Status      | Specification                                        |
+| ---------------------------------------- | ----------- | ---------------------------------------------------- |
+| `ed25519`                                | **Active**  | Matrix spec                                          |
+| `fndsa512` (`tk.nutra.msc45xx.fndsa512`) | **Pending** | [MSC 00E4](00E4-quantum-sigs-minting-server-keys.md) |
+
+<!-- markdownlint-enable MD013 -->
+
+For transition-period membership checks, implementations MUST treat
+`tk.nutra.msc45xx.fndsa512` as equivalent to `fndsa512`, or normalize that
+unstable identifier to `fndsa512` before checking the allowlist.
 
 All other algorithm identifiers — including but not limited to custom elliptic
 curves, RSA-based schemes, vendor-specific key types, and any algorithm not
@@ -127,7 +135,7 @@ Homeserver implementations MUST:
 - **Accept but quarantine legacy keys.** If a key response (from either the
   remote server's `/_matrix/key/v2/server` endpoint or a `/_matrix/key/v2/query`
   notary) contains **only** unrecognized algorithm keys (and no valid `ed25519`
-  or `fn-dsa-512` entry), servers MUST NOT reject the HTTP response outright.
+  or `fndsa512` entry), servers MUST NOT reject the HTTP response outright.
   Because key fetching often occurs in background tasks without room-version
   context (e.g., proactive cache refresh before `valid_until_ts` expiry),
   rejecting the response at the HTTP layer would break historical verification.
@@ -138,7 +146,7 @@ Homeserver implementations MUST:
 
 When evaluating a PDU belonging to a **pre-N room version** with **only**
 unrecognized algorithm signatures and **no** recognized algorithm entry (e.g.,
-no `ed25519` or `fn-dsa-512` signature), the server MUST fall back to existing
+no `ed25519` or `fndsa512` signature), the server MUST fall back to existing
 legacy signature verification behavior. Standard servers that lack the
 cryptographic libraries to verify the unrecognized algorithm will naturally fail
 verification; for standard servers without support for that algorithm, this
@@ -172,11 +180,11 @@ split-brain consensus divergence.
 In Room Version N:
 
 - Events whose `signatures` dictionary contains **only** unrecognized algorithm
-  entries and no valid `ed25519` or `fn-dsa-512` signature from the expected
+  entries and no valid `ed25519` or `fndsa512` signature from the expected
   origin server are **hard-invalid candidate PDUs** and MUST NOT proceed to
   room-version auth evaluation.
 - The set of recognized algorithms for Room Version N is explicitly: `ed25519`
-  and `fn-dsa-512` (if MSC 00E1 is accepted by the time Room Version N is
+  and `fndsa512` (if MSC 00E4 is accepted by the time Room Version N is
   specified).
 - Servers MUST NOT fall back to non-standard algorithms when verification with a
   recognized algorithm fails.
@@ -292,10 +300,25 @@ separate Room Version MSC.
 ## Dependencies
 
 - None. This MSC is independent of
-  [MSC 00E1](https://github.com/matrix-org/matrix-spec-proposals/pull/00E1)
-  (Post-Quantum Digital Signatures for Federation), although it is
-  complementary. If MSC 00E1 is accepted before Room Version N is finalized,
-  `fn-dsa-512` is included in the recognized algorithm set.
+  [MSC 00E4](00E4-quantum-sigs-minting-server-keys.md) (Post-Quantum Digital
+  Signatures for Federation), although it is complementary. If MSC 00E4 is
+  accepted before Room Version N is finalized, `fndsa512` is included in the
+  recognized algorithm set.
+- The rest of the quantum-signature series —
+  [MSC 00E2](00E2-quantum-sigs-federation-room-pdu.md) (PDU signing),
+  [MSC 00E5](00E5-quantum-sigs-federation-session-negotiation.md) (session
+  negotiation), and [MSC 00EA](00EA-quantum-sigs-e2ee.md) (E2EE) — build on the
+  `fndsa512` key material minted by MSC 00E4 and do not themselves add new
+  entries to the Recognized Signing Algorithms table above.
+- [MSC 00DA](00DA-bls-signatures-non-interactive-aggregation.md) (BLS signatures
+  and non-interactive aggregation) proposes a second new signing primitive for
+  federation. If accepted, its BLS scheme would need its own row in the
+  Recognized Signing Algorithms table, alongside `fndsa512`.
+- [MSC4499](4499-key-caching.md) (strict server signing key caching and key ID
+  uniqueness) is complementary rather than overlapping: this MSC restricts
+  _which algorithms_ may appear in `verify_keys`/`signatures`, while MSC4499
+  governs how a given key ID's key body is cached and bound once published. Both
+  apply to the same `algorithm:key_id` material.
 
 ## Backwards Compatibility
 
@@ -322,17 +345,17 @@ This proposal is backwards-compatible:
       specified in the MSC's PR description?
 - [x] Are all MSCs that this MSC depends on already accepted?
 - [ ] For each endpoint that is introduced or modified:
-    - [x] N/A — no endpoints are introduced or modified
+  - [x] N/A — no endpoints are introduced or modified
 - [x] Will the MSC require a new room version, and if so, has that been made
       clear?
-    - [x] Phase 2 requires a new room version. Phase 1 does not.
+  - [x] Phase 2 requires a new room version. Phase 1 does not.
 - [x] Are backwards-compatibility concerns appropriately addressed?
 - [x] An introduction exists and clearly outlines the problem being solved.
       Ideally, the first paragraph should be understandable by a non-technical
       audience.
 - [ ] All outstanding threads are resolved
-    - [ ] All feedback is incorporated into the proposal text itself, either as
-          a fix or noted as an alternative
+  - [ ] All feedback is incorporated into the proposal text itself, either as a
+        fix or noted as an alternative
 - [x] There is a dedicated "Security Considerations" section which detail any
       possible attacks/vulnerabilities this proposal may introduce, even if this
       is "None.". See [RFC3552](https://datatracker.ietf.org/doc/html/rfc3552)
@@ -341,12 +364,12 @@ This proposal is backwards-compatible:
 - [x] The other section headings in the template are optional, but even if they
       are omitted, the relevant details should still be considered somewhere in
       the text of the proposal. Those section headings are:
-    - [x] Introduction
-    - [x] Proposal text
-    - [x] Potential issues
-    - [x] Alternatives
-    - [x] Unstable prefix
-    - [x] Dependencies
+  - [x] Introduction
+  - [x] Proposal text
+  - [x] Potential issues
+  - [x] Alternatives
+  - [x] Unstable prefix
+  - [x] Dependencies
 - [x] Stable identifiers are used throughout the proposal, except for the
       unstable prefix section
 - [ ] Changes have applicable

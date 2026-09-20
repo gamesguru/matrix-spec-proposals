@@ -1,226 +1,384 @@
-# MSC0501: Gossip-Based Federation Room Reconciliation
+# MSC0501: Efficient gossip-based room federation missed PDU reconciliation
 
-Matrix federation is "push and hope" — servers send events via `/send`
-transactions and assume delivery. When delivery fails (rate limiting, network
-partitions, spam storms, rejection cascades), the DAG develops permanent holes.
-Each server drops a different random subset of events, creating unique "swiss
-cheese" patterns that no existing endpoint can efficiently detect or repair.
+Matrix federation today is "push and hope" — when event delivery fails or
+servers miss or drop transactions, the DAG develops permanent holes. Each server
+drops a different random subset of events, creating unpredictable gaps that no
+existing endpoint can efficiently detect or repair.
 
-This proposal introduces a lightweight, gossip-inspired reconciliation protocol
-that allows federated servers to efficiently detect DAG divergence and
-surgically heal data gaps without requiring full state synchronization or new
-room versions.
+When servers undergo extended downtime, they have trouble catching up after a
+cold boot; no homeserver implementation "forward fills" a complete or orderly
+DAG timeline.
+
+This proposal introduces three lightweight endpoints allowing federated servers
+to efficiently monitor for event set divergence and reconcile it, without
+requiring full state map comparisons or new room versions.
+
+**Companion documents.** The digest algebra — field, hash derivation, sketch
+encoding, decoder contract, and capacity budgets — is specified separately in
+MSC4521 (`algebraic_v1` digest profile). The design rationale, rejected
+alternatives, and operational tuning guidance are in the MSC0501 architecture
+note. This document specifies the protocol and its wire contract.
 
 ## Background
 
-### The Problem: Silent Data Loss
+### The problem: federation gaps, silent data loss
 
 Federation data loss occurs through several well-documented mechanisms:
 
-1. **Rate limiting** drops inbound `/send` transactions during high-traffic
-   periods (spam storms, raids, viral rooms).
-2. **Rejection cascades** orphan entire subgraphs — a single malformed event
-   causes every subsequent event referencing it via `prev_events` to be
-   rejected.
-3. **Auth chain fetch timeouts** during load cause events to be permanently
-   persisted as rejected outliers.
-4. **Partial state joins** (MSC3706) intentionally defer full state
-   synchronization, but network interruptions during the resync phase can leave
-   permanent gaps.
+1. Servers may never receive events due to DNS routing or other federation
+   connection issues (sometimes due to deliberate _de_-federation).
+2. Servers after prolonged downtime may be marked as permanently backed off.
+   Unless they engage with a room and send an event, they may remain excised
+   from any new activity.
+3. Other transient bugs in state resolution or database logic can cause an event
+   to mistakenly be soft-failed or otherwise skipped during traversal.
 
-The result is that servers in the same room can have materially different DAGs,
-leading to membership divergence, missing messages, and inconsistent state
-resolution outputs — even when the state resolution algorithm itself is
-functioning correctly.
+The result is that servers in the same room can have divergent views of the same
+DAG, leading to membership differences, missing messages, and inconsistent state
+(different inputs to state resolution in general produce different outputs).
 
-### Why Existing Endpoints Are Insufficient
+### Why existing endpoints are insufficient
 
-| Endpoint                            | Limitation                                                                                                                    |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG                   |
-| `POST /get_missing_events/{roomId}` | BFS walk with a hard depth limit (default 10); cannot bridge gaps larger than 10 events; requires knowing the boundary events |
-| `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); O(N) comparison; no incremental diffing                                   |
-| `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                                   |
+<!-- markdownlint-disable MD013 -->
 
-None of these endpoints answer the fundamental question: **"Am I missing events
-in this room, and if so, which ones?"**
+| Endpoint                            | Limitation                                                                                                     |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| `GET /backfill/{roomId}`            | Depth-ordered linear walk; cannot target specific gaps; useless for missing events in the middle of the DAG    |
+| `POST /get_missing_events/{roomId}` | BFS walk with a lower depth limit; cannot bridge some gaps; requires knowing the boundary events               |
+| `GET /state_ids/{roomId}`           | Returns state event IDs only (not timeline events); `O(S)` comparison; no incremental diffing                  |
+| `GET /event/{eventId}`              | Single-event fetch; no bulk mode; requires knowing which events are missing                                    |
+| `GET /make_join`                    | Does not meet latency requirements (20-50 ms); requests can timeout (full remote index scan for unknown event) |
 
-### Design Principles
+<!-- markdownlint-enable MD013 -->
 
-This proposal follows the gossip protocol literature (Demers et al., 1987;
-Birman, 1999) and adapts three core mechanisms to Matrix's federated DAG model:
+None of these endpoints quickly answer the question: **"Am I missing events in
+this room, and if so, which ones?"**
 
-1. **Anti-entropy via digest comparison** — O(1) divergence detection using
-   compact room digests
-2. **Pull-based reconciliation** — the lagging server requests exactly the
-   events it needs
-3. **Protocol-level idempotency** — repeated reconciliation produces no side
-   effects on an already-synchronized pair
+### Design philosophy
+
+This proposal adapts three mechanisms from the gossip protocol literature ([1],
+[2]) to Matrix's federated DAG model:
+
+1. **Anti-entropy room digest comparison** — `O(1)` divergence detection.
+2. **Pull-based reconciliation** — the lagging server requests what it needs.
+3. **Protocol-level idempotency** — repeated reconciliation is harmless.
+
+The wire contract requires group-valued digests for subtractable, extensible
+exchanges and downward-closed recovery sets for integration; see the
+architecture note for the full argument.
+
+Homeserver implementations maintain a single table or column family, tracking
+the resident sketch and strata per room. These structures are computed only from
+local data and are reused across peers; the strata projection is requested only
+when needed for sketch sizing, while no per-peer cache or remote knowledge is
+required.
 
 ## Proposal
 
-Three new federation endpoints are introduced under the
-`/_matrix/federation/v1/` namespace.
+Four federation endpoints are introduced under the `/_matrix/federation/v1/`
+namespace.
 
-### 1. Room Digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
+### Capability discovery
+
+Servers advertise support via `GET /_matrix/federation/v1/version`. Support is
+advertised in `unstable_features` so that additional `digest_type` values or
+endpoint revisions can be added without changing the stable version document.
+
+```json
+{
+  "unstable_features": {
+    "tk.nutra.msc0501.reconciliation": true,
+    "tk.nutra.msc4521.digest.algebraic_v1": true
+  }
+}
+```
+
+A server that receives a `501 Not Implemented` response, or a `404` response
+with `M_UNRECOGNIZED` or a non-Matrix body, from a reconciliation endpoint MUST
+cache that peer as unsupported for at least 24 hours and MUST NOT retry during
+that period unless an operator explicitly overrides the cache. The cache MUST be
+invalidated on any observed change to the peer's `/version` document.
+
+### Room digest: `GET /_matrix/federation/v1/room_digest/{roomId}`
 
 Returns a compact, opaque digest summarizing a server's knowledge of a room's
-event graph. Two servers can compare digests in O(1) to determine whether their
-DAGs have diverged.
+event set. Two servers can compare digests in `O(1)` to determine whether their
+event sets have diverged (about 200-400 bytes on a `200` response without
+`strata`, or about 3 KB with `strata`; much less on a `304`).
 
 **Request:**
 
 ```http
-GET /_matrix/federation/v1/room_digest/{roomId}
+GET /_matrix/federation/v1/room_digest/{roomId}/strata
 ```
 
 **Response:**
 
 ```json
 {
-  "digest": "<opaque_base64_string>",
-  "digest_type": "xxh3_bloom",
-  "digest_bits": 32768,
-  "digest_window": 5000,
-  "event_count": 81247,
+  "digest": "<base64url_16_byte_accumulator>",
+  "digest_type": "algebraic_v1",
+  "known_event_count": 81247,
+  "frame_id": "<base64url_32_byte_frame_id>",
+  "strata": ["<base64url_64_byte_stratum_sketch>", "..."],
+  "frame_event_ids": ["$join_anchor"],
   "extremity_event_ids": ["$abc123", "$def456"],
   "depth_range": [1, 93841],
   "origin_server_ts_range": [1609459200000, 1716000000000]
 }
 ```
 
+The example above is the `/strata` form. If strata cannot be produced,
+responders MUST return HTTP 503 with a Matrix error body such as `M_UNKNOWN`
+rather than a strata-less `200`.
+
 **Fields:**
 
-| Field                    | Type               | Required | Description                                                                                                                             |
-| ------------------------ | ------------------ | -------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `digest`                 | string             | Yes      | Base64url-encoded digest of the server's event ID set for this room. See Digest Construction below.                                     |
-| `digest_type`            | string             | Yes      | The algorithm used to construct the digest. Servers MUST support `xxh3_bloom`.                                                          |
-| `digest_bits`            | integer            | Yes      | The bit-length of the Bloom filter. The server dynamically sizes this; see Digest Construction.                                         |
-| `digest_window`          | integer            | Yes      | The number of most-recent events (by topological depth) included in the digest. See Active Window.                                      |
-| `event_count`            | integer            | Yes      | The total number of non-outlier events the server holds for this room (including locally rejected events; see Rejected Event Handling). |
-| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                      |
-| `depth_range`            | [integer, integer] | Yes      | The minimum and maximum topological depth of events held.                                                                               |
-| `origin_server_ts_range` | [integer, integer] | Yes      | The earliest and latest `origin_server_ts` of events held.                                                                              |
+<!-- markdownlint-disable MD013 -->
 
-**Digest Construction (`xxh3_bloom`):**
+| Field                    | Type               | Required | Description                                                                                                                                        |
+| ------------------------ | ------------------ | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `digest`                 | string             | Yes      | Base64url-encoded 16-byte accumulator over the server's known event identifier set for this room and frame, per MSC4521.                           |
+| `digest_type`            | string             | Yes      | The digest profile used. Servers MUST support `algebraic_v1`.                                                                                      |
+| `known_event_count`      | integer            | Yes      | The total number of event identifiers the server knows for this room and frame: accepted events plus rejected-event tombstones.                    |
+| `frame_id`               | string             | Yes      | Unpadded base64url identifier of the canonical frame anchor antichain. Requests MUST echo this value when using the digest.                        |
+| `strata`                 | [string]           | Yes      | The 32-entry strata estimator, required on `/_matrix/federation/v1/room_digest/{roomId}/strata`. Each entry is a base64url-encoded 64-byte sketch. |
+| `frame_event_ids`        | [string]           | Yes      | The frame anchor antichain bounding the history this digest covers. Servers MUST compare digests only when they understand the same frame.         |
+| `extremity_event_ids`    | [string]           | Yes      | The server's current forward extremities (DAG tips) for this room.                                                                                 |
+| `depth_range`            | [integer, integer] | No       | The minimum and maximum topological depth of events held.                                                                                          |
+| `origin_server_ts_range` | [integer, integer] | No       | The earliest and latest `origin_server_ts` of events held.                                                                                         |
 
-The digest is a dynamically-sized Bloom filter constructed as follows:
+<!-- markdownlint-enable MD013 -->
 
-1. **Determine the Active Window.** Select the `W` most recent events by
-   topological depth held for this room (including locally rejected events; see
-   Rejected Event Handling below). The default window size is `W = 5000`. The
-   server reports this value in the `digest_window` field. Hashing the entire
-   event history is unnecessary because the bottom of the DAG (old history)
-   rarely mutates — divergence almost always occurs at the frontier.
-2. **Size the filter.** Allocate `m` bits where `m` is the next power of two
-   greater than or equal to `ceil(W * 6.235)` (approximately 6.235 bits per
-   element), which yields a false-positive rate of ~5% with `k = 4` hash
-   functions. Standardizing `m` as a power of two is a strict requirement to
-   enable in-place dynamic folding (see
-   [Dynamic Filter Folding](#dynamic-filter-folding)). For the default window of
-   5000 events, `ceil(5000 * 6.235) = 31,175`, so the server allocates
-   `m = 32,768` bits (exactly 4,096 bytes or 4.0 KB). The server reports this
-   value in the `digest_bits` field.
-3. **Populate the filter.** For each event ID in the active window, compute two
-   independent hash values using XXH3-128, seeded with the constants `0x00` and
-   `0x01` respectively.
-4. Use double hashing to derive `k=4` bit positions from the two hash values:
-   `position_i = (h1 + i * h2) mod m` for `i` in `{0, 1, 2, 3}`.
-5. Set those bits in the filter.
-6. Base64url-encode the resulting byte array (unpadded).
+#### The digested population
 
-The key mathematical constraint is:
+The digest covers the known event identifier set reachable from the current
+frame anchor antichain. Frame anchor events themselves are not counted in `K`;
+by definition, `K` is the union of the accepted, rejected, and soft-failed
+populations after excluding the anchor antichain itself, where
+`E_{\mathrm{anchor}}` is that anchor set.
 
-> `m = -n * ln(p) / (ln(2))^2`
->
-> For `n = 5000` events and `p = 0.05` (5% false positive rate):
-> `m = 31,175 bits ≈ 3.8 KB`
->
-> For `n = 10000` events and `p = 0.05`: `m = 62,350 bits ≈ 7.6 KB`
+$$
+K = (E_{\mathrm{accepted}} \cup E_{\mathrm{rejected}} \cup E_{\mathrm{soft-failed}})
+\setminus E_{\mathrm{anchor}}.
+$$
 
-Servers MAY adjust the window size and filter dimensions, but MUST NOT advertise
-`digest_bits` greater than `2^23` (1 MiB). A requesting server can infer the
-filter parameters from the `digest_bits` and `digest_window` fields in the
-response. Two servers with different window sizes can still detect divergence —
-if their windows overlap, bit differences in the overlapping region indicate
-missing events.
+In addition to the accepted and rejected event sets, soft-failed events are also
+in `K`; their soft-fail status specifically is not part of reconciliation.
 
-The Bloom filter gives O(1) equality comparison, approximate difference
-estimation (for example, the popcount of `remote AND NOT local` correlates with
-the number of events the local server is missing from the window), and a compact
-~4 KB representation regardless of total room size.
+Given that population, `digest` and `known_event_count` are the level-0
+accumulator and count defined in MSC4521, and `strata` is that profile's strata
+estimator. MSC0501 requires the estimator on
+`/_matrix/federation/v1/room_digest/{roomId}/strata` when the requester asks for
+sketch sizing; other consumers of MSC4521 MAY use it only when their wire
+contract includes it. This MSC adds no arithmetic of its own.
 
-**Rejected Event Handling:**
+For MSC0501, `frame_id` and `frame_event_ids` are the population-context binding
+required by MSC4521. A requester MUST NOT compare digests, subtract strata, or
+open a `sketch` exchange unless both sides are using the same room,
+`digest_type`, frame anchor antichain, and known-event population `K` defined
+above. The 128-bit accumulator verifies decoded event-ID differences within that
+context; it does not replace the frame check. Resolved-state commitments such as
+MSC4500 LtHash digests are separate signals for state divergence and MUST NOT be
+mixed into this known-event-set algebraic comparison.
 
-Servers MUST include locally rejected events in the Bloom filter digest. If
-rejected events were excluded, a fetch loop would occur: Server B sees that
-Server A is "missing" an event (because A excluded it from the filter), returns
-it in `/room_diff`, Server A fetches it via `/room_events`, rejects it again,
-and the cycle repeats on the next gossip interval.
+Requesters that intend to open a `sketch` exchange for a given frame MUST first
+fetch a strata-bearing `/_matrix/federation/v1/room_digest/{roomId}/strata`
+response for that frame. A requester MUST use the resulting `d̂` for the
+round-budget precondition. A requester MAY substitute the exact cardinality
+delta `c` only when it has independent evidence that the divergence is
+one-sided; otherwise `c` is not a safe replacement for `d̂`. Responders MAY
+reject a `sketch` request from a requester that has not performed this
+preflight.
 
-By including rejected event IDs in the filter, Server B's membership test
-returns positive and the event is correctly skipped. This does not affect the
-security model — rejected events are only included in the _digest_, not in the
-_resolved state_. Additionally, servers MUST maintain a negative cache of event
-IDs that were fetched via reconciliation and subsequently rejected. Events in
-the negative cache MUST NOT be re-requested for a configurable cooldown period
-(RECOMMENDED: 24 hours). This provides defense-in-depth against fetch loops if a
-peer reports the same rejected event again because of stale state, inconsistent
-filter parameters, or implementation error.
+If the preflight estimate is unmeasurable, the estimator returns `null` in place
+of an integer `d̂`. This is a local return value from running MSC4521's strata
+estimator against the fetched `strata` array — `strata` itself is always present
+and mandatory on the wire (see above); it is the derived scalar estimate,
+computed independently by each side, that takes one of the three shapes MSC4521
+defines: a confident integer, a `{estimate, low_confidence}` pair, or `null`. A
+measured estimate of `0` (equal populations) is a meaningful result and MUST NOT
+be conflated with `null`, which means the estimator itself could not produce a
+usable value at all. The requester MUST treat a `null` estimate as unavailable
+for sketch sizing and MUST route to `extremity` mode, backfill, or frame
+extension instead of starting `sketch` mode.
 
-### Dynamic Filter Folding
+A `null` (saturated) estimate is distinct from, and much rarer than, a merely
+large _measured_ difference — the strata estimator can and typically does return
+a large finite `d̂` (tens or hundreds of thousands) without saturating, and MAY
+do so as a low-confidence estimate (see MSC4521's strata estimator) without that
+alone being grounds to skip `sketch` mode. Either kind of finite `d̂` —
+low-confidence or not — is instead subject to the separate, and far more
+commonly triggered, round-budget precondition below: a requester MUST compare
+`d̂` against `round_cap * 4096`, where `round_cap` is this MSC's fixed limit of
+20 on the per-exchange round counter (see below), and route to `extremity` mode,
+backfill, or frame extension when `d̂` exceeds that budget (see "The floor
+implies a hard precondition," below, for the worked ~82,000-element threshold).
 
-To allow comparison of Bloom filters of different sizes (e.g., if Server A uses
-$W_a = 5000$, resulting in $m_a = 32,768$ bits, and Server B uses $W_b = 10000$,
-resulting in $m_b = 65,536$ bits) without re-hashing raw event IDs,
-implementations MUST support dynamic filter folding.
+Requesters MUST retain the outstanding tree frontier across rounds as a pending
+queue of `(depth, prefix, capacity)` nodes. Each round drains that queue in
+canonical order until adding another node would exceed either 128 requests or
+the 4096 aggregate capacity cap. Any node that returns `capacity_exceeded`
+pushes its two children onto the back of the queue for a later round rather than
+into the current round. The exchange ends when the queue empties, the round
+counter reaches 20, or the requester must fall back to `extremity` mode,
+backfill, or frame extension.
 
-Because $m$ is strictly constrained to be a power of two, a larger Bloom filter
-of size $2m$ can be folded in half to match a target size $m$ simply by dividing
-the bit-array into two equal halves and performing a bitwise `OR` operation on
-them: `folded[i] = filter[i] | filter[i + m]` (indexing in bits, or equivalently
-over the byte array with an `m/8` byte offset)
+**Rejected event handling.** Servers MUST include locally rejected event IDs as
+tombstones in `K`. If rejected events were excluded, a fetch loop would occur:
+Server B sees that Server A is "missing" an event, returns it in `/room_diff`,
+Server A fetches it via `/room_events`, rejects it again, and the cycle repeats.
 
-This mathematical projection is perfectly sound because $hash \pmod m$ maps to
-the exact same bit position as $(hash \pmod{2m}) \pmod m$. This enables instant,
-in-memory filter down-sampling with zero cryptographic overhead.
+When `/room_diff` identifies event IDs missing on Server A, Server A requests
+those events via `/room_events`. If Server B only holds a tombstone for a
+requested event or if Server A fetches an event PDU and locally rejects it,
+Server A MUST record and persist a tombstone entry carrying the event ID and
+rejection reason in its local `E_{\mathrm{rejected}}` population (and thus `K`).
+If Server A cannot persist a tombstone for a non-transferable rejected event, it
+MUST exclude that event ID from `K`.
 
-**Authorization:**
+By including rejected event IDs in `K`, peers converge to `Δ = 0` even when they
+disagree about acceptance. If two servers have the same known-event set but
+different accepted-event sets, the problem is an authorization, room-version, or
+implementation disagreement rather than a data-sync failure. Tombstones SHOULD
+retain the event ID and rejection reason, not the full PDU. A tombstone MUST NOT
+be garbage-collected while it belongs to a frame the server advertises as
+available for reconciliation.
 
-The requesting server MUST be a participant in the room (i.e., have at least one
-joined member). The receiving server MUST verify this before responding. If the
-requesting server is not in the room, the server MUST respond with HTTP 403 and
-error code `M_FORBIDDEN`.
+This MSC does not provide a verdict-diff endpoint for `K_rejected` or
+`K_softfailed`. Equal digests mean equal known-event-ID sets, not equal
+acceptance decisions: a server that accepted an event and a server that rejected
+it with a retained tombstone both include the same ID in `K`, so that ID cancels
+from the sketch. Comparing rejection or soft-failure status between servers is a
+diagnostic API over per-event verdicts, not part of the mechanism defined here.
 
-### 2. Room Diff: `POST /_matrix/federation/v1/room_diff/{roomId}`
+#### Frames
+
+The digest covers a **frame**: an agreed antichain of event IDs bounding the
+history being reconciled. Reconciliation repairs holes inside a frame. Backfill
+extends the frame downward. Servers MUST NOT compare digests unless they agree
+on the frame.
+
+A frame is mathematically bounded by the causal graph. The frame's digested
+population includes only the known events that **causally succeed** (are
+topological descendants of) the anchor antichain. Events that causally precede
+the anchor, such as pre-join history, are excluded. This topological bound
+prevents spoofed timestamps or depths from polluting finalized historical
+segments, because the causal lineage is cryptographically sealed by the anchor.
+
+A frame is identified by the sorted, deduplicated `frame_event_ids` antichain.
+The order of the array is not significant on the wire, but implementations MUST
+canonicalize it before comparing or indexing a digest.
+
+`frame_id` is the unpadded base64url encoding of the 32-byte SHA-256 digest of
+the Matrix canonical JSON array containing the canonical sorted
+`frame_event_ids`. The room ID is not included because a frame anchor event ID
+is already room-bound; implementations MUST nevertheless reject a frame whose
+anchors do not belong to the requested room. The same frame ID therefore names
+the same frame across servers and can be used as the key for resident state.
+
+**Negotiation.**
+
+1. The requester compares the responder's `frame_event_ids` with its own. An
+   exact match selects that frame immediately.
+2. If the frames differ, the requester MUST issue an `extremity` diff request
+   with `frame_negotiation: true` and include its current `frame_event_ids`. The
+   responder MUST compare the supplied anchors against its local DAG and return
+   `frame_status` and `negotiated_frame_event_ids`.
+3. If the responder can establish a common descendant frame, it returns
+   `frame_status: "common"` and the complete sorted anchor antichain. A frame is
+   common only when both servers hold every returned anchor and every returned
+   anchor is at or below the history boundary represented by both previous
+   frames. The responder MUST NOT select a frame merely because it is newer on
+   one server.
+4. If no common descendant frame can be established, the responder returns
+   `frame_status: "none"` and MUST NOT return or compare digests for the
+   request. The requester MUST route the room to frame extension or historical
+   backfill, using MSC00DB where applicable, rather than treating the frame
+   mismatch as an interior hole.
+
+The `room_diff` response MUST include `frame_status` whenever
+`frame_negotiation` is requested. `frame_status` is one of `common`, `none`, or
+`not_requested`; `negotiated_frame_event_ids` is required for `common` and
+omitted otherwise. Once a common frame is selected, both sides MUST compute all
+subsequent digests, counts, and sketches over that exact frame. An
+implementation MUST NOT silently substitute its local frame between the digest
+and diff requests.
+
+**Lifetime.** Implementations SHOULD maintain resident accumulators keyed by the
+canonical frame anchor set rather than only by room ID, under a bounded TTL
+and/or LRU policy. Servers MUST NOT assume a negotiated frame remains
+permanently available and are not required to track per-peer frame adoption
+before evicting it.
+
+If a requester submits a `frame_id` that has been pruned, expired, or is
+unknown, the responder MUST reject the request with HTTP 400 or 404 and a
+standard Matrix error code such as `M_NOT_FOUND`. The error response MUST
+include `frame_status: "none"`:
+
+```json
+{
+  "errcode": "M_NOT_FOUND",
+  "error": "The requested reconciliation frame is unknown or has expired.",
+  "frame_status": "none"
+}
+```
+
+The responder MUST return this signal before comparing any digest. The requester
+MUST then abandon algebraic reconciliation for that frame and fall back to
+`extremity` mode, frame extension, or historical backfill. If an old frame is
+retired, the responder MUST NOT claim that a digest mismatch proves an event-set
+divergence.
+
+**Validation is a transport-layer responsibility.** Before invoking the MSC4521
+kernel, the responder MUST resolve and validate the requested `frame_id` and
+confirm that it matches the frame used by the supplied digest metadata. A
+missing, expired, or mismatched frame MUST terminate the request before the
+responder computes any residual or subtraction. The kernel MUST receive only
+inputs already validated as belonging to the same frame; it MUST NOT interpret
+`frame_status: "none"` or perform frame negotiation itself.
+
+MSC00DB bulk backfill is the complementary boundary-extension mechanism: its
+`edges.oldest` response field is an antichain that can become the next frame
+anchor after the returned historical segment is validated and ingested. This MSC
+reconciles holes above that anchor; MSC00DB moves the anchor downward.
+
+**Authorization.** The requesting server MUST be a participant in the room
+(i.e., have at least one joined member). The receiving server MUST verify this
+before responding, and MUST respond with HTTP 403 and `M_FORBIDDEN` otherwise.
+
+### Room diff: `POST /_matrix/federation/v1/room_diff/{roomId}`
 
 Given a requesting server's event ID set (or a compact representation thereof),
 returns the set of event IDs that the responding server has but the requester
 likely does not. This is the "what am I missing?" query.
 
-The endpoint supports two diff modes because Matrix federation produces two
-fundamentally different classes of data loss:
+**Comparison.** The endpoint compares `K` within the negotiated frame. This
+proposal does not define a resolved-state comparison scope; MSC4500 remains the
+lookup primitive for resolved-state divergence.
+
+**Two modes.** The endpoint supports two diff modes because Matrix federation
+produces two fundamentally different classes of data loss:
 
 - **Frontier lag ("clean" divergence).** A server goes offline, gets
   rate-limited, or falls behind. It misses a contiguous branch of events from
-  the DAG tip. The server's extremities are stale, but its interior DAG is
-  intact. This is identical to a Git branch that is behind upstream — the delta
-  is a clean, linear range between the local and remote tips.
+  the DAG tip. Its extremities are stale, but its interior DAG is intact. This
+  is a Git branch that is behind upstream — the delta is a clean, linear range
+  between the local and remote tips.
 
 - **Interior gaps ("Swiss cheese" divergence).** A server drops random
   individual events due to rate limiting, rejection cascades, or auth chain
   fetch timeouts, but continues to receive subsequent events via state-resyncs.
-  The server's extremities may match the remote server's, but its interior DAG
-  has holes. This has no Git analogue — Git's content-addressable storage
-  guarantees that possessing a commit implies possessing all ancestors.
+  Its extremities may match the remote server's, but its interior DAG has holes.
+  This has no Git analogue — Git's content-addressable storage guarantees that
+  possessing a commit implies possessing all ancestors.
 
-The `extremity` mode is a **merge-base finder** (the Git approach) optimized for
-frontier lag. It walks backward from divergent extremities to find the most
-recent common ancestor, returning exactly the missing delta in O(delta) time.
+`extremity` mode is a merge-base finder optimized for frontier lag. It walks
+backward from divergent extremities to find the most recent common ancestor,
+returning the missing delta in O(delta) time.
 
-The `bloom` mode is a **set reconciliation tool** (the Cassandra approach) that
-ignores graph topology entirely and checks raw event set membership. It detects
-interior gaps that the merge-base finder is structurally blind to.
+`sketch` mode is exact set reconciliation over `K`. It ignores graph topology
+while extracting event identifiers in the symmetric difference.
 
 **Request:**
 
@@ -231,79 +389,188 @@ POST /_matrix/federation/v1/room_diff/{roomId}
 ```json
 {
   "mode": "extremity",
+  "frame_id": "<base64url_32_byte_frame_id>",
   "local_extremity_event_ids": ["$abc123", "$def456"],
-  "have_event_ids": ["$known_depth_90000", "$known_depth_89500", "$known_depth_88000", "$known_depth_84000"],
-  "local_event_count": 81000,
+  "have_event_ids": [
+    "$known_depth_90000",
+    "$known_depth_89500",
+    "$known_depth_88000",
+    "$known_depth_84000"
+  ],
+  "frame_negotiation": true,
+  "frame_event_ids": ["$join_anchor"],
+  "local_known_event_count": 81000,
   "max_depth_delta": 5000,
   "max_events": 10000,
   "limit": 1000
 }
 ```
 
-**Or, in `bloom` mode:**
+**Or, in `sketch` mode:**
 
 ```json
 {
-  "mode": "bloom",
-  "local_digest": "<base64_bloom_filter>",
-  "digest_type": "xxh3_bloom",
-  "digest_bits": 32768,
-  "digest_window": 5000,
-  "local_event_count": 81000,
+  "mode": "sketch",
+  "frame_id": "<base64url_32_byte_frame_id>",
+  "local_digest": "<base64url_16_byte_accumulator>",
+  "digest_type": "algebraic_v1",
+  "local_known_event_count": 81000,
+  "estimated_delta": 50000,
+  "frame_event_ids": ["$join_anchor"],
+  "requests": [{ "depth": 0, "prefix": 0, "capacity": 32 }],
+  "local_sketches": ["<base64url_syndrome_sketch>"],
   "limit": 1000
 }
 ```
 
+If present, `estimated_delta` SHOULD be the requester's local strata-based
+estimate for the negotiated frame. Responders MAY use it as a plausibility check
+before performing extraction, but they MUST still validate the request against
+the actual frame state.
+
+#### Dynamic tree request schema
+
+The `requests` member in `sketch` mode is a JSON array of request objects with
+the following shape:
+
+```json
+{
+  "type": "object",
+  "required": ["depth", "prefix", "capacity"],
+  "additionalProperties": false,
+  "properties": {
+    "depth": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 32
+    },
+    "prefix": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capacity": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32
+    }
+  }
+}
+```
+
+For a request `R = (depth, prefix, capacity)`, `prefix` MUST be strictly less
+than `2^depth`. The array of `requests` MUST be in canonical key-space range
+order, and each request MUST form an antichain with every other request in the
+same array. Implementations MUST reject any request list that is out of order,
+contains duplicates, or contains an ancestor-descendant pair before attempting
+subtraction.
+
+The canonical range for a request `R = (d, p)` is:
+
+$$
+\text{start}(R) = p \cdot 2^{32-d}
+$$
+
+$$
+\text{end}(R) = (p + 1) \cdot 2^{32-d}
+$$
+
+A request sequence `[R_0, R_1, \dots, R_{N-1}]` is valid only if:
+
+$$
+\text{end}(R_i) \le \text{start}(R_{i+1}) \quad \text{for all } 0 \le i < N - 1
+$$
+
+This condition is normative. Implementations MAY validate it in place in `O(N)`
+time and `O(1)` memory when the wire order is already canonical. That works by
+checking each request against the previous request's `end` boundary, which
+avoids heap allocation in the common case.
+
 **Fields (request):**
 
-| Field                       | Type     | Required          | Description                                                                                                                                      |
-| --------------------------- | -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `mode`                      | string   | Yes               | One of `extremity` or `bloom`. Determines how the diff is computed.                                                                              |
-| `local_extremity_event_ids` | [string] | If mode=extremity | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                         |
-| `have_event_ids`            | [string] | If mode=extremity | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                              |
-| `local_digest`              | string   | If mode=bloom     | The requesting server's Bloom filter digest.                                                                                                     |
-| `digest_type`               | string   | If mode=bloom     | The digest algorithm used.                                                                                                                       |
-| `digest_bits`               | integer  | If mode=bloom     | The bit-length of `local_digest`. MUST be a power of two, at most `2^23`.                                                                        |
-| `digest_window`             | integer  | If mode=bloom     | The active-window size used to build `local_digest`.                                                                                             |
-| `local_event_count`         | integer  | Yes               | The requesting server's total event count for this room.                                                                                         |
-| `max_depth_delta`           | integer  | No                | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.              |
-| `max_events`                | integer  | No                | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000. |
-| `limit`                     | integer  | No                | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                |
+<!-- markdownlint-disable MD013 -->
+
+| Field                       | Type     | Required             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| --------------------------- | -------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `mode`                      | string   | Yes                  | One of `extremity` or `sketch`. Determines how the diff is computed.                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `local_extremity_event_ids` | [string] | If mode=extremity    | The requesting server's current forward extremities. Included in the `have` set for the merge-base walk.                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `have_event_ids`            | [string] | If mode=extremity    | A sparse sample of event IDs the requester already has, used as stop conditions for the merge-base walk. See below.                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `frame_negotiation`         | bool     | No                   | If true, the responder negotiates a common frame and returns `frame_status`; use it when the advertised frame arrays differ.                                                                                                                                                                                                                                                                                                                                                                                             |
+| `frame_event_ids`           | [string] | If frame negotiation | The requester's current canonical frame anchor antichain. Required when `frame_negotiation` is true; also required in `sketch` mode.                                                                                                                                                                                                                                                                                                                                                                                     |
+| `frame_id`                  | string   | If mode=sketch       | Exact identifier of the frame used to construct the digest, sketch, and counts. The responder MUST reject an unknown or expired ID.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `local_digest`              | string   | If mode=sketch       | The requesting server's 16-byte accumulator for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `digest_type`               | string   | If mode=sketch       | The digest profile used. MUST be `algebraic_v1` for this MSC.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `local_known_event_count`   | integer  | If mode=sketch       | The requesting server's known-event count for the negotiated frame.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `estimated_delta`           | integer  | No                   | Sketch mode only. The requester’s local strata-based estimate of the frame delta. Responders MAY use it to sanity-check that the requested capacity is plausible before performing extraction.                                                                                                                                                                                                                                                                                                                           |
+| `requests`                  | [object] | If mode=sketch       | A list of dynamic-tree extraction requests. Each entry has `depth` (integer, `0..32`), `prefix` (integer, `0..2^depth-1`, the leading `depth` bits of `h_64`), and positive `capacity` (MUST NOT exceed 32). Entries MUST be transmitted in canonical key-space range order; duplicates MUST be rejected before subtraction. Entries MUST form an antichain — no entry's range may contain another's — and MUST be rejected before subtraction otherwise. The sum of `capacity` across all entries MUST NOT exceed 4096. |
+| `local_sketches`            | [string] | If mode=sketch       | Base64url-encoded syndrome sketches of the requester's known-event set, one per entry in `requests`, in the same order. A length mismatch against `requests` MUST be rejected before subtraction.                                                                                                                                                                                                                                                                                                                        |
+| `max_depth_delta`           | integer  | No                   | Extremity mode only. Positive integer. The maximum topological depth distance the peer is allowed to walk. Default 5000, max 50000.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `max_events`                | integer  | No                   | Extremity mode only. Positive integer. The maximum number of event IDs the peer is allowed to inspect before stopping. Default 10000, max 50000.                                                                                                                                                                                                                                                                                                                                                                         |
+| `limit`                     | integer  | No                   | Positive integer. Maximum number of event IDs to return. Default 1000, max 10000.                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
 ```json
 {
-  "probably_missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
-  "remote_event_count": 81247,
+  "missing_event_ids": ["$ghi789", "$jkl012", "$mno345"],
+  "requester_only_short_ids": ["base64url_8_byte_h64"],
+  "expected_requester_side_accumulator": "<base64url_16_byte_accumulator>",
+  "remote_known_event_count": 81247,
   "remote_extremity_event_ids": ["$abc123", "$pqr678"],
+  "frame_id": "<base64url_32_byte_frame_id>",
+  "frame_status": "not_requested",
+  "sketch_status": "decoded",
   "truncated": false
 }
 ```
 
 **Fields (response):**
 
-| Field                        | Type     | Required | Description                                                                                                                                                                                                             |
-| ---------------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `probably_missing_event_ids` | [string] | Yes      | Event IDs that the responding server has but the requesting server likely does not. In `bloom` mode, Bloom false positives can hide some missing events from this list; in `extremity` mode the returned IDs are exact. |
-| `remote_event_count`         | integer  | Yes      | The responding server's total event count.                                                                                                                                                                              |
-| `remote_extremity_event_ids` | [string] | Yes      | The responding server's current forward extremities.                                                                                                                                                                    |
-| `truncated`                  | bool     | Yes      | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling Truncation.                                                                       |
+<!-- markdownlint-disable MD013 -->
 
-**Diff Computation — Mode Selection:**
+| Field                                 | Type     | Required               | Description                                                                                                                                                                                                                                                     |
+| ------------------------------------- | -------- | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `missing_event_ids`                   | [string] | Yes                    | Event IDs that the responding server has but the requesting server does not. Returned IDs are exact in `sketch` mode when `sketch_status` is `decoded`, and in `extremity` mode when `truncated` is false; the list is complete only when `truncated` is false. |
+| `requester_only_short_ids`            | [string] | No                     | In `sketch` mode, decoded 8-byte `h_64` values that appear to be held only by the requester, encoded as unpadded base64url. This lets the requester verify and optionally push reverse repairs.                                                                 |
+| `expected_requester_side_accumulator` | string   | No                     | In `sketch` mode, `residual_digest XOR accumulator(responder_side)`, encoded as a 16-byte unpadded base64url value. The requester verifies this against the full event IDs it resolves from `requester_only_short_ids`.                                         |
+| `remote_known_event_count`            | integer  | Yes                    | The responding server's known-event count for the negotiated frame.                                                                                                                                                                                             |
+| `remote_extremity_event_ids`          | [string] | Yes                    | The responding server's current forward extremities.                                                                                                                                                                                                            |
+| `frame_id`                            | string   | Yes                    | The exact frame identifier used for the response.                                                                                                                                                                                                               |
+| `frame_status`                        | string   | If negotiation         | `common`, `none`, or `not_requested`. A `common` response selects `negotiated_frame_event_ids` for subsequent digest and diff operations.                                                                                                                       |
+| `negotiated_frame_event_ids`          | [string] | If frame_status=common | The complete canonical frame anchor antichain selected by negotiation.                                                                                                                                                                                          |
+| `inline_pdus`                         | [PDU]    | No                     | Optional full PDUs for `missing_event_ids`. Each PDU MUST be independently checked against its event ID; positional correspondence MUST NOT be trusted.                                                                                                         |
+| `sketch_status`                       | string   | No                     | `decoded`, `capacity_exceeded`, or `not_applicable`. Present for `sketch` mode. `capacity_exceeded` on a given `(depth, prefix)` node is the trigger for requesting its two children; see "Dynamic tree extraction," below.                                     |
+| `truncated`                           | bool     | Yes                    | Whether the result is incomplete — because `limit` was reached, a walk bound was reached, or the bounding checks failed. See Handling truncation.                                                                                                               |
+
+<!-- markdownlint-enable MD013 -->
+
+When `inline_pdus` is present, the responder MUST include only PDUs whose event
+IDs occur in `missing_event_ids` and MUST enforce the same per-event and total
+response-size limits as `room_events`. The requester MUST independently validate
+each inline PDU's event ID, room, hashes, signatures, authorization, and
+ancestry; it MUST NOT rely on array position or the responder's claimed
+association. If an inline PDU is absent, oversized, malformed, or fails
+validation, the requester MUST fetch that event through `room_events` or the
+ordinary federation event endpoints. Inline PDUs do not alter the state-map
+projection directly.
+
+#### Mode selection
 
 Servers SHOULD select the diff mode based on the `room_digest` comparison:
 
+- If the remote digest and `known_event_count` both match for the same frame,
+  the peers are synchronized for that frame and no diff is needed.
 - If the remote server's `extremity_event_ids` contain event IDs the local
-  server does not recognize → use `extremity` mode (frontier lag; the merge-base
-  walk will find the delta).
-- If the remote server's `extremity_event_ids` all match locally, but
-  `event_count` differs → use `bloom` mode (interior gap; extremities match but
-  events are missing inside the DAG).
-- If both extremities diverge AND event counts differ → use `extremity` mode
-  first (to resolve the frontier), then `bloom` mode (to patch interior gaps).
+  server does not recognize, the requester MAY use `extremity` mode to discover
+  the repair frontier, but MUST treat `truncated: true` as non-repair progress
+  until the walk reaches known ancestry.
+- Otherwise, or after frontier repair, use `sketch` mode. The requester
+  provisions the initial depth-0 request's `capacity` per the MSC4521 budget
+  from the cardinality estimate, or in the one-sided case from
+  `c = abs(local_known_event_count - remote_known_event_count)` directly.
 
-**Diff Computation — `extremity` mode:**
+#### `extremity` mode
 
 Once two servers determine their digests disagree, the protocol does not
 immediately request all missing data, which invites accidental backfill abuse.
@@ -322,108 +589,232 @@ An unbounded graph walk here is a denial-of-service vector. A large room with
 partial-state joins, rejected branches, and missing auth chains is not a clean
 tree; it is a damaged DAG with holes, and blind traversal lets a hostile peer
 trigger expensive walks that rediscover old history. Every walk is therefore
-bounded by two optional request parameters: `max_depth_delta` (the maximum
-topological depth distance the responder may walk) and `max_events` (the maximum
-number of event IDs it may inspect). If either field is omitted, the responder
-MUST apply the default from the request field table. A responder MUST stop as
-soon as any bound is reached and report `truncated: true` rather than silently
-escalating to deeper history traversal. Reconciliation is allowed to be
+bounded by `max_depth_delta` and `max_events`. If either field is omitted, the
+responder MUST apply the default from the request field table. A responder MUST
+stop as soon as any bound is reached and report `truncated: true` rather than
+silently escalating to deeper traversal. Reconciliation is allowed to be
 incomplete, but it MUST NEVER become unbounded.
 
 The responding server computes the diff as follows:
 
 1. Build the `have` set: the union of `local_extremity_event_ids` and
-   `have_event_ids`. These represent events the requester already possesses. The
-   combined `have` set MUST NOT exceed 256 entries; requests exceeding this MUST
-   be rejected with HTTP 400.
+   `have_event_ids`. The combined `have` set MUST NOT exceed 256 entries;
+   requests exceeding this MUST be rejected with HTTP 400.
 2. **Pre-flight validation:** Look up which `have` events exist in the local
    store (a batch of point lookups). If zero `have` events are recognized,
    immediately return an empty result with `truncated: true` rather than walking
    the DAG. This prevents a malicious requester from forcing a maximal walk by
-   sending fabricated `have` event IDs that don't exist in the responder's DAG.
+   sending fabricated `have` event IDs.
 3. **Topological bounding check (O(1)):** Compute
    `delta = local_extremity_depth - max(local_depth_of_valid_have_events)`,
    where `local_extremity_depth` is the maximum depth of the responder's own
    forward extremities. If `delta > max_depth_delta`, return an empty result
-   with `truncated: true`. This guarantees the responder only ever walks
-   bounded, recent history.
+   with `truncated: true`.
 4. Identify forward extremities the responder has that are NOT in the `have` set
    — these are the "want" events (tips unknown to the requester).
 5. Walk backwards from those unknown tips via `prev_events`, collecting event
    IDs not in the `have` set.
-6. **Stop conditions:** For each branch of the walk, stop when it reaches an
-   event ID that IS in the `have` set (the merge-base for that branch — events
-   at or before it are excluded from the result, as the requester already has
-   them), or when the branch's depth falls more than `max_depth_delta` below
-   `local_extremity_depth`.
+6. **Stop conditions:** For each branch, stop when it reaches an event ID that
+   IS in the `have` set (the merge-base for that branch — events at or before it
+   are excluded, as the requester already has them), or when the branch's depth
+   falls more than `max_depth_delta` below `local_extremity_depth`.
 7. **Safety limit:** If the walk inspects `max_events` event IDs before all
    branches terminate, it MUST stop and the response MUST set `truncated: true`.
 8. Return the collected event IDs in reverse topological order, up to `limit`.
 
 Servers MUST reject zero, negative, non-integer, or over-cap `max_depth_delta`,
 `max_events`, and `limit` values with HTTP 400. Servers MUST enforce
-`max_depth_delta <= 50000`, `max_events <= 50000`, and `limit <= 10000`.
-Servers SHOULD also maintain per-peer, per-room accounting of inspected events
-over a rolling window (for example, 60 seconds) and reject requests that would
-exceed a cumulative budget (RECOMMENDED: 100,000 inspected events per peer per
-room per minute). The cumulative budget prevents an attacker from issuing many
-small requests that each walk just under the per-request limit.
+`max_depth_delta <= 50000`, `max_events <= 50000`, and `limit <= 10000`. Servers
+SHOULD also maintain per-peer, per-room accounting of inspected events over a
+rolling window (for example, 60 seconds) and reject requests that would exceed a
+cumulative budget (RECOMMENDED: 100,000 inspected events per peer per room per
+minute), so that many small requests cannot each walk just under the per-request
+limit.
 
-**Handling Truncation (requesting server):**
-
-On `truncated: true`, the requester MUST NOT immediately retry an identical
-request. If the response is non-empty, the requester SHOULD fetch and persist
-the returned events, then re-run the diff with an updated `have` sample. If
-progress stalls or the response is empty, the bounds were insufficient: the
-requester MAY retry with larger `max_depth_delta`/`max_events` (up to the caps),
-and otherwise SHOULD fall back to `bloom` mode or existing `/backfill`, applying
-back-off between attempts.
-
-**Constructing the `have` set (requesting server):**
-
-The requesting server constructs `have_event_ids` as a sparse,
-exponentially-spaced sample of event IDs it already possesses, working backwards
-from its extremities:
+**Constructing the `have` set (requesting server).** The requester builds
+`have_event_ids` as a sparse, exponentially-spaced sample of event IDs it
+already possesses, working backwards from its extremities:
 
 1. Start from each local extremity and walk backwards via `prev_events`.
 2. Sample event IDs at exponentially increasing depth intervals: the first
-   event, then 1 step back, 2 steps, 4 steps, 8 steps, 16 steps, etc.
+   event, then 1 step back, 2 steps, 4, 8, 16, and so on.
 3. Stop sampling after 32 samples per extremity, or when the walk reaches the
    room's create event.
 
-This produces approximately 32×E event IDs (where E is the number of
-extremities, typically 1–5), totaling 32–160 event IDs. The exponential spacing
-ensures:
+This produces at most approximately 32×E event IDs (where E is the number of
+extremities, typically 1–5), totaling 32–160 event IDs, giving dense coverage
+near the frontier where divergence is most likely and sparse coverage deep in
+the DAG where both servers are likely synchronized. The logarithmic sample count
+is a property of this bounded per-extremity traversal, not a universal
+convergence bound; actual work depends on DAG depth, extremity count, merge-base
+location, and the configured limits. In practice the responder often finds a
+merge-base within the first few hundred events of its backward walk.
 
-- Dense coverage near the frontier (where divergence is most likely)
-- Sparse coverage deep in the DAG (where both servers are likely synchronized)
-- O(log N) total samples for a DAG of depth N
-- The responder is highly likely to find a merge-base within the first few
-  hundred events of its backward walk, making the algorithm O(delta) in practice
-  — proportional to the number of missing events, not the total room size
+#### `sketch` mode
 
-**Diff Computation — `bloom` mode:**
+The responding server:
 
-In `bloom` mode, the responding server:
+1. Validates that `digest_type` is `algebraic_v1`, `local_digest` is exactly 16
+   decoded bytes, `requests` is a well-formed array of
+   `(depth, prefix, capacity)` entries in canonical key-space range order with
+   no duplicates and no entry's range containing another's (an antichain), each
+   entry's `capacity` does not exceed 32, the sum of `capacity` across
+   `requests` does not exceed 4096, and the request frame matches the
+   responder's digest frame.
+2. Computes `residual_digest = remote_digest XOR local_digest`.
+3. Computes `c = abs(remote_known_event_count - local_known_event_count)`. If
+   `residual_digest` is zero and `c` is zero, returns an empty decoded response.
+4. Validates that `local_sketches` has the same length as `requests`, and that
+   each sketch is exactly `8 * capacity` bytes for its corresponding entry.
+5. For each entry in `requests`, produces a syndrome sketch over the subset of
+   its own known-event set whose `h_64(e)` has `prefix` as its leading `depth`
+   bits, at that entry's `capacity`. Per MSC4521, this subset MUST be
+   materialized via an `h_64`-sorted index (a range slice), not a
+   full-population scan per request.
+6. Subtracts each of the requester's sketches from its corresponding
+   responder-side sketch and decodes the symmetric difference as 64-bit short
+   identifiers, per MSC4521.
+7. Partitions the decoded short identifiers into `responder_side` and
+   `requester_side`. For `responder_side`, the responder resolves each short ID
+   to a full event ID it holds and computes the 128-bit accumulator over those
+   full event IDs. For `requester_side`, it returns only the short IDs, because
+   it cannot compute the corresponding accumulator without the full event IDs.
+8. Returns responder-side full IDs as `missing_event_ids`, requester-side short
+   IDs as `requester_only_short_ids`, and
+   `expected_requester_side_accumulator = residual_digest XOR accumulator(responder_side)`.
+   The requester resolves the short IDs it holds, verifies their 128-bit
+   accumulator against `expected_requester_side_accumulator`, and MAY use those
+   events as reverse repair candidates for the responder.
+9. If any entry's sketch exceeds its capacity, sets
+   `sketch_status: "capacity_exceeded"` and `truncated: true`.
 
-1. Validates the filter: `digest_bits` MUST be a power of two no greater than
-   `2^23` and MUST equal eight times the decoded byte length of `local_digest`;
-   otherwise the request MUST be rejected with HTTP 400.
-2. Selects its `W` most recent events by topological depth, where `W` is the
-   smaller of its own digest window and the request's `digest_window`.
-   Restricting the test to the smaller window avoids spuriously reporting events
-   as "missing" merely because they fall outside the requester's digest window.
-3. Tests each selected event ID against the requester's filter, computing bit
-   positions modulo `digest_bits`.
-4. Event IDs that are NOT in the filter are probably missing from the requester.
-5. Returns those event IDs up to `limit`, ordered by topological depth (oldest
-   first).
+**Dynamic tree extraction.** A `capacity_exceeded` result for a given
+`(depth, prefix)` node is the trigger for localization, not a terminal failure.
+The requester issues a further `sketch` request with two new `requests` entries
+at `depth + 1`, for prefixes `2 * prefix` and `2 * prefix + 1` — the overflowing
+node's two children — instead of raising that node's own capacity. A child that
+itself overflows is split the same way, one depth deeper. Because each split
+strictly partitions its parent's population, recursion terminates: worst case at
+`depth = 32`, where the profile's depth cap is reached. No precondition beyond
+the usual frame agreement is required for this — every result is independently
+verified against the 128-bit accumulator per MSC4521, not inferred from graph
+structure, so there is nothing analogous to a probabilistic fallback's
+extremity-convergence requirement.
 
-**Authorization:**
+The requester SHOULD use the strata-estimated `d̂` from the preflight digest to
+size the initial depth-0 request's _capacity_ (bounded by the per-entry cap of
+32, above) — not its depth. This spec always starts a `sketch` exchange at depth
+0 and splits one level at a time on `capacity_exceeded`. This is an efficiency
+choice, not a correctness one: an under-provisioned node produces
+`sketch_status: "capacity_exceeded"` for that node specifically, which is
+exactly the trigger for the next split, not a lost result. The frontier queue
+described above is what keeps those deferred children available across rounds.
 
-Same as `room_digest` — the requesting server MUST be a participant in the room.
+**This has a latency cost that is worth stating in concrete terms — and a
+per-branch depth count understates it.** Each round is capacity-bounded: the
+aggregate cap (4096) limits any single round to at most `4096 / 32 = 128` new
+node-decodes. A node only stops needing further splitting once its local count
+is ≤32, so fully localizing a difference of size `d` requires roughly `d / 32`
+successful node-decodes in total — and at most 128 of those fit in one round.
+That gives a round-count floor of `d / 4096`, independent of how many depth
+levels are involved: **~123 rounds at `d = 500,000`, ~2,442 at
+`d = 10,000,000`.** A depth count alone (`log2(d/32)` ≈ 14 and ≈18 respectively)
+understates this badly: it only holds while the frontier is narrower than the
+aggregate cap allows, which stops being true once the frontier passes 128 nodes
+— around depth 7. Each round is gated on the previous response, so at typical
+federation RTT (50–200 ms) this is many seconds to tens of seconds for the
+differences dynamic tree extraction is meant to handle.
 
-### 3. Bulk Event Fetch: `POST /_matrix/federation/v1/room_events/{roomId}`
+Choosing a smarter starting depth from `d̂` cannot fix this: the best a different
+starting point can do is skip the ramp-up below the 128-node aggregate ceiling —
+at most ~7 rounds, against a floor already in the hundreds. The floor is a
+throughput bound (total decodes ÷ per-round decode cap), not a latency bound
+(how many depth levels are walked), and no starting-depth choice changes total
+decode throughput. This spec therefore does not define d̂-driven initial depth:
+the ~7-round saving it could offer is not worth the added spec surface against a
+floor it cannot move.
+
+**The floor implies a hard precondition, not just a documented cost.** Roughly
+`d̂ / 4096` rounds are needed regardless of strategy, so a requester whose round
+budget cannot cover `d̂` MUST NOT begin a `sketch` exchange for that difference
+at all. Concretely: a requester MUST compare `d̂` from the preflight digest
+against `round_cap * 4096` — using this MSC's round cap of 20 (see
+"Amplification via oversized sketches," below), that consumer-derived
+illustration is **~82,000 elements** — and MUST route to `extremity` mode,
+backfill, or frame extension instead of `sketch` mode when `d̂` exceeds it. If
+the requester only has `c`, it MAY substitute `c` only when it has independent
+evidence that the divergence is one-sided; otherwise `c` is not a safe
+replacement. This is the load-bearing check: it stops a peer from starting a
+round sequence it cannot finish, rather than letting it discover that dozens of
+rounds in. See "Scope" in MSC4521 for the corresponding profile-level guidance.
+
+**~82,000 is a strict ceiling on capacity units, not a realizable
+elements-per-round throughput figure.** MSC4521's capacity provisioning formula
+(`k = min(32, ⌈1.5c⌉ + 4 + ...)`) means a fully-provisioned node's 32 units of
+capacity carry roughly 18 elements of actual difference once measurement slack
+and the per-node floor are accounted for, not 32; and per-round throughput is
+further reduced because prefix occupancy across nodes is probabilistic rather
+than uniform (see MSC4521's
+[Capacity provisioning](4521-algebraic-set-reconciliation.md#capacity-provisioning)
+and [Scalability](4521-algebraic-set-reconciliation.md#scalability)), so some
+nodes overflow and split while others stay underfull within the same round. A
+`d̂` that passes this precondition by a small margin can still exhaust the round
+budget in practice before draining the queue. Implementations SHOULD apply a
+margin below the nominal `round_cap * 4096` ceiling when deciding whether to
+attempt `sketch` mode, rather than treating ~82,000 as a realistic per-round
+throughput target.
+
+#### Causal closure and truncation
+
+A recovery set can be integrated iff it is downward-closed relative to the
+requester's existing store and the returned identifiers have retrievable,
+validated PDUs. Exact set recovery satisfies this for the whole difference only
+when the frame's retained event bodies and required auth-chain dependencies are
+available; a rejected tombstone records knowledge of an ID but cannot itself be
+integrated as an event. A truncated backward walk from the responder's frontier
+does not: it collects descendants before ancestors, so its minimal returned
+events may still have parents in neither the requester's store nor the returned
+set. Such a walk can transfer useful bytes, but it does not repair the DAG until
+it reaches known ancestry. Responders MUST therefore report `truncated: true`,
+and requesters MUST NOT treat a truncated walk as resolving the gap.
+
+**Handling truncation (requesting server).** On `truncated: true`, the requester
+MUST NOT immediately retry an identical request. If the response is non-empty,
+the requester SHOULD fetch and persist the returned events, then re-run the diff
+with an updated `have` sample. If progress stalls or the response is empty, the
+bounds were insufficient: the requester MAY retry with larger
+`max_depth_delta`/`max_events` (up to the caps), and otherwise SHOULD fall back
+to `sketch` mode or existing `/backfill`, applying back-off between attempts.
+
+**Authorization.** Same as `room_digest` — the requesting server MUST be a
+participant in the room.
+
+### Membership divergence handling
+
+If a request is rejected because the responding and requesting servers disagree
+about room membership, the rejection MUST be distinguishable from a generic
+authorization failure. A plain `M_FORBIDDEN` deadlocks recovery: the requester
+cannot learn which membership event it needs in order to reconcile the
+membership view that caused the denial.
+
+In that case, the responding server SHOULD return a structured error body naming
+the membership event IDs it used to make the decision, limited to events about
+the requesting server's own membership or other authorization-relevant events
+already known to the requester:
+
+```json
+{
+  "errcode": "M_MEMBERSHIP_DIVERGENCE",
+  "error": "membership view differs between peers",
+  "membership_event_ids": ["$membership_event_1", "$membership_event_2"]
+}
+```
+
+This does not leak additional private room history: the event IDs are only for
+membership events already implicated in the authorization decision, and they
+give the requester a concrete target for subsequent reconciliation.
+
+### Bulk event fetch: `POST /_matrix/federation/v1/room_events/{roomId}`
 
 Given a set of event IDs, returns the full events and their auth chain events in
 topological order, suitable for direct insertion into the local store.
@@ -444,11 +835,15 @@ POST /_matrix/federation/v1/room_events/{roomId}
 
 **Fields (request):**
 
+<!-- markdownlint-disable MD013 -->
+
 | Field                | Type     | Required | Description                                                                                                                                                                                               |
 | -------------------- | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `event_ids`          | [string] | Yes      | The event IDs to fetch. Maximum 500 per request.                                                                                                                                                          |
 | `include_auth_chain` | bool     | No       | If true, the response includes auth chain events that the requesting server might not have. Default true.                                                                                                 |
 | `known_event_ids`    | [string] | No       | Event IDs the requesting server already has. When walking auth chains, the responding server SHOULD stop at events in this set (the graph intersection), avoiding redundant transfer. Default empty list. |
+
+<!-- markdownlint-enable MD013 -->
 
 **Response:**
 
@@ -462,37 +857,47 @@ POST /_matrix/federation/v1/room_events/{roomId}
         { "...PDU..." }
     ],
     "missing_event_ids": [
-        "$unknown999"
+      "$unknown999"
+    ],
+    "rejected_tombstones": [
+      { "event_id": "$rejected123", "reason": "auth_failed" }
     ]
 }
 ```
 
 **Fields (response):**
 
-| Field               | Type     | Required | Description                                                                                                                                      |
-| ------------------- | -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `events`            | [PDU]    | Yes      | The requested events, in topological order (dependencies before dependants). Each event is a full, signed PDU.                                   |
-| `auth_chain_events` | [PDU]    | Yes      | Auth chain events for the returned events that are not in the `events` list. Also in topological order. Empty if `include_auth_chain` was false. |
-| `missing_event_ids` | [string] | Yes      | Event IDs from the request that the responding server does not have.                                                                             |
+<!-- markdownlint-disable MD013 -->
 
-**Event Ordering:**
+| Field                 | Type     | Required | Description                                                                                                                                                 |
+| --------------------- | -------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `events`              | [PDU]    | Yes      | The requested events, in topological order (dependencies before dependants). Each event is a full, signed PDU.                                              |
+| `auth_chain_events`   | [PDU]    | Yes      | Auth chain events for the returned events that are not in the `events` list. Also in topological order. Empty if `include_auth_chain` was false.            |
+| `missing_event_ids`   | [string] | Yes      | Event IDs from the request that the responding server does not have.                                                                                        |
+| `rejected_tombstones` | [object] | Yes      | Rejected event IDs known to the responder but not available as PDUs. Each entry contains `event_id` and a stable rejection `reason`. Empty when none apply. |
 
-Events in both `events` and `auth_chain_events` MUST be returned in topological
-order such that for any event E, all events referenced by E's `auth_events` and
-`prev_events` appear earlier in the combined list (auth_chain_events
-concatenated with events). This allows the requesting server to process events
-in a single pass without dependency resolution.
+<!-- markdownlint-enable MD013 -->
 
-**Authorization:**
+**Event ordering.** Events in both `events` and `auth_chain_events` MUST be
+returned in topological order. For any event E, each referenced `auth_events` or
+`prev_events` event that is included in the response MUST appear earlier in the
+combined list (`auth_chain_events` concatenated with `events`). References to
+events identified by the requester's `known_event_ids` MAY be omitted from the
+response and need not appear in the combined list. The requester MUST still
+verify that those dependencies are present locally before admitting E.
 
-Same as `room_digest`. Additionally, the responding server MUST NOT return
-events that the requesting server would not be allowed to see (e.g., events sent
-after the requesting server's last member left the room, per existing history
-visibility rules).
+**Authorization.** Same as `room_digest`. Additionally, the responding server
+MUST NOT return events that the requesting server would not be allowed to see
+(e.g. events sent after the requesting server's last member left the room, per
+existing history visibility rules).
 
-### Reconciliation Protocol
+The requester MUST persist each `rejected_tombstones` entry in its frame-scoped
+known-event store before the exchange completes. Tombstone reasons are
+diagnostic metadata and are not used to resolve room state. A responder MUST
+return a tombstone instead of repeatedly returning the same rejected ID as a
+fetchable event; this prevents permanent digest mismatches and fetch loops.
 
-The full reconciliation flow between two servers is:
+### Reconciliation protocol
 
 ```text
     Server A (lagging)                        Server B (ahead)
@@ -504,17 +909,18 @@ The full reconciliation flow between two servers is:
          │<────────────────────────────────────────│
          │                                         │
          │  [Compare: digests differ?              │
-         │   extremities unrecognized?]            │
+         │   counts differ? extremities unknown?]  │
          │                                         │
          │  POST /room_diff/{roomId}               │
-         │  { mode: "extremity",                   │
-         │    local_extremity_event_ids: [...],    │
-         │    have_event_ids: [...],               │
-         │    max_depth_delta: 5000,               │
-         │    max_events: 10000 }                  │
+         │  { mode: "sketch",                      │
+         │    local_digest: "...",                 │
+         │    local_known_event_count: 81000,      │
+         │    requests: [{depth: 0, prefix: 0,     │
+         │                capacity: 32}],          │
+         │    local_sketches: ["..."] }            │
          │────────────────────────────────────────>│
          │                                         │
-         │  200 OK { probably_missing: [...] }     │
+         │  200 OK { missing_event_ids: [...] }    │
          │<────────────────────────────────────────│
          │                                         │
          │  POST /room_events/{roomId}             │
@@ -531,306 +937,275 @@ The full reconciliation flow between two servers is:
          │                                         │
 ```
 
-**Short-circuit optimization:** If the `room_digest` response shows identical
-`extremity_event_ids` and `event_count` values, the requesting server MAY skip
-the diff and event fetch phases entirely.
+**Short-circuit optimization.** If the `room_digest` response shows an identical
+`digest` and `known_event_count` for the same frame, the requesting server MAY
+skip the diff and event fetch phases entirely. This is the common no-difference
+path and costs 16 accumulator bytes plus the count field.
 
-### Gossip Scheduling
+**Algebraic preflight.** A recent MSC4521 sketch result for the same room and
+frame MAY be used as an earlier backoff signal for that peer/room pair once the
+receiver has deterministically resolved the returned `requester_only_short_ids`
+to the same full event IDs in its local store and verified the
+`expected_requester_side_accumulator` against that local set. This is only a
+hint: it can suppress an otherwise redundant `room_digest` poll or delay the
+next `room_diff` attempt, but it MUST NOT be treated as proof of equality across
+different frames or as a replacement for `room_digest`/`room_diff`. The hint
+expires with the same local cache policy used for other unsupported or stale
+synchronization signals.
+
+### Gossip scheduling
 
 Servers SHOULD implement periodic gossip-based reconciliation for active rooms.
-To prevent cluster-wide "thundering herd" reconciliation waves after large
-homeserver restarts or network partition recovery, implementations MUST apply a
-randomized jitter of ±15% to all scheduling intervals, including backed-off
-intervals. The recommended strategy is:
+Normative requirements:
 
-1. **Trigger-based gossip:** When a server detects potential divergence (e.g., a
-   state resolution produces an unexpected result, or a received event
-   references unknown `prev_events`), it SHOULD immediately initiate
-   reconciliation with the event's origin server.
+- Implementations MUST apply randomized jitter of ±15% to all scheduling
+  intervals, including backed-off intervals, to prevent cluster-wide thundering
+  herds after large homeserver restarts or partition recovery.
+- Peers SHOULD be selected using a weighted random strategy with a uniform
+  floor: `Pr(select i) = (1 - epsilon) * weight_i + epsilon / N`, with
+  `epsilon >= 0.05` unless local policy has a measured reason to choose
+  otherwise. The uniform floor is not a fairness heuristic; it is the condition
+  that prevents hub-weighted peer choice from becoming an eclipse surface.
+- Servers SHOULD select at least `f = 3` peers per round for active rooms unless
+  local policy requires a lower rate.
+- When a server detects potential divergence — a state resolution producing an
+  unexpected result, or a received event referencing unknown `prev_events` — it
+  SHOULD immediately initiate reconciliation with the event's origin server.
+- If a peer returns identical digests across 3 consecutive polls, the server
+  SHOULD exponentially back off that peer/room pair, to a maximum of 24 hours.
+  Any new event in the room resets the back-off.
 
-2. **Periodic anti-entropy:** Servers SHOULD periodically select a random subset
-   of active rooms and a random peer for each, and perform the digest comparison
-   phase. The recommended interval is:
-   - Every 60 seconds for rooms with recent activity (events in the last 5
-     minutes)
-   - Every 300 seconds for rooms with moderate activity (events in the last
-     hour)
-   - Every 3600 seconds for idle rooms
+Recommended polling intervals, peer weighting inputs, and the
+eclipse-probability analysis behind `f` and `epsilon` are in the architecture
+note.
 
-3. **Peer selection:** For each reconciliation round, the server SHOULD select
-   peers using a weighted random strategy, preferring:
-   - Servers that originated the most recent events (most likely to be ahead)
-   - Servers that previously returned divergent digests (known to have different
-     data)
-   - Backbone/hub servers with high availability (most likely to have complete
-     DAGs)
+### `ETag` optimization
 
-4. **Back-off:** If a peer returns identical digests (no divergence) across 3
-   consecutive polls, the server SHOULD exponentially back off the
-   reconciliation interval for that peer/room pair, up to a maximum of 24 hours.
-   Any new event received in the room resets the back-off.
-
-### ETag Optimization for Digest Polling
-
-To minimize bandwidth for digest polling, the `room_digest` endpoint supports
-conditional requests:
-
-**Request with ETag:**
+To minimize bandwidth for digest polling, `room_digest` supports conditional
+requests:
 
 ```http
 GET /_matrix/federation/v1/room_digest/{roomId}
-If-None-Match: "xxh3:abc123def456"
+If-None-Match: "algv1:abc123def456"
 ```
-
-**Response (no change):**
 
 ```http
 HTTP/1.1 304 Not Modified
-ETag: "xxh3:abc123def456"
+ETag: "algv1:abc123def456"
 ```
 
-The ETag MUST NOT be derived from the Bloom filter digest (which would require
-computing the full filter just to evaluate the conditional request, defeating
-the purpose of a fast 304 check). Instead, the ETag MUST be computed as:
+The ETag is derived from the incrementally maintained level-0 accumulator and
+the current extremity frontier:
 
-> `unpadded_base64url(room_xor_sum || XXH3-64(sorted(extremity_event_ids)))`
+```text
+unpadded_base64url(digest || implementation_defined_frontier_hash[0:8])
+```
 
-- `room_xor_sum` is the bitwise XOR of `XXH3-128(event_id)` over all event IDs
-  currently in the room's event store — a fixed 16-byte value. XOR is
-  commutative and associative, so the sum is maintained incrementally in O(1)
-  whenever an event is persisted or purged.
-- The `sorted(extremity_event_ids)` component is defense-in-depth: even if two
-  different event sets collide in `room_xor_sum`, differing frontiers still
-  change the ETag.
+`digest` is the 16-byte accumulator over `K` for the frame. The frontier
+component is defense-in-depth: even if two different known-event sets collide in
+the accumulator, differing frontiers still change the ETag.
 
-If both components match, the two event sets are identical except with
-negligible probability (an accidental collision of XORed 128-bit hashes). The
-ETag is a cache-validation hint, not a security boundary: a spurious 304 merely
-delays reconciliation until the next poll, and the `xxh3_bloom` digest
-comparison remains authoritative. The server evaluates the conditional request
-in O(E), where E is the number of extremities (typically 1–5), using the
-incrementally maintained `room_xor_sum` — without touching the event store or
-computing the Bloom filter.
+The frontier hash is implementation-defined because ETags are opaque and are
+only compared against the same responder's later `If-None-Match` value. Servers
+wanting byte-stable behavior across implementations SHOULD use Matrix canonical
+JSON over bytewise-sorted `extremity_event_ids`, hashed with SHA-256, truncated
+to the first 8 bytes.
 
-If the computed ETag matches the `If-None-Match` header, the server MUST return
-HTTP 304 with no body. This reduces the reconciliation polling cost to a single
-HTTP round-trip with a ~50 byte response for rooms that are already
-synchronized.
+Requesting servers MUST NOT send `If-None-Match` on
+`/_matrix/federation/v1/room_digest/{roomId}/strata` requests. The strata
+preflight is a distinct representation, and it must be fetched unconditionally
+when a requester needs sketch-sizing data.
 
-**Why this bridges both failure modes:** The ETag is deliberately constructed so
-that both frontier lag and interior gaps produce a cache miss. If a server falls
-behind, its extremities differ from the remote server's, changing the ETag. If a
-server has Swiss cheese gaps behind identical extremities, its `room_xor_sum`
-differs instead. The digest polling phase therefore detects divergence
-regardless of its topological structure, triggering the appropriate diff mode.
+If the computed ETag matches `If-None-Match`, the server MUST return HTTP 304
+with no body. The server evaluates the conditional request in O(E), where E is
+the number of extremities (typically 1–5), using the incrementally maintained
+accumulator — without touching the event store or computing a sketch. This
+reduces polling for a synchronized room to a single round-trip with a ~50 byte
+response.
+
+The ETag is a cache-validation hint, not a synchronization guarantee: a `304`
+means only that the responder's view has not changed since the requester last
+observed it. It does not imply the two servers agree. This statement concerns
+accidental collisions only. The accumulator does not stop a malicious peer from
+faking agreement, and reconciliation does not rely on it to; see Accumulator
+integrity, below, for what actually protects against one.
+
+Requesting servers SHOULD cache the peer's ETag together with their own local
+accumulator at the time of caching. They MUST NOT send `If-None-Match` if their
+own accumulator has changed since the ETag was cached, or if the most recent
+reconciliation round for that peer and room terminated with `truncated: true`.
+To avoid indefinite stalling on a quiescent peer, the requesting server MUST
+force an unconditional digest comparison at least once every 16 consecutive
+`304` responses per peer and room.
 
 ## Potential issues
 
-### Performance Under Adversarial Conditions
+### Performance resilience
 
-A malicious server could abuse the reconciliation endpoints to cause resource
-exhaustion:
+- **Digest computation cost.** The accumulator and resident strata estimator are
+  maintained incrementally when events are persisted or purged, per MSC4521.
+  Dynamic-tree node sketches are computed on demand, not maintained resident.
+  Implementations that do not maintain the resident structure may need to scan
+  room history to answer `sketch` requests and SHOULD apply stricter rate
+  limits.
+- **Diff amplification.** A malicious requester can overstate `requests`
+  capacities, force repeated tree splits, or ask for large `limit` values.
+  Servers MUST reject a `sketch` request whose aggregate `requests` capacity
+  exceeds 4096, and MUST cap `limit`, response bytes, and per-peer CPU time.
+- **Bulk fetch abuse.** `room_events` returns full PDUs, which can be large. The
+  500-event cap and standard federation rate limiting mitigate this.
 
-- **Digest computation cost:** Computing the Bloom filter requires iterating
-  over all event IDs in the room. For rooms with 100K+ events, this could be
-  expensive. Servers SHOULD cache the digest and invalidate it only when new
-  events are persisted.
+### Frame negotiation
 
-- **Diff amplification:** A malicious server could send a nearly-empty Bloom
-  filter, causing the responding server to return its entire event ID list. The
-  `limit` parameter caps this, and servers SHOULD rate-limit diff requests per
-  room per peer.
+Frame negotiation is bounded by the `extremity` request limits and point lookups
+for the supplied anchors. Repeated leave/rejoin cycles may produce an antichain
+rather than a single anchor; the negotiated value is therefore always the
+complete anchor array. Retention and history purging can make the common frame
+unavailable, in which case the protocol deliberately reports
+`frame_status: "none"` and hands the room to frame extension or backfill.
 
-- **Bulk fetch abuse:** The `room_events` endpoint returns full PDUs, which
-  could be large. The 500-event-per-request cap and standard federation rate
-  limiting mitigate this.
-
-### Active Window Trade-offs
-
-The active window approach (digesting only the top `W` events by depth) means
-that divergence in old history is invisible to the Bloom filter. This is an
-intentional trade-off:
-
-- Divergence in old history is rare (the DAG bottom is stable once fully
-  replicated)
-- The `extremity` diff mode catches frontier divergence regardless of the window
-- If deep-history reconciliation is needed, the server can increase
-  `digest_window` or fall back to a full `/state_ids` comparison
-- The dynamic filter sizing (`m ≈ 6.235 * W` bits) guarantees a consistent ~5%
-  false positive rate regardless of window size, preventing the saturation
-  problem entirely
-
-### Consistency During Active Rooms
+### Consistency in active rooms
 
 If a room is actively receiving events during reconciliation, the
 digest/diff/fetch sequence may return stale data. This is acceptable — gossip
-protocols are inherently eventually consistent, and the next reconciliation
-round will catch up. Servers MUST NOT block event processing during
-reconciliation.
+protocols are eventually consistent, and the next round catches up. Servers MUST
+NOT block event processing during reconciliation.
 
-### Interaction with Partial State Joins
+### Interaction with partial state joins
 
 Servers in the process of a partial state join (MSC3706) SHOULD NOT initiate
 reconciliation for that room until the full state resync is complete. They MAY
-respond to incoming reconciliation requests with the events they have, but
-SHOULD set a response header `X-Matrix-Partial-State: true` to indicate that
-their digest/diff is incomplete.
+respond to incoming requests with the events they have, but MUST NOT use a
+normal `algebraic_v1` digest for the fully joined frame. They SHOULD return HTTP
+409 with `M_PARTIAL_STATE`, or advertise a distinct partial-state frame and set
+`X-Matrix-Partial-State: true` to indicate that their digest/diff is incomplete.
 
 ## Alternatives
 
-### Using `/make_join` as a Reconciliation Probe
+The design space — `/make_join` probing, full Merkle synchronization, Bloom
+filters, mandatory RIBLT, and server-initiated push — is analysed in the
+architecture note. Summary of the conclusions:
 
-An alternative approach is to abuse the existing `/make_join` endpoint as a
-zero-mutation DAG probe. By calling `/make_join` with a throwaway user ID, a
-server can obtain the remote server's current `prev_events` (DAG tips) and
-`auth_events` without performing any mutations.
-
-This approach has the advantage of requiring no spec changes. However:
-
-1. It only reveals extremity divergence, not interior gaps (events missing from
-   the middle of the DAG)
-2. It creates spurious `make_join` traffic that obscures real join attempts in
-   server logs
-3. It does not scale — there is no ETag/conditional-request support, and the
-   response includes a full PDU template that must be serialized and discarded
-4. It abuses an endpoint designed for a different purpose, creating confusion
-   about intent
-
-The gossip reconciliation protocol proposed here addresses all of these
-limitations while remaining lightweight enough for periodic polling.
-
-### Full Merkle Tree Synchronization
-
-A more sophisticated approach would use Merkle trees over the event ID space
-(similar to Cassandra's anti-entropy repair). Each server would maintain a
-Merkle tree where leaves are event IDs and internal nodes are hashes of their
-children. Two servers could then efficiently identify divergent subtrees in
-O(log N) rounds.
-
-This was rejected for the initial proposal because:
-
-1. It requires persistent auxiliary data structures (the Merkle tree) that must
-   be maintained across restarts
-2. The interactive multi-round protocol is more complex to implement and reason
-   about
-3. The Bloom filter + extremity-walk approach achieves similar practical
-   efficiency for the common case (small divergences) with much lower
-   implementation complexity
-4. Merkle tree reconciliation can be introduced as a future `digest_type`
-   without changing the protocol structure
-
-### Why Not Invertible Bloom Filters?
-
-Invertible Bloom Lookup Tables (IBLTs) are an attractive alternative because
-they can recover missing event IDs directly from the digest exchange when the
-set difference is small. While this is a useful optimization, it is the wrong
-primitive to mandate for baseline room reconciliation.
-
-Matrix federation failures are rarely limited to small-delta events. The
-scenarios this proposal is designed to survive include spam storms, network
-partitions, rejected-event cascades, and partial-state resync failures. Under
-these conditions, the difference set can easily exceed the decode capacity of an
-invertible filter. Once the decode capacity is exceeded, the filter fails
-sharply, requiring the protocol to fall back to a bounded graph walk anyway.
-
-Therefore, this proposal relies on standard Bloom filters for cheap divergence
-detection and membership testing, followed by a bounded merge-base walk to
-locate the actual repair frontier. Future MSCs MAY define an `ibl_bloom`
-`digest_type` value as an optimization for small differences, but baseline
-correctness MUST NOT depend on invertible-filter decoding success.
-
-### Server-Initiated Push Reconciliation
-
-Instead of pull-based reconciliation, servers could proactively push digests to
-peers when their DAG advances (rumor-mongering). This was rejected because:
-
-1. It creates O(servers²) traffic in active rooms
-2. It requires all servers to process incoming digests even when they are
-   already synchronized
-3. Pull-based reconciliation naturally rate-limits itself — a server only
-   reconciles when it chooses to, and only with one peer at a time
+- **`/make_join` as a probe** requires no spec changes but reveals only
+  extremity divergence, not interior gaps, and abuses an endpoint designed for a
+  different purpose.
+- **Full Merkle synchronization** treats reconciliation as a set-membership
+  problem when it is a graph repair problem; it also requires persistent
+  auxiliary state and adds write amplification. It remains available later as a
+  separate `digest_type`.
+- **Bloom filters** are rejected outright: they are not group-valued, so peers
+  cannot subtract them, false positives are silent, and a larger filter restarts
+  rather than extends an exchange. A salted, extremity-gated `bloom_v1` fallback
+  was drafted and discarded in favor of dynamic tree extraction, which handles
+  the same heavy-tail case without giving up exactness.
+- **RIBLT** is in the same group-valued family as PinSketch and would preserve
+  exact recovery, but requires its own wire format (signed counts, overflow
+  bounds, chunk authentication, a termination rule) and a second decoder to be
+  safe against an adversarial peer. Dynamic tree extraction (see "Dynamic tree
+  extraction" above) reuses the depth-0 sketch mechanism and decoder instead,
+  recursively subdividing only overflowing nodes, and stays exact with no second
+  decoder and no capacity guess.
+- **Push reconciliation** creates O(servers²) traffic and forfeits the natural
+  self-rate-limiting of pull.
 
 ## Security considerations
 
-### Information Disclosure
+### Information disclosure
 
-The `room_digest` endpoint reveals metadata about a server's event store: event
-count, depth range, timestamp range, and forward extremities. This metadata
-could be used to fingerprint server implementations or estimate room activity
-patterns. However:
+`room_digest` reveals metadata about a server's event store: event count, depth
+range, timestamp range, and forward extremities. This could be used to
+fingerprint implementations or estimate room activity. However, this information
+is already implicitly available through `/state_ids`, `/backfill`, and `/event`;
+access is restricted to room participants; and the accumulator does not reveal
+individual event IDs.
 
-- This information is already implicitly available through existing endpoints
-  (`/state_ids`, `/backfill`, `/event`)
-- Access is restricted to servers that are participants in the room
-- The Bloom filter digest does not reveal individual event IDs (only membership
-  in the set)
+### Denial of service
 
-### Denial of Service
-
-The reconciliation endpoints add new attack surface for resource exhaustion.
-Mitigations:
-
-- **Rate limiting:** Servers MUST apply per-peer, per-room rate limiting to all
+- **Rate limiting.** Servers MUST apply per-peer, per-room rate limiting to all
   three endpoints. Recommended: 1 request per 10 seconds per room per peer for
   `room_digest` and `room_diff`; 1 request per 30 seconds for `room_events`.
-- **Digest caching:** The Bloom filter SHOULD be computed lazily and cached,
-  with cache invalidation on new event persistence. This amortizes the O(N)
-  computation cost.
-- **Response caps:** The `limit` parameter on `room_diff` and the 500-event cap
-  on `room_events` bound the maximum response size.
+- **Digest caching.** The accumulator and resident strata estimator SHOULD be
+  maintained incrementally. Implementations that compute sketches by scanning
+  the event store SHOULD use stricter request budgets.
+- **Response caps.** The `limit` parameter on `room_diff` and the 500-event cap
+  on `room_events` bound maximum response size.
+- **Walk bounds.** The `extremity` mode bounds and the per-peer cumulative
+  inspection budget are normative; see that section.
 
-### Replay and Poisoning
+### Replay and poisoning
 
 A malicious server could return fabricated events in `room_events` responses.
-This is mitigated by the same mechanisms that protect existing federation
-endpoints:
+This is mitigated by the mechanisms that already protect existing federation
+endpoints: all returned PDUs MUST have valid origin signatures, MUST pass hash
+verification, and MUST pass standard auth checks before persistence. Events
+failing any check MUST be discarded without affecting local state.
 
-- All returned PDUs MUST have valid signatures from their origin servers
-- All returned PDUs MUST pass hash verification (event ID = hash of content)
-- The requesting server MUST apply standard auth checks before persisting events
-- Events that fail any of these checks MUST be discarded without affecting local
-  state
+### Amplification via oversized sketches
 
-### Amplification Attacks via Bloom Filter Manipulation
+Servers MUST reject a `sketch` request whose aggregate `requests` capacity
+exceeds 4096, whose any single entry's capacity exceeds 32, oversized decoded
+responses, and requests exceeding per-peer or per-room CPU budgets. The
+per-entry cap bounds decode CPU for a single node; the aggregate cap bounds
+total wire size and work across the exchange — neither substitutes for the
+other, since a single `{depth: 0, capacity: 4096}` entry would otherwise pass an
+aggregate-only check while costing roughly 16,384x the decode budget of a
+capacity-32 node. Servers SHOULD reject requests whose `local_known_event_count`
+is grossly inconsistent with the supplied accumulator history or negotiated
+frame.
 
-A malicious requesting server could send a Bloom filter with all bits set to 0,
-causing the responding server to believe the requester has no events and return
-its entire event ID set. The `limit` parameter caps the response size.
-Additionally, servers SHOULD compare the `local_event_count` in the request with
-the filter's apparent fullness — a count of 80,000 events with an empty filter
-is clearly inconsistent and SHOULD be rejected with HTTP 400.
+Servers MUST also cap the number of `requests` entries per round at 128.
+Separately, they MUST cap the cumulative per-peer count of tree-split rounds for
+a given reconciliation attempt at 20, so a peer cannot force unbounded recursive
+fan-out by repeatedly requesting refinement of nodes that do not actually
+overflow. These caps are not arbitrary: the first matches the `4096 / 32 = 128`
+decode-throughput limit, and the second is the round-budget ceiling already
+described above. A well-behaved requester never reaches either cap, because it
+already refused to start past the same ceiling; these bounds exist for peers
+that skip that check or misestimate `d̂`.
 
-### Depth Manipulation
+### Depth manipulation
 
-The topological bounding checks and the active window rely on event depth, which
-is derived from attacker-influenced event content. When evaluating
-`max_depth_delta` and selecting the active window, servers SHOULD use their
-locally computed topological ordering (e.g., stream ordering or recomputed
-depth) rather than trusting the `depth` field of received events.
+The topological bounding checks rely on event depth, which is derived from
+attacker-influenced event content. When evaluating `max_depth_delta`, servers
+SHOULD use their locally computed topological ordering (e.g. stream ordering or
+recomputed depth) rather than trusting the `depth` field of received events.
 
-### Interaction with Server ACLs
+### Accumulator integrity
+
+XOR accumulators are fault-detecting, not authenticators; MSC4521 states the
+linear-algebra limit precisely. Nothing in this MSC relies on the accumulator
+being binding against a malicious peer. It is an integrity anchor for accidental
+decode failure and benign desync, while returned PDUs still MUST be verified by
+event ID, hashes, signatures, and authorization rules. Deployments needing
+transferable accumulator evidence should await an LtHash-style `digest_type`;
+MSC4511 uses Ed25519-signed overlay attestations for responder accountability.
+
+### Interaction with server ACLs
 
 Servers MUST respect `m.room.server_acl` when responding to reconciliation
 requests. If the requesting server is denied by the room's ACL, the responding
-server MUST return HTTP 403 with error code `M_FORBIDDEN`, identical to the
-behavior for other federation endpoints.
+server MUST return HTTP 403 with `M_FORBIDDEN`, identically to other federation
+endpoints.
 
 ## Unstable prefix
 
-The following mapping will be used for identifiers in this MSC during
-development:
+<!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier                     | Purpose         | Development identifier                                               |
-| --------------------------------------------- | --------------- | -------------------------------------------------------------------- |
-| `/_matrix/federation/v1/room_digest/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_digest/{roomId}` |
-| `/_matrix/federation/v1/room_diff/{roomId}`   | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_diff/{roomId}`   |
-| `/_matrix/federation/v1/room_events/{roomId}` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc45xx/room_events/{roomId}` |
-| `xxh3_bloom`                                  | digest type     | `xxh3_bloom`                                                         |
-| `X-Matrix-Partial-State`                      | response header | `X-Matrix-Unstable-Partial-State`                                    |
+| Proposed final identifier                            | Purpose         | Development identifier                                                      |
+| ---------------------------------------------------- | --------------- | --------------------------------------------------------------------------- |
+| `/_matrix/federation/v1/room_digest/{roomId}`        | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}`        |
+| `/_matrix/federation/v1/room_digest/{roomId}/strata` | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_digest/{roomId}/strata` |
+| `/_matrix/federation/v1/room_diff/{roomId}`          | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_diff/{roomId}`          |
+| `/_matrix/federation/v1/room_events/{roomId}`        | endpoint        | `/_matrix/federation/unstable/tk.nutra.msc0501/room_events/{roomId}`        |
+| `algebraic_v1`                                       | digest type     | `algebraic_v1`                                                              |
+| `X-Matrix-Partial-State`                             | response header | `X-Matrix-Unstable-Partial-State`                                           |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Dependencies
 
-This MSC has no hard dependencies on other unaccepted MSCs.
+This MSC depends on MSC4521 (`algebraic_v1` digest profile) for its digest
+construction. It has no hard dependencies on other unaccepted MSCs.
 
 It is designed to complement:
 
@@ -845,6 +1220,18 @@ It is designed to complement:
   are delegated to this proposal's `room_diff` and `room_events`. Rooms whose
   recent inbound transactions carry matching accumulator digests MAY back off
   periodic anti-entropy polling accordingly
+- MSC00DB (Bulk backfill) — the complementary boundary-extension mechanism; see
+  Frames
 - MSC0502 (Federation EDU state reconciliation) — the ephemeral-state
-  counterpart to this proposal, using version-vector comparison instead of graph
-  reconciliation
+  counterpart, using version-vector comparison instead of graph reconciliation
+
+## References
+
+[1] A. Demers, D. Greene, C. Hauser, W. Irish, J. Larson, S. Shenker, H.
+Sturgis, D. Swinehart, and D. Terry, "Epidemic Algorithms for Replicated
+Database Maintenance," _Proceedings of the Sixth Annual ACM Symposium on
+Principles of Distributed Computing_, 1987. Anti-entropy and rumor-mongering.
+
+[2] K. P. Birman, M. Hayden, O. Ozkasap, Z. Xiao, M. Babu, and Y. Minsky,
+"Bimodal Multicast," _ACM Transactions on Computer Systems_, 17(2), 1999. Gossip
+under partial failure.
