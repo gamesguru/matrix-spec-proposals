@@ -450,6 +450,18 @@ order. If any of those boundaries shift, the estimate is meaningless. A server
 MUST NOT estimate or subtract across differing frames; the estimator MUST NOT
 substitute for or override frame validation.
 
+**Work budget.** The strata estimator's decode pass touches up to 32 strata
+sequentially. Implementations MUST enforce a shared computational work budget
+across the entire pass — not just per-stratum — to prevent a batch of 32 strata
+each driving its own maximum trial count. The budget ceiling for a full pass is
+`STRATA_COUNT × single_call_work_ceiling(STRATUM_CAPACITY)` (e.g. 32 × 45,568 =
+1,458,176 in the reference implementation). Without a shared budget, each
+stratum implicitly draws its own work allowance, and a full pass could cost up
+to 32× the per-stratum ceiling. If the budget is exhausted before completing the
+tail search, the implementation MUST treat the estimate as provisional or
+saturated and fall back to direct extremity difference, routing away from
+optimistic sketch reconciliation.
+
 In other words, the estimator emits a cardinality estimate for the symmetric
 difference; it does not itself emit a sketch capacity. The requester then
 applies this profile's provisioning rule to that estimate when choosing an
@@ -524,6 +536,15 @@ defines no salting and its fixed $h_{64}$ mapping MUST remain byte-compatible
 across implementations. Deployments needing transferable accumulator evidence
 should look to an LtHash-style profile under a future `digest_type` rather than
 to `algebraic_v1`.
+
+**Stratum saturation attacks.** An adversary grinding event identifiers into
+stratum 0 or 31 can force `DecodeFailure` or a saturated delta estimate, denying
+optimistic sketch reconciliation. This attack is only effective if the adversary
+can ensure the ground events remain in the symmetric difference — e.g., via
+selective federation or withholding — since replicated events cancel out of the
+XOR residual. In v1, $h_{64}$ is unkeyed and the stratum assignment is
+deterministic; epoch-rotated keyed hashes are the intended future mitigation
+path for this class of attacks.
 
 ## Capacity provisioning
 

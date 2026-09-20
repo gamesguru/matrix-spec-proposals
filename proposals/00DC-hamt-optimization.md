@@ -221,12 +221,26 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
 3. **Deep diff:** Only when digests differ, iterate the 32-bit CHAMP bitmaps and
    recurse into differing children to extract the exact mismatched leaves.
 
+The `structural_key` is public within its namespace (room members learn it from
+the server). This is safe for HAMT routing because BLAKE2b-256 provides 128-bit
+collision resistance: grinding a shallow-prefix collision (k levels of 5-bit
+agreement) costs `2^(5k)` hash evaluations, and full-depth exhaustion (52 levels
+= 2^260 hashes) is computationally infeasible. The threat model assumes (1) the
+key is per-room, not shared across rooms; (2) implementations locally hash keys
+against the namespace's structural_key before routing, rather than accepting
+unkeyed wire-derived routing hashes; and (3) the server does not weaken the key
+with short, reused, or predictable values. If maximum depth is reached during
+insertion, the builder MUST return an error rather than panicking or silently
+overwriting entries.
+
 **Reference implementation.** This algorithm is not merely descriptive: `rezzy`
 implements it directly (`isolate_delta`/`diff_hamt_nodes` in `hamt/delta.rs`),
 including the lattice-then-structural-hash short-circuit in step 2 and the
 recursive bitmap walk in step 3, and its own doc comment states the same
-$O(|\Delta| \cdot \log_{32} S)$ bound. Implementations targeting this MSC in
-Rust can use it as-is rather than re-deriving the walk.
+$O(|\Delta| \cdot \log_{32} S)$ bound. Production callers (`build_hamt`,
+`persist_mutations`) use `key_path_hash(structural_key, key)` with proper local
+re-keying; custom `key_hash` closures are test-only. Implementations targeting
+this MSC in Rust can use it as-is rather than re-deriving the walk.
 
 **Producer-tracked deltas dominate isolate_delta, not the reverse.** Delta
 isolation exists for the case where two states must be compared with no prior
