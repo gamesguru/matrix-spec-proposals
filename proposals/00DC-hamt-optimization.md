@@ -55,7 +55,7 @@ The state map `(type, state_key) -> event_id` is stored in the HAMT.
   inlines leaf entries directly into the parent node rather than boxing them as
   child nodes, so each internal node also caches a subtree digest used to skip
   unchanged subtrees during delta isolation (below). By default this is a
-  128-bit hash keyed with a per-server secret, computed over the two bitmaps,
+  256-bit hash keyed with a per-server secret, computed over the two bitmaps,
   every inlined `(type, state_key, event_id)` tuple marked in `datamap`, and the
   digests of every child marked in `nodemap` (see Security considerations for
   why this is the default, and for the optional stronger variant). This digest
@@ -150,8 +150,8 @@ Counting rows alone favors the HAMT by roughly two orders of magnitude (~4
 writes vs. ~500 amortized row-equivalents at the hop ceiling for our 50,000-
 event room), but that comparison ignores that every HAMT node now carries a
 subtree digest it didn't before (see Data structure). In bytes, using the
-default 128-bit keyed-hash digest (16 bytes/node): 4 nodes × (~1KB CHAMP
-payload + 16B digest) ≈ 4.1KB, against ~500 rows × ~100B ≈ 50KB — still roughly
+default 256-bit keyed-hash digest (32 bytes/node): 4 nodes × (~1KB CHAMP
+payload + 32B digest) ≈ 4.1KB, against ~500 rows × ~100B ≈ 50KB — still roughly
 a 12× win. Under the optional full-lattice-per-node variant (2048 bytes/node): 4
 nodes × (~1KB + 2KB) ≈ 12KB against the same 50KB — closer to 4×. (The ~1KB
 CHAMP payload figure is an assumption that swings with node occupancy, not a
@@ -203,7 +203,7 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
    the subtree in $O(1)$.
 2. **Digest comparison:** Otherwise (e.g., across process boundaries or database
    reloads), compare the cached subtree digests of $A'$ and $B'$ — by default
-   the 128-bit per-server-keyed hash, or the full unkeyed `LtHash16` sub-lattice
+   the 256-bit per-server-keyed hash, or the full unkeyed `LtHash16` sub-lattice
    under the optional stronger variant (see Security considerations). If they
    match, skip the subtree. The strength of this check comes from the digest's
    width and the underlying hash's collision resistance — and, for the keyed
@@ -211,7 +211,7 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
    secret they don't have — not from homomorphism, which only buys cheap $O(1)$
    composition when a digest is updated incrementally. The root is a deliberate
    exception to the default keyed scheme, not an oversight: under the default
-   variant every other level compares keyed 128-bit hashes, but the root always
+   variant every other level compares keyed 256-bit hashes, but the root always
    compares the mandatory unkeyed lattice, because the root's comparison must be
    reproducible across servers (it is the State Group ID) while internal-node
    comparisons never leave the local server. Applied at the root, this is the
@@ -221,17 +221,33 @@ decompression in $O(|\Delta| \cdot \log_{32} S)$ time:
 3. **Deep diff:** Only when digests differ, iterate the 32-bit CHAMP bitmaps and
    recurse into differing children to extract the exact mismatched leaves.
 
-The `structural_key` is public within its namespace (room members learn it from
-the server). This is safe for HAMT routing because BLAKE2b-256 provides 128-bit
-collision resistance: grinding a shallow-prefix collision (k levels of 5-bit
-agreement) costs `2^(5k)` hash evaluations, and full-depth exhaustion (52 levels
-= 2^260 hashes) is computationally infeasible. The threat model assumes (1) the
-key is per-room, not shared across rooms; (2) implementations locally hash keys
-against the namespace's structural_key before routing, rather than accepting
-unkeyed wire-derived routing hashes; and (3) the server does not weaken the key
-with short, reused, or predictable values. If maximum depth is reached during
-insertion, the builder MUST return an error rather than panicking or silently
-overwriting entries.
+The `structural_key` is the room's `room_id`: fully public, not a secret, and
+known in advance to anyone who can address the room at all (via invite, alias,
+or the room directory). This is a deliberate choice: it gives every server
+processing the same room the same namespace with no key distribution or rotation
+problem, at the cost of not hiding the namespace from a prospective attacker
+before they join or observe the room. This is safe for HAMT routing because
+BLAKE2b-256 provides 128-bit collision resistance: grinding a shallow-prefix
+collision (k levels of 5-bit agreement) costs $2^{(5k)}$ hash evaluations, and
+full-depth exhaustion (52 levels = 2^260 hashes) is computationally infeasible.
+The threat model assumes (1) the key is per-room, so a precomputed collision set
+for one room does not transfer to another; and (2) implementations locally hash
+keys against the namespace's structural_key before routing, rather than
+accepting unkeyed wire-derived routing hashes. Because the key is public and
+fixed to `room_id`, an attacker who already knows the target room can precompute
+a shallow-prefix collision set for it in advance — the per-room keying stops
+that work from being reused against other rooms, it does not prevent a targeted
+attacker from grinding a few extra levels of depth against a single chosen room.
+That residual cost (seconds of compute for a handful of levels, per the
+$2^{(5k)}$ bound above) is accepted as out of scope: full-depth exhaustion
+remains infeasible, and if this bound becomes reachable in practice, it is a
+server-side rate-limiting or admission problem, not something later versions of
+this key scheme are expected to close. No such rate-limiting or admission
+control is specified or implemented by this proposal or its reference
+implementation — this is an explicitly open operational concern for homeserver
+deployments, not a solved mitigation this spec is deferring to. If maximum depth
+is reached during insertion, the builder MUST return an error rather than
+panicking or silently overwriting entries.
 
 **Reference implementation.** This algorithm is not merely descriptive: `rezzy`
 implements it directly (`isolate_delta`/`diff_hamt_nodes` in `hamt/delta.rs`),
@@ -350,7 +366,7 @@ Replacing legacy delta chains with a persistent HAMT introduces specific costs:
   figure is closer to $S/31$ internal nodes for the first trie (~1,600 nodes at
   $S = 50{,}000$) — a full-occupancy lower bound; sparse occupancy at shallow
   depths pushes the real count higher — plus ~4 new nodes per subsequent state
-  group. At the default 16-byte keyed-hash digest this stays modest even at
+  group. At the default 32-byte keyed-hash digest this stays modest even at
   Synapse scale. The optional full-lattice-per-node variant (2048 bytes/node) is
   the one that reaches into the gigabytes and is the cost an operator will
   notice first, independent of read/write latency — treat the two digest
@@ -453,17 +469,19 @@ Two variants close the grinding path at internal nodes, and they are not
 interchangeable — the default is a smaller cache _alongside_ the mandatory root
 lattice, not a substitute for it:
 
-- **Default: 128-bit hash keyed with a per-server secret.** Cheap (16
-  bytes/node), closes grinding because the attacker cannot target a digest
-  computed with a secret they don't have, and is the more attractive default
-  given the memory analysis in Trade-offs. It is not homomorphic, so it cannot
-  replace the root lattice for the `O(1)` incremental State Group ID updates
-  described above — that still requires the true unkeyed lattice at the root,
-  maintained independently. Because these digests are never compared across
-  servers, only across reloads of the same server, the key MUST be persisted and
-  stable across restarts: an implementation that regenerates or rotates it on
-  boot invalidates every cached internal-node digest on disk, forcing a full
-  subtree-digest rebuild before delta isolation can skip anything again.
+- **Default: 256-bit hash keyed with a per-server secret.** Cheap (32
+  bytes/node), gives a genuine 128-bit collision-security margin rather than the
+  ~64-bit birthday bound a 128-bit output would provide, closes grinding because
+  the attacker cannot target a digest computed with a secret they don't have,
+  and is the more attractive default given the memory analysis in Trade-offs. It
+  is not homomorphic, so it cannot replace the root lattice for the `O(1)`
+  incremental State Group ID updates described above — that still requires the
+  true unkeyed lattice at the root, maintained independently. Because these
+  digests are never compared across servers, only across reloads of the same
+  server, the key MUST be persisted and stable across restarts: an
+  implementation that regenerates or rotates it on boot invalidates every cached
+  internal-node digest on disk, forcing a full subtree-digest rebuild before
+  delta isolation can skip anything again.
 - **Optional: full unkeyed `LtHash16` sub-lattice at every internal node.** At
   2048 bytes/node this is not grindable regardless of keying, gives exact,
   key-independent lattice-strength equality at every level (not just the root),
