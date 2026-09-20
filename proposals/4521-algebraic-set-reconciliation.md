@@ -685,8 +685,8 @@ finding a collision requires only $\approx 2^{32}$ evaluations, an adversary can
 easily construct one. A collision corrupts the syndrome for the colliding node,
 which the 128-bit verification step catches, causing the decode to fail cleanly.
 Because colliding identifiers follow identical paths, splitting never separates
-them. Implementations MUST fall back to extremity or backfill for that prefix.
-Implementations MUST NOT interpret repeated verification failure at adequate
+them. The consuming protocol MUST fall back to its own recovery path for that
+prefix. Implementations MUST NOT interpret repeated verification failure at adequate
 capacity as evidence of peer misbehavior, since decodes can fail for reasons
 unrelated to collisions.
 
@@ -746,12 +746,13 @@ The reconciliation mechanisms in this MSC use standard algebraic and
 combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
-- **Information-theoretic optimality.** By employing BCH-style syndrome decoding
-  over $GF(2^{64})$, the `algebraic_v1` profile compresses the symmetric
-  difference of the event sets to precisely $d \times 64$ bits. This approaches
-  the Shannon limit for theoretical error correction, operating at the
-  information-theoretic minimum without the probabilistic overhead of Bloom
-  filters or the padding requirements of Invertible Bloom Lookup Tables (IBLTs).
+- **Near-optimal syndrome capacity.** By employing BCH-style syndrome decoding
+  over $GF(2^{64})$, the `algebraic_v1` profile recovers any symmetric
+  difference of size up to $k$ from $k \times 64$ bits of sketch, meeting the
+  counting lower bound for syndrome decoding (Minisketch's result), modulo the
+  capacity provisioned per bucket ($\lceil 1.5c \rceil + 4$, to absorb
+  estimation error). This avoids the probabilistic overhead of Bloom filters or
+  the padding requirements of Invertible Bloom Lookup Tables (IBLTs).
 
 - **Dynamic tree extraction and antichain invariants.** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
@@ -953,8 +954,6 @@ contracts.
 ## Possible consumers
 
 - MSC4242 (State DAGs) — over an index of state events.
-- MSC0502 (federation EDU state reconciliation) may adapt the same algebraic
-  machinery for EDU entries.
 - MSC4500 (state accumulators) — over a room's resolved state map, via the
   [State-map binding](#state-map-binding) profile.
 - MSC1442 / MSC4297 / MSC1759 — state-resolution lineage that defines the
