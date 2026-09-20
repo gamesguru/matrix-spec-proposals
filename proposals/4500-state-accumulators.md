@@ -181,8 +181,13 @@ reconciliation: do the peers agree about redactions that affect the presentation
 of the selected state at this DAG point? It intentionally does not accumulate
 every redaction in the room. Servers legitimately have different retained
 history horizons, so an unframed room-global redaction digest would not be
-comparable. History-wide redaction gaps belong to a separate, framed
-event-set reconciliation mechanism instead.
+comparable. History-wide redaction gaps belong to framed MSC4521 reconciliation
+instead.
+
+MSC4500 does not detect omissions in ordinary messages or history-wide
+redactions more broadly. Its accumulators detect only redactions that affect
+state events selected at the asserted DAG point. A future companion mechanism
+could extend detection to the broader event set; that is out of scope here.
 
 Hash-failure redaction of a locally corrupt event is also excluded. It is a
 local, reversible repair condition, not consensus state. A server may use it for
@@ -534,11 +539,6 @@ divergence is known or suspected, a requester MUST issue `/state_ids`
 unconditionally and MUST NOT allow a peer-supplied `304` response to suppress a
 state transfer on the recovery path.
 
-MSC4500 does not detect omissions in ordinary messages or history-wide
-redactions. Its accumulators detect only redactions that affect state events
-selected at the asserted DAG point. A future companion mechanism could extend
-detection to the broader event set; that is out of scope here.
-
 ## Synergy with MSC4521 (state-set sketch reconciliation)
 
 MSC4521's State-map binding profile (see
@@ -739,8 +739,8 @@ of scope for this proposal:
 - **Redundant with later MSCs.** Divergence-point lookup and enumeration/healing
   are handled more elegantly by other proposals — MSC4511 provides graph
   metadata and ancestor hints, and MSC4521 reconciles the missing event set
-  directly. The absence of historical resolved-state accumulators in those
-  MSCs does not justify a bespoke endpoint and bisection protocol here.
+  directly. The absence of historical resolved-state accumulators in those MSCs
+  does not justify a bespoke endpoint and bisection protocol here.
 - **Awkward semantics.** The DAG is a partial order, so bisection over forked
   histories does not reduce to a single earliest divergence event but to a
   frontier of candidates, undercutting the clean `git bisect` analogy.
@@ -899,13 +899,20 @@ This proposal is fully backwards-compatible:
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier              | Purpose                                       | Development identifier                             |
-| --------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
-| `state_hashes`                          | `/send` transaction key                        | `tk.nutra.msc4500.state_hashes`                      |
-| feature flag                            | redaction digest capability                    | `tk.nutra.msc4500.redactions`                        |
-| feature flag                            | resolution-input digest capability             | `tk.nutra.msc4500.resolution_input_digest`           |
+| Proposed final identifier | Purpose                            | Development identifier                     |
+| ------------------------- | ---------------------------------- | ------------------------------------------ |
+| `state_hashes`            | `/send` transaction key            | `tk.nutra.msc4500.state_hashes`            |
+| feature flag              | redaction digest capability        | `tk.nutra.msc4500.redactions`              |
+| feature flag              | resolution-input digest capability | `tk.nutra.msc4500.resolution_input_digest` |
 
 <!-- markdownlint-enable MD013 -->
+
+The `algorithm` value's `redactions-v1` and `resolution-inputs-v1` components
+(see [Algorithm specification](#algorithm-specification)) are not given separate
+`tk.nutra` development identifiers: they are dash-joined segments of an
+already-versioned composite value, not standalone namespaced keys or flags, and
+a version bump at stabilization is handled the same way any other `-v1`
+component would be.
 
 While unstable, implementations MUST send the `state_hashes` object under the
 `tk.nutra.msc4500.state_hashes` key instead of the unprefixed root-level name,
