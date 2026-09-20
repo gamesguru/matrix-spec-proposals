@@ -686,9 +686,9 @@ easily construct one. A collision corrupts the syndrome for the colliding node,
 which the 128-bit verification step catches, causing the decode to fail cleanly.
 Because colliding identifiers follow identical paths, splitting never separates
 them. The consuming protocol MUST fall back to its own recovery path for that
-prefix. Implementations MUST NOT interpret repeated verification failure at adequate
-capacity as evidence of peer misbehavior, since decodes can fail for reasons
-unrelated to collisions.
+prefix. Implementations MUST NOT interpret repeated verification failure at
+adequate capacity as evidence of peer misbehavior, since decodes can fail for
+reasons unrelated to collisions.
 
 Because $h_{64}$ is deterministic with no per-room salt, a collision found once
 is reusable across all servers. To prevent an adversary from permanently
@@ -746,13 +746,13 @@ The reconciliation mechanisms in this MSC use standard algebraic and
 combinatorial ideas. Implementations need only follow the wire format and decode
 contracts, but these analogies may help understand the protocol.
 
-- **Near-optimal syndrome capacity.** By employing BCH-style syndrome decoding
-  over $GF(2^{64})$, the `algebraic_v1` profile recovers any symmetric
-  difference of size up to $k$ from $k \times 64$ bits of sketch, meeting the
-  counting lower bound for syndrome decoding (Minisketch's result), modulo the
-  capacity provisioned per bucket ($\lceil 1.5c \rceil + 4$, to absorb
-  estimation error). This avoids the probabilistic overhead of Bloom filters or
-  the padding requirements of Invertible Bloom Lookup Tables (IBLTs).
+- **Near-optimal syndrome capacity.** By employing BCH-style syndrome
+  decoding[^3] over $GF(2^{64})$, the `algebraic_v1` profile recovers any
+  symmetric difference of size up to $k$ from $k \times 64$ bits of sketch,
+  meeting the counting lower bound for syndrome decoding[^7], modulo the
+  capacity provisioned per node ($\lceil 1.5d \rceil + 4$, to absorb estimation
+  error). This avoids the probabilistic overhead of Bloom filters or the padding
+  requirements of Invertible Bloom Lookup Tables (IBLTs).
 
 - **Dynamic tree extraction and antichain invariants.** When divergence exceeds
   a node's capacity, localization proceeds by bit-prefix trie routing over
