@@ -181,8 +181,8 @@ reconciliation: do the peers agree about redactions that affect the presentation
 of the selected state at this DAG point? It intentionally does not accumulate
 every redaction in the room. Servers legitimately have different retained
 history horizons, so an unframed room-global redaction digest would not be
-comparable. History-wide redaction gaps belong to framed MSC0501 / MSC4521
-reconciliation instead.
+comparable. History-wide redaction gaps belong to a separate, framed
+event-set reconciliation mechanism instead.
 
 Hash-failure redaction of a locally corrupt event is also excluded. It is a
 local, reversible repair condition, not consensus state. A server may use it for
@@ -534,28 +534,10 @@ divergence is known or suspected, a requester MUST issue `/state_ids`
 unconditionally and MUST NOT allow a peer-supplied `304` response to suppress a
 state transfer on the recovery path.
 
-## Synergy with MSC0501 (event set reconciliation)
-
-This proposal and MSC0501 (`room_digest` / `room_diff`) solve fundamentally
-different sets. MSC4500's accumulator covers the room's _resolved state set_ at
-arbitrary DAG positions. MSC0501's algebraic digest and bounded extremity
-fallback cover the _known event set_ (accepted events and retained rejection
-tombstones across the frame).
-
-Because state divergence implies event-set divergence (with the converse _often_
-also holding true), the two proposals complement each other: MSC4500 provides
-continuous, passive, free state-consistency detection on every `/send`; when a
-mismatch is reported, MSC0501's `room_diff` / `room_events` reconcile the
-missing event set. The receiver admits verified events to its DAG and recomputes
-its resolved state locally; remote state digests and state maps are never write
-targets. Because MSC4500 gives active rooms free passive detection, MSC0501's
-polling interval can be lengthened (rate-limited to a longer period) for rooms
-with recent inbound transactions.
-
 MSC4500 does not detect omissions in ordinary messages or history-wide
 redactions. Its accumulators detect only redactions that affect state events
-selected at the asserted DAG point. Broader timeline reconciliation are
-excluded.
+selected at the asserted DAG point. A future companion mechanism could extend
+detection to the broader event set; that is out of scope here.
 
 ## Synergy with MSC4521 (state-set sketch reconciliation)
 
@@ -756,8 +738,8 @@ of scope for this proposal:
   the bisection walk is removed.
 - **Redundant with later MSCs.** Divergence-point lookup and enumeration/healing
   are handled more elegantly by other proposals — MSC4511 provides graph
-  metadata and ancestor hints, and MSC0501 / MSC4521 reconcile the missing event
-  set directly. The absence of historical resolved-state accumulators in those
+  metadata and ancestor hints, and MSC4521 reconciles the missing event set
+  directly. The absence of historical resolved-state accumulators in those
   MSCs does not justify a bespoke endpoint and bisection protocol here.
 - **Awkward semantics.** The DAG is a partial order, so bisection over forked
   histories does not reduce to a single earliest divergence event but to a
@@ -912,6 +894,24 @@ This proposal is fully backwards-compatible:
 - Unknown transaction keys (`state_hashes`) are silently ignored by existing
   servers, per current federation behavior.
 - No room version consensus rules are modified.
+
+## Unstable prefix
+
+<!-- markdownlint-disable MD013 -->
+
+| Proposed final identifier              | Purpose                                       | Development identifier                             |
+| --------------------------------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `state_hashes`                          | `/send` transaction key                        | `tk.nutra.msc4500.state_hashes`                      |
+| feature flag                            | redaction digest capability                    | `tk.nutra.msc4500.redactions`                        |
+| feature flag                            | resolution-input digest capability             | `tk.nutra.msc4500.resolution_input_digest`           |
+
+<!-- markdownlint-enable MD013 -->
+
+While unstable, implementations MUST send the `state_hashes` object under the
+`tk.nutra.msc4500.state_hashes` key instead of the unprefixed root-level name,
+and MUST advertise `tk.nutra.msc4500.redactions` and/or
+`tk.nutra.msc4500.resolution_input_digest` in `unstable_features` before relying
+on the corresponding behavior from a peer.
 
 ## Dependencies
 
