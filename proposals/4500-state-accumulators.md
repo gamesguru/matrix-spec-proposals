@@ -184,10 +184,10 @@ history horizons, so an unframed room-global redaction digest would not be
 comparable. History-wide redaction gaps belong to framed MSC4521 reconciliation
 instead.
 
-MSC4500 does not detect omissions in ordinary messages or history-wide
-redactions more broadly. Its accumulators detect only redactions that affect
-state events selected at the asserted DAG point. A future companion mechanism
-could extend detection to the broader event set; that is out of scope here.
+MSC4500's accumulators detect only redactions that affect state events selected
+at the asserted DAG point. Omissions or redactions of ordinary (non-state)
+messages are a different problem — MSC4521's state-map profile does not cover
+the timeline — and are out of scope for this MSC.
 
 Hash-failure redaction of a locally corrupt event is also excluded. It is a
 local, reversible repair condition, not consensus state. A server may use it for
@@ -899,11 +899,11 @@ This proposal is fully backwards-compatible:
 
 <!-- markdownlint-disable MD013 -->
 
-| Proposed final identifier | Purpose                            | Development identifier                     |
-| ------------------------- | ---------------------------------- | ------------------------------------------ |
-| `state_hashes`            | `/send` transaction key            | `tk.nutra.msc4500.state_hashes`            |
-| feature flag              | redaction digest capability        | `tk.nutra.msc4500.redactions`              |
-| feature flag              | resolution-input digest capability | `tk.nutra.msc4500.resolution_input_digest` |
+| Proposed final identifier     | Purpose                            | Development identifier                     |
+| ----------------------------- | ---------------------------------- | ------------------------------------------ |
+| `state_hashes`                | `/send` transaction key            | `tk.nutra.msc4500.state_hashes`            |
+| (none — stabilizes into spec) | redaction digest capability        | `tk.nutra.msc4500.redactions`              |
+| (none — stabilizes into spec) | resolution-input digest capability | `tk.nutra.msc4500.resolution_input_digest` |
 
 <!-- markdownlint-enable MD013 -->
 
