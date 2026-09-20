@@ -807,16 +807,6 @@ implementations MUST treat them separately:
 - **Ceiling accounting:** both categories count against the same local
   3,000-entry retired-key ceiling; current `verify_keys` do not count toward it.
 
-If MSC00E4 `trusted_notary_keys` is present, a listed full content-addressed key
-identifier permits a notary to return the corresponding retained historical key
-body without the origin embedding that body in `old_verify_keys`. This does not
-create a new corroboration source by itself: the receiver still recomputes the
-returned key body's full content-addressed `key_id`, verifies any required
-proof-of-work, signatures, and expiry claims, and sorts the binding into the
-corroborated or uncorroborated tier using the same local observation-history
-rules above. A notary-supplied body whose recomputed full ID does not exactly
-match the origin-signed `trusted_notary_keys` entry MUST be rejected.
-
 Implementations MUST apply this ceiling deterministically: always retain all
 current `verify_keys`; then retain corroborated retired keys in descending order
 of an _effective retirement timestamp_; then, in whatever slots remain, retain
