@@ -339,10 +339,23 @@ retry with a larger frame or a different reconciliation mechanism. The recursion
 terminates: each split reduces node population weakly, depth is bounded at 32,
 and a node still overflowing at the cap is reported rather than split further.
 
+**Node summary.** Every node sketch MUST be accompanied by that node's summary:
+$\mathrm{count}$, the number of elements in the node, and $\mathrm{digest}$, the
+XOR of $h_{128}(e)$ over them. This is the node-scoped counterpart of the
+[level-0 accumulator](#level-0-accumulator), and at depth 0 the two coincide. A
+summary is serialized as the digest as 16 big-endian bytes followed by the count
+as 8 big-endian bytes, 24 bytes in all; how it is framed beside the sketch
+belongs to the consuming protocol. The responder computes it over the same slice
+it toggles into the sketch, so it costs one XOR and one increment per element
+and 24 bytes per node. Without it there is nothing node-scoped to verify
+against, a single failed node would leave the global residual unverifiable, and
+the whole frame would have to be discarded.
+
 Every node, at any depth, is decoded and verified exactly as in
-[Decode and verification](#decode-and-verification), below: it either decodes
-within its capacity and passes the 128-bit accumulator verification, or it fails
-loudly and is split. There is no separate "bucket" primitive and no persistent
+[Decode and verification](#decode-and-verification), below, against its own
+summary: it either decodes within its capacity and passes verification, or it
+fails loudly and is split or reported on its own. Its siblings are admitted or
+failed independently. There is no separate "bucket" primitive and no persistent
 per-node resident state — see [Resident structure](#resident-structure). A
 `(depth, prefix)` pair is computed only when a peer actually requests it.
 
@@ -402,10 +415,13 @@ request: since $h_{64}(e)$ is a fixed 64-bit key per element, any
 Implementations MUST maintain (or build and cache) an index of element
 identifiers ordered by $h_{64}$, so that a node's element subset is a range
 slice — $O(\log n)$ to locate plus the slice size — not a full-population scan.
-This index holds only identifiers and $h_{64}$ keys, not precomputed syndromes;
-it is far cheaper than the resident per-node syndrome structure a fixed
-partition would require (see "Resident structure") — and unlike that structure
-it serves every depth, not one fixed depth.
+The index MUST also give access to $h_{128}(e)$ for each entry, either stored
+beside $h_{64}$ (16 more bytes per entry) or recomputed from the stored digest,
+so that node summaries and local candidates can be produced from the slice. It
+holds identifiers and hash values, not precomputed syndromes; it is far cheaper
+than the resident per-node syndrome structure a fixed partition would require
+(see "Resident structure") — and unlike that structure it serves every depth,
+not one fixed depth.
 
 The depth-limited refine-and-resolve shape mirrors the practical reconciliation
 architecture used by Erlay.[^4] The dynamic tree design adheres to a fixed
@@ -511,30 +527,37 @@ Decode failure is loud, and this is the central operational property of the
 profile: a failed decode is reported as failure, not as an empty difference.
 Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
-**Verification.** Let $L$ be the decoded roots the verifying peer holds locally
-and $M$ the decoded roots it lacks. Let $D_A$, $D_B$ be the two sides' level-0
-digests and $A(\cdot)$ the XOR of $h_{128}$ over a set of elements. For a fixed
-frame, $D_A \oplus D_B = A(L) \oplus A(M)$. The peer cannot compute $A(M)$ until
-it holds the identifiers for $M$, so verification has two phases and the result
-MUST NOT be admitted before phase 2 completes.
+**Verification.** Verification is per node. For a node $N$, let $L$ be the
+decoded roots the verifying peer holds locally and $M$ the decoded roots it
+lacks. Let $D_A$, $D_B$ be the two sides' node-summary digests for $N$ and
+$A(\cdot)$ the XOR of $h_{128}$ over a set of elements. For a fixed frame,
+$D_A \oplus D_B = A(L) \oplus A(M)$ over the roots decoded from $N$. A node
+whose verification fails is split, or reported as failed at the depth cap,
+without affecting its siblings; the consuming protocol falls back for that
+node's prefix only. The peer cannot compute $A(M)$ until it holds the
+identifiers for $M$, so verification has two phases and the result MUST NOT be
+admitted before phase 2 completes.
 
 _Phase 1, at decode time._ The decode MUST be rejected unless:
 
 - root finding succeeds and re-encoding the recovered roots into a temporary
   sketch reproduces the residual syndrome (an $O(k^2)$ check);
+- every decoded root lies inside the node, that is, its leading `depth` bits
+  equal `prefix`;
 - $\mathrm{count}_A - \mathrm{count}_B = |L| - |M|$ from the verifying peer's
-  perspective, for a frame snapshot both sides digested, where $|L|$ and $|M|$
-  count decoded roots, not resolved elements (a colliding shared element can
-  make a root land in the wrong set, and this check rejects that before any
-  fetch); and
+  perspective, using the two node summaries for a frame snapshot both sides
+  digested, where $|L|$ and $|M|$ count decoded roots, not resolved elements (a
+  colliding shared element can make a root land in the wrong set, and this check
+  rejects that before any fetch); and
 - if $M$ is empty, $D_A \oplus D_B = A(L)$.
 
 _Phase 2, after the consumer's authenticated follow-up._ The follow-up returns
 the identifiers for $M$. The peer MUST check that every returned identifier
 re-derives to one of the roots in $M$, that every root in $M$ is covered exactly
-once, and that $D_A \oplus D_B = A(L) \oplus A(M)$. On any failure the result
-MUST be discarded and the consumer MUST fall back to its non-reconciliation
-recovery path.
+once, and that $D_A \oplus D_B = A(L) \oplus A(M)$. On any failure the node's
+result MUST be discarded and the consumer MUST fall back to its
+non-reconciliation recovery path for that node's prefix. A phase-2 result is
+bound to its node: a follow-up for one node MUST NOT be applied to another.
 
 The $h_{64}$ index is a multiset and the $h_{64} \to$ element map is
 multi-valued, because distinct identifiers can share $h_{64}$. A decoded root
@@ -882,6 +905,17 @@ h64:    0x0000_0000_0000_002a
 input:  $ || URL_SAFE_NO_PAD.encode([0x00; 32])
 h128:   0x0000_0000_0000_0000_0000_0000_0000_0000
 h64:    0x0000_0000_0000_0001
+```
+
+### Node summary
+
+A node with three elements whose $h_{128}$ values XOR to `0x…01` serializes as
+the 16-byte big-endian digest followed by the 8-byte big-endian count:
+
+```text
+digest: 0x0000_0000_0000_0000_0000_0000_0000_0001
+count:  3
+wire:   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00 03
 ```
 
 ### PinSketch wire format
