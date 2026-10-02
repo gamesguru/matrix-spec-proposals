@@ -304,12 +304,14 @@ digest at that DAG position.
   `state_hashes` is present. Under `lthash16-v1+redactions-v1`, each value
   either asserts that PDU's primary and redaction `before` and `after` digests,
   or explicitly marks the assertion as limited. A supporting sender MUST emit
-  all four digest fields for a non-limited entry; the resolution-input algorithm
-  MUST additionally emit `resolution_inputs_before`. Omission is malformed, not
-  an assertion that the redaction accumulator is empty; the empty accumulator is
-  represented by its defined sentinel digest. A receiver that observed the
-  sender advertise `tk.nutra.msc4500.redactions` SHOULD report an omitted digest
-  as a protocol violation, while continuing ordinary PDU processing.
+  all four digest fields for a non-limited entry. Under the resolution-input
+  algorithm it MAY additionally emit `resolution_inputs_before` per entry;
+  omitting that field is not malformed (see below). Omission of any of the four
+  is malformed, not an assertion that the redaction accumulator is empty; the
+  empty accumulator is represented by its defined sentinel digest. A receiver
+  that observed the sender advertise `tk.nutra.msc4500.redactions` SHOULD report
+  an omitted redaction digest as a protocol violation, while continuing ordinary
+  PDU processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -324,8 +326,17 @@ digest at that DAG position.
     applied. This field MUST be omitted when `limited` is `true`.
   - `resolution_inputs_before`: The 32-byte digest of the complete labelled
     input set handed to state resolution for the PDU's `prev_events`, as defined
-    above. This field is required only by the `resolution-inputs-v1` algorithm
-    and is JSON `null` when `limited` is `true`.
+    above. This field is meaningful only under the `resolution-inputs-v1`
+    algorithm. A sender MAY omit it per entry, and it is JSON `null` when
+    `limited` is `true`. A receiver MUST treat an omitted value as "no
+    assertion" for this component only, and MUST NOT treat the omission as a
+    protocol violation or defer the entry's other digests. A server that
+    advertises `tk.nutra.msc4500.resolution_input_digest` MUST include
+    `expected_resolution_inputs_before` and `received_resolution_inputs_before`
+    in every `state_hash_mismatch` reply under that algorithm, since that is the
+    one place the labelled input set is needed to localize a divergence;
+    `received_resolution_inputs_before` is JSON `null` when the sender omitted
+    the field.
   - `limited`: The boolean `true` when the sender cannot resolve the state at
     all of the PDU's `prev_events` and therefore makes no digest assertion. It
     MUST be omitted or `false` when every digest required by the selected
@@ -402,8 +413,10 @@ proceeds normally.
 
 For each entry with `limited: true`, the receiver MUST defer validation for that
 PDU. A receiver MUST likewise defer if a malformed or incomplete entry does not
-provide every digest required by its algorithm; transaction and PDU processing
-continue under the standard federation rules.
+provide every digest required by its algorithm (other than the optional
+`resolution_inputs_before`, whose absence only removes that component from the
+comparison); transaction and PDU processing continue under the standard
+federation rules.
 
 If digests mismatch, servers SHOULD log an error or warning message of the state
 split. The receiver can automatically trigger a rate-limited background

@@ -132,7 +132,13 @@ uniform. The room-version rules under
 define what the elements mean; the kernel treats them as an opaque set and does
 not interpret their content.
 
-Let $D(e)$ be the consumer-defined 32-byte digest for element $e$.
+Let $D(e)$ be the consumer-defined 32-byte digest for element $e$. A frame MUST
+carry, alongside its `digest_type`, the identifier of the binding that defines
+$D(e)$ for its population: `event_ids` or `state_map` as defined below. A
+consumer MUST select one of these (or a binding defined by a later MSC) and MUST
+NOT invent an unnamed one; two sides naming different bindings MUST abort the
+comparison. Other MSCs that reuse a binding, such as MSC4500's redaction
+accumulator, refer to it by this identifier.
 
 `libminisketch` requires non-zero inputs over $\mathbb{F}_{2^{64}}$.
 Implementations derive $h_{64}(e)$ and $h_{128}(e)$ from $D(e)$ using network
@@ -163,35 +169,40 @@ reference hash of the redacted event, which retains `room_id`, so an offline
 grind is already scoped to one room and cannot be reused against others. (The
 room version 12 create event carries no `room_id`, but a collision needs a
 second event in the same room, whose `room_id` derives from the create event's
-hash and so cannot be precomputed before the room exists.) For room versions 1
-and 2, event IDs are sender-chosen strings, so collisions are free, which is a
-further reason to scope `algebraic_v1` to room version 3 and later. Non-event
+hash and so cannot be precomputed before the room exists.) Room versions 1 and 2
+are out of scope: their event IDs are sender-chosen strings, so collisions are
+free (see [Matrix event-ID binding](#matrix-event-id-binding)). Non-event
 populations (for example notary key IDs) are not covered by this argument and
 remain a consumer decision.
 
 ### Matrix event-ID binding
 
-For event sets, `D(e)` is derived based on the room version:
+This binding is identified on the wire as `event_ids`. For event sets, `D(e)` is
+derived based on the room version:
 
-<!-- TODO: how should we handle legacy event ID collisions? -->
+- **Room versions 1 and 2**: this binding MUST NOT be used. Event IDs in these
+  room versions are sender-chosen strings, so $h_{64}$ collisions cost nothing
+  to produce. A server MUST NOT construct an `event_ids` frame for such a room
+  and MUST use the non-reconciliation baseline instead.
 
-- **Room versions 1 and 2** (string-formatted IDs): Set `D(e)` to the `SHA-256`
-  digest of the UTF-8 event-ID string.
 - **Room version 3**: Strip the leading `$` byte and decode the remaining
   unpadded standard Base64 payload.
 - **Room versions 4 and later**: Strip leading `$` byte; decode remaining
   unpadded URL-safe Base64 payload.
 
-Room versions with non-hash-derived event IDs MUST use the `SHA-256` digest of
-the event-ID string or exclude the event from the population. This profile does
-not use auxiliary hash functions (e.g., `XXH3`).
+Every room version this binding supports derives event IDs from a reference
+hash, so no event is excluded from the population. For non-event populations
+whose identifiers are not hashes (for example notary key IDs), a consumer
+defines its own binding with `SHA-256` of a canonical encoding as `D(e)`. This
+profile does not use auxiliary hash functions (e.g., `XXH3`).
 
 ### State-map binding
 
-For resolved room state (as used by state-set consumers such as MSC4500), each
-element is one occupied `(type, state_key)` slot in the resolved state map at a
-given DAG point. `D(e)` is the `SHA-256` digest of the following injective
-encoding, using UTF-8 bytes and unsigned 16-bit little-endian byte lengths:
+This binding is identified on the wire as `state_map`. For resolved room state
+(as used by state-set consumers such as MSC4500), each element is one occupied
+`(type, state_key)` slot in the resolved state map at a given DAG point. `D(e)`
+is the `SHA-256` digest of the following injective encoding, using UTF-8 bytes
+and unsigned 16-bit little-endian byte lengths:
 
 ```text
 u16le(len(type)) || type ||
@@ -839,15 +850,6 @@ mul(0x0000_0000_0000_0001  ×  0xffff_ffff_ffff_ffff)  =  0xffff_ffff_ffff_ffff
 mul(0x0000_0000_0000_001b  ×  0x0000_0000_0000_001b)  =  0x0000_0000_0000_0145
 mul(0xffff_ffff_ffff_ffff  ×  0xffff_ffff_ffff_ffff)  =  0x5555_5555_5555_5513
 mul(0x8000_0000_0000_0000  ×  0x8000_0000_0000_0000)  =  0xc000_0000_0000_005a
-```
-
-### Legacy event ID (V1 and V2)
-
-```text
-input:  $legacy:example.org
-D(e):   2633a2037c72be2c8bd68c983934e7be65aae011a71b8e1d15a23e628b9dedaf
-h128:   0x2633_a203_7c72_be2c_8bd6_8c98_3934_e7be
-h64:    0x2633_a203_7c72_be2c
 ```
 
 ### V3 event ID
