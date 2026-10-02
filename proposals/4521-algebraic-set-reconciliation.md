@@ -565,19 +565,33 @@ with more than one local candidate MUST be resolved by phase 2 or cause the
 result to be discarded; it MUST NOT be treated as evidence of peer misbehavior.
 See [Security considerations](#security-considerations) for adversarial limits.
 
-**Repeated failure.** A node can fail phase 1 spuriously: an over-capacity
-decode can return a wrong set that looks valid. A spurious result does not
-survive a different sketch, because a larger capacity adds syndromes and a split
-narrows the node. An $h_{64}$ collision does survive, because the same
-identifiers are in the node every time. A requester SHOULD therefore classify a
-node as a collision when it fails phase 1 again, under a different sketch (a
-different capacity or depth, not a repeat of the same request), with the same
-set of decoded roots restricted to that node, where the earlier failure was on
-that node or one of its ancestors. An empty root set counts: an opposite-sided
-pair with $M$ empty fails with no roots. The requester SHOULD then mark that
-prefix ladder-failed under the TTL rule in [Potential issues](#potential-issues)
-and continue with the node's siblings, rather than escalating the whole
-exchange.
+**Repeated failure.** A phase-1 failure is not a capacity problem. A node can
+fail spuriously: an over-capacity decode can return a wrong set that looks
+valid. A split fixes that as reliably as a larger capacity does, because each
+child carries about half the difference. An $h_{64}$ collision is different: a
+larger capacity cannot help, because the same identifiers are in the node every
+time, while a split can, because the colliding pair lands in one child and the
+other child verifies. On a phase-1 failure a requester SHOULD therefore split
+the node rather than raise its capacity; the existing capacity ladder remains
+for `capacity_exceeded`.
+
+A requester SHOULD treat a node as a _known collision_ when it fails phase 1
+again, under a different sketch (a different depth or capacity, not a repeat of
+the same request), with the same set of decoded roots restricted to that node,
+where the earlier failure was on that node or one of its ancestors. An empty
+root set counts: an opposite-sided pair with $M$ empty fails with no roots. A
+known collision does not mean "stop". The requester SHOULD keep splitting it
+until the node's population (the larger of the two sides' node counts) falls
+below an implementation threshold, or the depth cap or the round budget is
+exhausted, and only then mark that prefix ladder-failed under the TTL rule in
+[Potential issues](#potential-issues). A threshold of about twice the largest
+bucket capacity is a reasonable starting point: the loss then shrinks from the
+whole population to roughly that many elements in about $\log_2(n/T)$ rounds,
+and the node's siblings verify in parallel throughout.
+
+A phase-2 failure happens after the exchange has ended and cannot be split or
+retried inside it. The requester narrows it the same way, by re-running only the
+failed node's two children, and repeats while phase 2 keeps failing.
 
 A requester SHOULD also check, on every split, that the responder's two child
 summaries XOR and sum to the parent's summary. The children can arrive in
