@@ -554,10 +554,16 @@ a natural companion to the mismatch signal MSC4500 produces, but it is optional
 and independent: a server MAY implement MSC4500's transaction digests and never
 implement this section at all. This MSC defines nothing about _when_ to
 reconcile, only the passive detection signal; MSC4521 defines the reconciliation
-primitive. After applying a reconciled state-map difference and running state
-resolution, a server SHOULD recompute the primary accumulator at the target
-event and compare it with the peer's; a mismatch is a reconciliation failure,
-and the server SHOULD fall back to `/state_ids`.
+primitive. After fetching the events identified by a state-map reconciliation
+and re-deriving state through ordinary state resolution, a server SHOULD
+recompute the primary accumulator and compare it with the peer's; a mismatch is
+a reconciliation failure, and the server SHOULD fall back to `/state_ids`. The
+comparison point is the target event when the implementation re-derives
+historical state, and otherwise the next DAG point both peers resolve after the
+fetched events are ingested (in practice, current state). Reconciliation never
+supplies state, it only identifies which tuples differ, so a server whose
+historical state groups are immutable converges at the next resolution rather
+than by rewriting the past.
 
 ## Implementation notes (non-normative)
 
