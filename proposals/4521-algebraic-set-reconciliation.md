@@ -141,10 +141,22 @@ byte order (big-endian):
 - **$h_{64}(e)$ (64-bit field element):** Scan $D(e)$ in four 8-byte big-endian
   chunks. $h_{64}(e)$ MUST be the first non-zero chunk interpreted as an
   unsigned 64-bit integer, or $1$ if all four chunks are zero.
-- **$h_{128}(e)$ (128-bit accumulator element):** Take the first 16 bytes of
-  $D(e)$ as an unsigned 128-bit big-endian integer. Zero is permitted here; the
-  accumulator is a plain XOR sum, so it does not need the $h_{64}$ non-zero
-  fallback.
+- **$h_{128}(e)$ (128-bit accumulator element):** Take the last 16 bytes of
+  $D(e)$ (bytes 16 through 31) as an unsigned 128-bit big-endian integer. Zero
+  is permitted here; the accumulator is a plain XOR sum, so it does not need the
+  $h_{64}$ non-zero fallback.
+
+$h_{128}(e)$ deliberately does not overlap the bytes $h_{64}(e)$ is drawn from.
+Two identifiers that collide on $h_{64}$ share their leading bytes (when that
+chunk is non-zero, bytes 0 through 7), so an $h_{128}$ built from those same
+bytes would agree with itself on its upper half and the accumulator could only
+distinguish the pair through its remaining 64 bits. Taking the trailing half
+keeps the two derivations independent, so a pure $h_{64}$ collision survives the
+accumulator check with probability about $2^{-128}$ (see
+[64-bit collisions](#security-considerations)). The derivations share bytes only
+when the first two 8-byte chunks of $D(e)$ are both zero, so that the non-zero
+scan for $h_{64}(e)$ reaches bytes 16 and beyond; for hash-derived digests this
+occurs with probability about $2^{-128}$.
 
 ### Matrix event-ID binding
 
@@ -524,8 +536,17 @@ nodes each driving the maximum trial count.
 XOR accumulators are fault-detecting, not binding. Any set of 129 `128-bit`
 values is linearly dependent over $\mathbb{F}_2$, so a peer with freedom over
 which identifiers to include can construct a nonempty subset whose accumulator
-is zero. Nothing in this profile relies on the accumulator being binding.
-Consumers MUST verify transferred objects by their own rules and MUST NOT treat
+is zero. Nothing in this profile relies on the accumulator being binding. Disjoint
+$h_{128}$ and $h_{64}$ bytes cut a lone $h_{64}$ collision's chance of slipping
+past the accumulator to about $2^{-128}$, but they do not stop a deliberate
+multi-pair forgery. An adversary who grinds $h_{64}$-colliding pairs (each pair
+cancels in the syndrome) needs only 129 such pairs: their $h_{128}$ differences
+are then linearly dependent over $\mathbb{F}_2$, so some subset XORs to zero.
+Obtaining 129 colliding pairs takes on the order of $2^{37}$ evaluations by a
+bulk birthday search. Events forged this way and kept in the symmetric
+difference by withholding are invisible to both the sketch and the accumulator.
+Consumers
+MUST verify transferred objects by their own rules and MUST NOT treat
 accumulator agreement as evidence of authenticity.
 
 Deployments needing adversarial robustness MAY define a future profile with
@@ -684,6 +705,8 @@ encoding, tree extraction requires no second decoder.
 finding a collision requires only $\approx 2^{32}$ evaluations, an adversary can
 easily construct one. A collision corrupts the syndrome for the colliding node,
 which the 128-bit verification step catches, causing the decode to fail cleanly.
+Because $h_{128}$ is derived from bytes disjoint from $h_{64}$, the residual
+differs for a colliding pair with probability $1 - 2^{-128}$, not $1 - 2^{-64}$.
 Because colliding identifiers follow identical paths, splitting never separates
 them. The consuming protocol MUST fall back to its own recovery path for that
 prefix. Implementations MUST NOT interpret repeated verification failure at
