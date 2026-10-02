@@ -148,15 +148,26 @@ byte order (big-endian):
 
 $h_{128}(e)$ deliberately does not overlap the bytes $h_{64}(e)$ is drawn from.
 Two identifiers that collide on $h_{64}$ share their leading bytes (when that
-chunk is non-zero, bytes 0 through 7), so an $h_{128}$ built from those same
-bytes would agree with itself on its upper half and the accumulator could only
+chunk is non-zero, bytes 0 through 7), so two $h_{128}$ values built from those
+same bytes would agree on their upper half and the accumulator could only
 distinguish the pair through its remaining 64 bits. Taking the trailing half
 keeps the two derivations independent, so a pure $h_{64}$ collision survives the
 accumulator check with probability about $2^{-128}$ (see
-[64-bit collisions](#security-considerations)). The derivations share bytes only
-when the first two 8-byte chunks of $D(e)$ are both zero, so that the non-zero
-scan for $h_{64}(e)$ reaches bytes 16 and beyond; for hash-derived digests this
+[64-bit collisions](#potential-issues)). The derivations share bytes only when
+the first two 8-byte chunks of $D(e)$ are both zero, so that the non-zero scan
+for $h_{64}(e)$ reaches bytes 16 and beyond; for hash-derived digests this
 occurs with probability about $2^{-128}$.
+
+$D(e)$ does not mix in `room_id`. For room versions 3 and later $D(e)$ is the
+reference hash of the redacted event, which retains `room_id`, so an offline
+grind is already scoped to one room and cannot be reused against others. (The
+room version 12 create event carries no `room_id`, but a collision needs a
+second event in the same room, whose `room_id` derives from the create event's
+hash and so cannot be precomputed before the room exists.) For room versions 1
+and 2, event IDs are sender-chosen strings, so collisions are free, which is a
+further reason to scope `algebraic_v1` to room version 3 and later. Non-event
+populations (for example notary key IDs) are not covered by this argument and
+remain a consumer decision.
 
 ### Matrix event-ID binding
 
@@ -509,17 +520,16 @@ _Phase 1, at decode time._ The decode MUST be rejected unless:
 
 _Phase 2, after the consumer's authenticated follow-up._ The follow-up returns
 the identifiers for $M$. The peer MUST check that every returned identifier
-re-derives to one of the decoded $h_{64}$ roots, that every root in $M$ is
-covered exactly once, and that $D_A \oplus D_B = A(L) \oplus A(M)$. On any
-failure the result MUST be discarded and the consumer MUST fall back to its
-non-reconciliation recovery path.
+re-derives to one of the roots in $M$, that every root in $M$ is covered exactly
+once, and that $D_A \oplus D_B = A(L) \oplus A(M)$. On any failure the result
+MUST be discarded and the consumer MUST fall back to its non-reconciliation
+recovery path.
 
 The $h_{64}$ index is a multiset and the $h_{64} \to$ element map is
 multi-valued, because distinct identifiers can share $h_{64}$. A decoded root
 with more than one local candidate MUST be resolved by phase 2 or cause the
-result to be discarded; it MUST NOT be treated as evidence of peer
-misbehavior. See
-[Security considerations](#security-considerations) for adversarial limits.
+result to be discarded; it MUST NOT be treated as evidence of peer misbehavior.
+See [Security considerations](#security-considerations) for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
@@ -558,8 +568,8 @@ disjoint from $h_{64}$ makes a lone $h_{64}$ collision survive the accumulator
 with probability about $2^{-128}$, but a deliberate forgery of roughly 129
 colliding pairs costs on the order of $2^{36}$ to $2^{37}$ hash evaluations and
 is out of scope: it hides only identifiers the adversary authored and withholds,
-which the baseline recovery path handles as before. `algebraic_v1` defines no stronger
-accumulator. A future `digest_type` MAY define a binding accumulator.
+which the baseline recovery path handles as before. `algebraic_v1` defines no
+stronger accumulator. A future `digest_type` MAY define a binding accumulator.
 
 Deployments needing adversarial robustness MAY define a future profile with
 negotiated per-link salting for transmitted extraction sketches. Such a profile
@@ -728,14 +738,14 @@ NOT interpret repeated verification failure at adequate capacity as evidence of
 peer misbehavior, since decodes can fail for reasons unrelated to collisions.
 
 Because $h_{64}$ is deterministic with no per-room salt, a collision found once
-is reusable across the servers participating in that room. To prevent an adversary from permanently
-disabling $1/2^{32}$ of the key space with a single offline grind,
-implementations MUST NOT treat residual-verified failure as permanent.
-Implementations MUST cache a ladder-failed prefix with a bounded TTL
+is reusable across the servers participating in that room. To prevent an
+adversary from permanently disabling $1/2^{32}$ of the key space with a single
+offline grind, implementations MUST NOT treat residual-verified failure as
+permanent. Implementations MUST cache a ladder-failed prefix with a bounded TTL
 (RECOMMENDED to be no longer than the consuming protocol's own state lifetime)
-and MUST re-probe the sketch ladder on TTL expiry. (Mixing `room_id` into $D(e)$
-would scope a grind to a single room and defeat precomputation; this MSC does
-not adopt that change — see [Open questions](#open-questions)).
+and MUST re-probe the sketch ladder on TTL expiry. (`room_id` is not mixed into
+$D(e)$; see [Element derivation](#element-derivation) for why that is
+unnecessary for room versions 3 and later.)
 
 **Resident state on many small populations.** 2 KiB per population is cheap even
 in aggregate for a server participating in very many mostly-idle rooms.
@@ -941,20 +951,6 @@ implemented three incompatible ways:
   its capacity-8 decode budget directly (bypassing population construction), and
   MUST verify the estimator returns `null` rather than a fabricated `T * 2^31`
   estimate in that case.
-
-## Open questions
-
-- **Should `room_id` be mixed into $D(e)$, or into the $D(e) \to h_{64}$
-  derivation?** For room versions 3 and later this appears unnecessary: $D(e)$
-  is the reference hash of the redacted event, which retains `room_id`, so an
-  offline grind is already scoped to one room and cannot be reused against
-  others. (The room version 12 create event carries no `room_id`, but a collision
-  needs a second event in the same room, whose `room_id` derives from the
-  create event's hash and so cannot be precomputed before the room exists.) For room versions 1 and 2, event IDs are sender-chosen
-  strings, so collisions are free, which is a further reason to scope
-  `algebraic_v1` to room version 3 and later. Non-event populations (for example
-  notary key IDs) are not covered by this argument and remain a consumer
-  decision.
 
 ## Unstable prefix
 
