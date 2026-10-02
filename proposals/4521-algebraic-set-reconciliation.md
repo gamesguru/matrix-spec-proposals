@@ -590,8 +590,10 @@ whole population to roughly that many elements in about $\log_2(n/T)$ rounds,
 and the node's siblings verify in parallel throughout.
 
 A phase-2 failure happens after the exchange has ended and cannot be split or
-retried inside it. The requester narrows it the same way, by re-running only the
-failed node's two children, and repeats while phase 2 keeps failing.
+retried inside it. A requester MAY narrow it the same way, by re-running only
+the failed node's two children, and SHOULD stop under the same population,
+depth, and budget limits as a known collision: below them, the node goes
+straight to the per-prefix fallback instead of costing another pass.
 
 A requester SHOULD also check, on every split, that the responder's two child
 summaries XOR and sum to the parent's summary. The children can arrive in
