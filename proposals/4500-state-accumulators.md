@@ -127,11 +127,14 @@ be independent of responder-local processing policy. For each PDU $P$, this MSC
 therefore defines a sibling LtHash input set $I(P)$ over the complete raw
 labelled DAG input to resolution. $I(P)$ is the least set of event records
 containing every event in the state maps at each of $P$'s `prev_events`, and
-every event transitively referenced from those records by `auth_events` and the
-room version's state-predecessor relation (`prev_state_events` when defined,
-otherwise `prev_events`). The relation name is part of the record, so this
-commits topology as well as node labels. Missing referenced events make the
-assertion `limited`; they are never represented by a synthetic placeholder.
+every event transitively referenced from those records by `auth_events` and, in
+room versions that define it, `prev_state_events`. Room versions without
+`prev_state_events` have no state-predecessor relation: `prev_events` is
+deliberately not used as a fallback, because it would make $I(P)$ the entire
+causal past, which state resolution does not read and whose union at merges
+costs $O(\text{history})$. This commits the auth topology as well as node
+labels. Missing referenced events make the assertion `limited`; they are never
+represented by a synthetic placeholder.
 
 Each element of $I(P)$ is serialized as
 
@@ -142,11 +145,11 @@ auth_events || state_predecessors
 
 where `auth_events` is `uint32le(count)` followed by its event IDs in bytewise
 UTF-8 ascending order, each encoded as `uint16le(length) || id`.
-`state_predecessors` uses the same encoding over `prev_state_events`, or over
-`prev_events` when the room version does not define `prev_state_events`. An
-event with the same ID and different outgoing edges is a distinct labelled input
-element; identical records reached by multiple paths are included once. The set
-is expanded and accumulated exactly as the primary accumulator, but under the
+`state_predecessors` uses the same encoding over `prev_state_events`, and is
+encoded as `uint32le(0)` when the room version does not define it. An event with
+the same ID and different outgoing edges is a distinct labelled input element;
+identical records reached by multiple paths are included once. The set is
+expanded and accumulated exactly as the primary accumulator, but under the
 distinct domain separation tag `msc4500:resolution_inputs:v1`.
 
 This digest is diagnostic only. It MUST NOT include `rejected`, `soft_failed`,

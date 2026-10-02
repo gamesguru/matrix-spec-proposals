@@ -489,25 +489,37 @@ Decode failure is loud, and this is the central operational property of the
 profile: a failed decode is reported as failure, not as an empty difference.
 Consumers MUST distinguish `decoded` from `capacity_exceeded`.
 
-**Verification.** A decoded difference MUST be checked against the 128-bit
-accumulator before it is trusted. Let $L$ be the set of locally held identifiers
-in the decoded symmetric difference, $A(L)$ their 128-bit accumulator sum, $R$
-the received residual digest, and $E$ the expected opposite-side accumulator:
+**Verification.** Let $L$ be the decoded roots the verifying peer holds locally
+and $M$ the decoded roots it lacks. Let $D_A$, $D_B$ be the two sides' level-0
+digests and $A(\cdot)$ the XOR of $h_{128}$ over a set of elements. For a fixed
+frame, $D_A \oplus D_B = A(L) \oplus A(M)$. The peer cannot compute $A(M)$ until
+it holds the identifiers for $M$, so verification has two phases and the result
+MUST NOT be admitted before phase 2 completes.
 
-$$
-E = R \oplus A(L)
-$$
+_Phase 1, at decode time._ The decode MUST be rejected unless:
 
-The verifying peer resolves the short IDs it holds locally in $L$, computes
-$A(L)$, and compares against $E$. A mismatch means the decode was wrong or the
-populations differed; the result MUST be discarded. Implementations SHOULD
-re-encode the recovered roots into a temporary sketch and verify that it matches
-the residual syndrome before admitting elements.
+- root finding succeeds and re-encoding the recovered roots into a temporary
+  sketch reproduces the residual syndrome (an $O(k^2)$ check);
+- $\mathrm{count}_A - \mathrm{count}_B = |L| - |M|$ from the verifying peer's
+  perspective, for a frame snapshot both sides digested, where $|L|$ and $|M|$
+  count decoded roots, not resolved elements (a colliding shared element can
+  make a root land in the wrong set, and this check rejects that before any
+  fetch); and
+- if $M$ is empty, $D_A \oplus D_B = A(L)$.
 
-A peer cannot compute the 128-bit accumulator for identifiers it does not hold.
-Each side asymmetrically verifies the half it can resolve, the residual digest
-carrying the other half. See [Security considerations](#security-considerations)
-below for adversarial limits.
+_Phase 2, after the consumer's authenticated follow-up._ The follow-up returns
+the identifiers for $M$. The peer MUST check that every returned identifier
+re-derives to one of the decoded $h_{64}$ roots, that every root in $M$ is
+covered exactly once, and that $D_A \oplus D_B = A(L) \oplus A(M)$. On any
+failure the result MUST be discarded and the consumer MUST fall back to its
+non-reconciliation recovery path.
+
+The $h_{64}$ index is a multiset and the $h_{64} \to$ element map is
+multi-valued, because distinct identifiers can share $h_{64}$. A decoded root
+with more than one local candidate MUST be resolved by phase 2 or cause the
+result to be discarded; it MUST NOT be treated as evidence of peer
+misbehavior. See
+[Security considerations](#security-considerations) for adversarial limits.
 
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
@@ -533,21 +545,21 @@ nodes each driving the maximum trial count.
 
 ## Security considerations
 
+Every adversarial or failure path in `algebraic_v1` MUST degrade to the behavior
+without this profile (extremity comparison, `/get_missing_events`,
+`/state_ids`), never below it. A successful reconciliation is not a proof of set
+equality, and consumers MUST verify transferred objects by their own rules and
+MUST NOT treat accumulator agreement as evidence of authenticity.
+
 XOR accumulators are fault-detecting, not binding. Any set of 129 `128-bit`
-values is linearly dependent over $\mathbb{F}_2$, so a peer with freedom over
-which identifiers to include can construct a nonempty subset whose accumulator
-is zero. Nothing in this profile relies on the accumulator being binding. Disjoint
-$h_{128}$ and $h_{64}$ bytes cut a lone $h_{64}$ collision's chance of slipping
-past the accumulator to about $2^{-128}$, but they do not stop a deliberate
-multi-pair forgery. An adversary who grinds $h_{64}$-colliding pairs (each pair
-cancels in the syndrome) needs only 129 such pairs: their $h_{128}$ differences
-are then linearly dependent over $\mathbb{F}_2$, so some subset XORs to zero.
-Obtaining 129 colliding pairs takes on the order of $2^{37}$ evaluations by a
-bulk birthday search. Events forged this way and kept in the symmetric
-difference by withholding are invisible to both the sketch and the accumulator.
-Consumers
-MUST verify transferred objects by their own rules and MUST NOT treat
-accumulator agreement as evidence of authenticity.
+values is linearly dependent over $\mathbb{F}_2$, so an adversary can construct
+a nonempty subset whose accumulator is zero. Deriving $h_{128}$ from bytes
+disjoint from $h_{64}$ makes a lone $h_{64}$ collision survive the accumulator
+with probability about $2^{-128}$, but a deliberate forgery of roughly 129
+colliding pairs costs on the order of $2^{36}$ to $2^{37}$ hash evaluations and
+is out of scope: it hides only identifiers the adversary authored and withholds,
+which the baseline recovery path handles as before. `algebraic_v1` defines no stronger
+accumulator. A future `digest_type` MAY define a binding accumulator.
 
 Deployments needing adversarial robustness MAY define a future profile with
 negotiated per-link salting for transmitted extraction sketches. Such a profile
@@ -564,8 +576,9 @@ optimistic sketch reconciliation. This attack is only effective if the adversary
 can ensure the ground events remain in the symmetric difference — e.g., via
 selective federation or withholding — since replicated events cancel out of the
 XOR residual. In v1, $h_{64}$ is unkeyed and the stratum assignment is
-deterministic; epoch-rotated keyed hashes are the intended future mitigation
-path for this class of attacks.
+deterministic; the TTL-scoped fallback under
+[Potential issues](#potential-issues) is the mitigation, and keying belongs to a
+future `digest_type`.
 
 ## Capacity provisioning
 
@@ -703,18 +716,19 @@ encoding, tree extraction requires no second decoder.
 
 **64-bit collisions.** Two distinct identifiers can share $h_{64}$. Because
 finding a collision requires only $\approx 2^{32}$ evaluations, an adversary can
-easily construct one. A collision corrupts the syndrome for the colliding node,
-which the 128-bit verification step catches, causing the decode to fail cleanly.
-Because $h_{128}$ is derived from bytes disjoint from $h_{64}$, the residual
-differs for a colliding pair with probability $1 - 2^{-128}$, not $1 - 2^{-64}$.
-Because colliding identifiers follow identical paths, splitting never separates
-them. The consuming protocol MUST fall back to its own recovery path for that
-prefix. Implementations MUST NOT interpret repeated verification failure at
-adequate capacity as evidence of peer misbehavior, since decodes can fail for
-reasons unrelated to collisions.
+easily construct one. Colliding identifiers cancel in the syndrome, on opposite
+sides or on one side, so the decode succeeds with those roots missing.
+Verification then fails in phase 2: the residual still contains their $h_{128}$
+values, which no decoded root accounts for. Because $h_{128}$ is derived from
+bytes disjoint from $h_{64}$, the residual differs for a colliding pair with
+probability $1 - 2^{-128}$, not $1 - 2^{-64}$. Because colliding identifiers
+follow identical paths, splitting never separates them. The consuming protocol
+MUST fall back to its own recovery path for that prefix. Implementations MUST
+NOT interpret repeated verification failure at adequate capacity as evidence of
+peer misbehavior, since decodes can fail for reasons unrelated to collisions.
 
 Because $h_{64}$ is deterministic with no per-room salt, a collision found once
-is reusable across all servers. To prevent an adversary from permanently
+is reusable across the servers participating in that room. To prevent an adversary from permanently
 disabling $1/2^{32}$ of the key space with a single offline grind,
 implementations MUST NOT treat residual-verified failure as permanent.
 Implementations MUST cache a ladder-failed prefix with a bounded TTL
@@ -931,16 +945,16 @@ implemented three incompatible ways:
 ## Open questions
 
 - **Should `room_id` be mixed into $D(e)$, or into the $D(e) \to h_{64}$
-  derivation?** As noted under [Potential issues](#potential-issues), $h_{64}$
-  today is deterministic from the event ID alone, so a $\approx 2^{32}$-work
-  offline collision grind against one prefix is reusable against every room on
-  every peer. Mixing `room_id` in would scope any such grind to a single room
-  and defeat precomputation against rooms that do not yet exist, at no cost to
-  the comparison contract (both sides already agree on the room). This MSC does
-  not make that change, to avoid altering the `D(e)`/`h_{64}` derivation and
-  invalidating existing test vectors without a clear need beyond the bounded,
-  TTL-scoped fallback already specified. A future profile revision could adopt
-  it if the bounded fallback proves insufficient in practice.
+  derivation?** For room versions 3 and later this appears unnecessary: $D(e)$
+  is the reference hash of the redacted event, which retains `room_id`, so an
+  offline grind is already scoped to one room and cannot be reused against
+  others. (The room version 12 create event carries no `room_id`, but a collision
+  needs a second event in the same room, whose `room_id` derives from the
+  create event's hash and so cannot be precomputed before the room exists.) For room versions 1 and 2, event IDs are sender-chosen
+  strings, so collisions are free, which is a further reason to scope
+  `algebraic_v1` to room version 3 and later. Non-event populations (for example
+  notary key IDs) are not covered by this argument and remain a consumer
+  decision.
 
 ## Unstable prefix
 
