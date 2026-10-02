@@ -103,8 +103,9 @@ The top-level component hashes `prev_events_hash`, `auth_events_hash`,
 leaf-hash construction above. `state_predecessors_hash` hashes the field named
 `prev_state_events` when the room version defines State DAGs. Every other room
 version defines `prev_events`, so the fallback in that case is always to hash
-`prev_events` (matching the MSC4500 `state_predecessors` definition) —
-`state_predecessors_hash` is never the leaf hash of a literal `null` for any
+`prev_events`. (The adopting room version takes on MSC4242, so this fallback
+does not fire there; a pre-MSC4242 adoption would differ from MSC4500, which
+encodes an empty list.) `state_predecessors_hash` is never the leaf hash of a literal `null` for any
 room version this MSC can adopt into. `content_hash` is instead the `inner_hash`
 combination of `redacted_content_hash` and `redactable_content_hash`, each of
 which is itself a leaf hash over the room version's redaction-surviving and

@@ -22,8 +22,9 @@ For all room versions 3 and later, `prev_state_events` is a supported edge type.
 In room versions defining State DAGs (MSC4242), it follows the explicit
 state-DAG predecessor edges declared by each event. In earlier room versions, it
 follows `prev_events` as a fallback — the general DAG predecessor edges double
-as the state-predecessor relation, matching the resolution-input accumulator
-definition in [MSC4500](4500-state-accumulators.md). A requester MUST NOT infer
+as the state-predecessor relation. This is a traversal hint only; it is not
+what [MSC4500](4500-state-accumulators.md)'s resolution-input accumulator
+commits, which has no state-predecessor relation in such room versions. A requester MUST NOT infer
 state-predecessor edges from `auth_events`. State-predecessor traversal remains
 a hint-only query; it does not replace state resolution or authorize accepting
 an event.
@@ -324,8 +325,9 @@ The `edge_types` list defines the edge relations $R$ to follow during traversal:
   versions, these are the explicit `prev_state_events` edges declared by each
   event. In room versions that do not define State DAGs, this follows
   `prev_events` instead — the general DAG predecessor edges double as the
-  state-predecessor relation, matching the MSC4500 resolution-input
-  accumulator's `state_predecessors` field.
+  state-predecessor relation, as a traversal hint only (MSC4500's
+  resolution-input accumulator commits no such relation in these room
+  versions).
 
 Unrecognized edge types MUST cause the request to fail with `M_INVALID_PARAM` to
 prevent silent semantic divergence.
@@ -805,9 +807,9 @@ Requesters SHOULD negatively cache a peer's unsupported
   MSC4511A natively traverses `prev_state_events` edges when supported by the
   room version.
 - [MSC4500: State accumulators](4500-state-accumulators.md): MSC4511A's
-  `prev_state_events` edge type follows the same `prev_state_events` /
-  `prev_events` fallback as the MSC4500 resolution-input accumulator's
-  `state_predecessors` field.
+  `prev_state_events` edge type follows `prev_state_events` where defined and
+  falls back to `prev_events` as a hint; MSC4500's resolution-input accumulator
+  does not use that fallback.
 - [MSC4511C: Verifiable Room State and Event Metadata](4511-c-merkleized-room-version-upgrade.md):
   Completes MSC4511A's algebra by materializing the unbounded ancestor closure
   $C(E)$ into authenticated causal tries, allowing a future proof extension to
