@@ -565,6 +565,26 @@ with more than one local candidate MUST be resolved by phase 2 or cause the
 result to be discarded; it MUST NOT be treated as evidence of peer misbehavior.
 See [Security considerations](#security-considerations) for adversarial limits.
 
+**Repeated failure.** A node can fail phase 1 spuriously: an over-capacity
+decode can return a wrong set that looks valid. A spurious result does not
+survive a different sketch, because a larger capacity adds syndromes and a split
+narrows the node. An $h_{64}$ collision does survive, because the same
+identifiers are in the node every time. A requester SHOULD therefore classify a
+node as a collision when it fails phase 1 again, under a different sketch (a
+different capacity or depth, not a repeat of the same request), with the same
+set of decoded roots restricted to that node, where the earlier failure was on
+that node or one of its ancestors. An empty root set counts: an opposite-sided
+pair with $M$ empty fails with no roots. The requester SHOULD then mark that
+prefix ladder-failed under the TTL rule in [Potential issues](#potential-issues)
+and continue with the node's siblings, rather than escalating the whole
+exchange.
+
+A requester SHOULD also check, on every split, that the responder's two child
+summaries XOR and sum to the parent's summary. The children can arrive in
+different rounds, so the parent's summary is kept until both are in. A violation
+is responder inconsistency, not a decode problem, so no retry can fix it: the
+parent prefix SHOULD be marked ladder-failed immediately.
+
 **Decoder bounds.** The internal decoder is standard BCH-style syndrome decoding
 over $\mathbb{F}_{2^{64}}$. The sketch exposes odd-power syndromes, and the
 missing even syndromes are derived or implied. Implementations MAY use
