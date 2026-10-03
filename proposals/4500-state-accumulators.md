@@ -89,13 +89,17 @@ implemented as follows:
    per length is sufficient since no field in a valid PDU can exceed the global
    65 KB event size limit.
 2. **Input expansion.** The encoded element, prefixed with the domain separation
-   tag `msc4500:lthash16:v1`, is expanded to exactly 2048 bytes using the
-   `SHAKE256` extendable-output function (XOF) from NIST FIPS 202:
-   `expansion = SHAKE256("msc4500:lthash16:v1" || element, 2048)`. A fixed-width
-   hash cannot fill the lattice; this uniform XOF expansion is essential for
-   identical lane distribution. `SHAKE256` is natively supported across
-   virtually all cryptographic libraries without custom parameter block
-   requirements.
+   tag `msc4500:lthash16:blake3:v1`, is expanded to exactly 2048 bytes using the
+   `BLAKE3` extendable-output function (XOF):
+   `expansion = BLAKE3("msc4500:lthash16:blake3:v1" || element)[0..2048]`. A
+   fixed-width hash cannot fill the lattice; this uniform XOF expansion is
+   essential for identical lane distribution. `BLAKE3` is a single primitive
+   covering both this expansion and the collapse in step 6, needs no custom
+   parameter block, and is hardware-accelerated on mainstream CPUs — whereas
+   squeezing 2048 bytes from `SHAKE256` costs 16 `Keccak-f1600` permutations per
+   insert and no mainstream CPU ships a Keccak instruction. The tag is
+   deliberately versioned `blake3:v1` so a digest from this instantiation can
+   never be confused with an earlier `SHAKE256` + `BLAKE2b-256` profile.
 3. **Accumulation.** The 2048-byte expansion is interpreted as 1024
    little-endian unsigned 16-bit lanes and combined into the local lattice with
    lane-wise wrapping addition.
@@ -110,9 +114,10 @@ implemented as follows:
 5. **Initial state.** The accumulator of the empty state set is 2048 zero bytes.
 
 6. **Collapse.** Compute the final 32-byte digest $D$ by hashing the final
-   2048-byte sum lattice $S$ using `BLAKE2b-256`, encoded as an unpadded
+   2048-byte sum lattice $S$ using `BLAKE3-256`, encoded as an unpadded
    `base64url` string (43 characters), matching Matrix's event-ID convention:
-   $$D = \text{base64url}(\text{BLAKE2b-256}(S))$$
+   $$D = \text{base64url}(\text{BLAKE3}(S))$$ where $S$ is hashed as its 2048
+   bytes of little-endian lane serialization.
 
 **Reference implementations** are available in Rust[^1.2.rust] and
 Golang[^1.2.go].
@@ -150,7 +155,7 @@ encoded as `uint32le(0)` when the room version does not define it. An event with
 the same ID and different outgoing edges is a distinct labelled input element;
 identical records reached by multiple paths are included once. The set is
 expanded and accumulated exactly as the primary accumulator, but under the
-distinct domain separation tag `msc4500:resolution_inputs:v1`.
+distinct domain separation tag `msc4500:resolution_inputs:blake3:v1`.
 
 This digest is diagnostic only. It MUST NOT include `rejected`, `soft_failed`,
 or any other responder-local processing status: those observations are not raw
@@ -164,8 +169,8 @@ resolver disagreement over an identical canonical input graph.
 accumulator, not by changing the primary element tuple. The redaction
 accumulator uses the same element encoding `(type, state_key, event_id)` and the
 same lattice parameters, but expands elements under the domain separation tag
-`msc4500:redactions:v1`. Its normative input at a DAG point `E` is the following
-derived set:
+`msc4500:redactions:blake3:v1`. Its normative input at a DAG point `E` is the
+following derived set:
 
 $$
 R(E) = \{\operatorname{tuple}(s) \mid s \in \operatorname{resolved\_state}(E)
@@ -289,29 +294,29 @@ digest at that DAG position.
 
 - `algorithm`: A single string identifying the complete digest profile used for
   every entry in this transaction's `state_hashes.entries` dictionary. This MSC
-  defines `lthash16-v1+redactions-v1`, comprising the primary `lthash16-v1`
-  accumulator and the redaction supplement with its separate DST (see
-  [Algorithm specification](#algorithm-specification)). A server advertising
-  `tk.nutra.msc4500.resolution_input_digest` instead uses
-  `lthash16-v1+redactions-v1+resolution-inputs-v1`, which additionally commits
-  the labelled resolver-input set. One value governs the whole transaction;
-  mixing algorithms within a single transaction serves no purpose and is not
-  supported. A receiver that does not recognize the algorithm MUST silently skip
-  hash validation for the entire transaction, the same as any other deferral
-  case in the [Receiver contract](#receiver-contract).
+  defines `lthash16-blake3-v1+redactions-blake3-v1`, comprising the primary
+  `lthash16-blake3-v1` accumulator and the redaction supplement with its
+  separate DST (see [Algorithm specification](#algorithm-specification)). A
+  server advertising `tk.nutra.msc4500.resolution_input_digest` instead uses
+  `lthash16-blake3-v1+redactions-blake3-v1+resolution-inputs-blake3-v1`, which
+  additionally commits the labelled resolver-input set. One value governs the
+  whole transaction; mixing algorithms within a single transaction serves no
+  purpose and is not supported. A receiver that does not recognize the algorithm
+  MUST silently skip hash validation for the entire transaction, the same as any
+  other deferral case in the [Receiver contract](#receiver-contract).
 - `entries`: A dictionary keyed by the IDs of the PDUs included in the
   transaction. It MUST contain exactly one entry for every PDU in `pdus` when
-  `state_hashes` is present. Under `lthash16-v1+redactions-v1`, each value
-  either asserts that PDU's primary and redaction `before` and `after` digests,
-  or explicitly marks the assertion as limited. A supporting sender MUST emit
-  all four digest fields for a non-limited entry. Under the resolution-input
-  algorithm it MAY additionally emit `resolution_inputs_before` per entry;
-  omitting that field is not malformed (see below). Omission of any of the four
-  is malformed, not an assertion that the redaction accumulator is empty; the
-  empty accumulator is represented by its defined sentinel digest. A receiver
-  that observed the sender advertise `tk.nutra.msc4500.redactions` SHOULD report
-  an omitted redaction digest as a protocol violation, while continuing ordinary
-  PDU processing.
+  `state_hashes` is present. Under `lthash16-blake3-v1+redactions-blake3-v1`,
+  each value either asserts that PDU's primary and redaction `before` and
+  `after` digests, or explicitly marks the assertion as limited. A supporting
+  sender MUST emit all four digest fields for a non-limited entry. Under the
+  resolution-input algorithm it MAY additionally emit `resolution_inputs_before`
+  per entry; omitting that field is not malformed (see below). Omission of any
+  of the four is malformed, not an assertion that the redaction accumulator is
+  empty; the empty accumulator is represented by its defined sentinel digest. A
+  receiver that observed the sender advertise `tk.nutra.msc4500.redactions`
+  SHOULD report an omitted redaction digest as a protocol violation, while
+  continuing ordinary PDU processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -326,7 +331,7 @@ digest at that DAG position.
     applied. This field MUST be omitted when `limited` is `true`.
   - `resolution_inputs_before`: The 32-byte digest of the complete labelled
     input set handed to state resolution for the PDU's `prev_events`, as defined
-    above. This field is meaningful only under the `resolution-inputs-v1`
+    above. This field is meaningful only under the `resolution-inputs-blake3-v1`
     algorithm. A sender MAY omit it per entry, and it is JSON `null` when
     `limited` is `true`. A receiver MUST treat an omitted value as "no
     assertion" for this component only, and MUST NOT treat the omission as a
@@ -376,13 +381,13 @@ MSC4500's equality commitment.
     }
   ],
   "state_hashes": {
-    "algorithm": "lthash16-v1+redactions-v1+resolution-inputs-v1",
+    "algorithm": "lthash16-blake3-v1+redactions-blake3-v1+resolution-inputs-blake3-v1",
     "entries": {
       "$sample_pduid_abc123def456": {
         "before": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "redactions_before": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
-        "redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "redactions_before": "viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM",
+        "redactions_after": "viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM",
         "resolution_inputs_before": "bF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
     }
@@ -406,7 +411,7 @@ Each server independently maintains its own `LtHash16` lattice in local storage.
 
 When a server receives a `/send` transaction containing a `state_hashes`
 payload, it collapses its local resolved state and redaction lattices at that
-DAG point to canonical 32-byte `BLAKE2b-256` digests. For the resolution-input
+DAG point to canonical 32-byte `BLAKE3-256` digests. For the resolution-input
 algorithm it also computes the complete labelled input-DAG closure before
 running resolution. If the local digests match the incoming ones, processing
 proceeds normally.
@@ -435,11 +440,11 @@ evaluated against.
   "pdus": {
     "$sample_pduid_abc123def456": {
       "state_hash_mismatch": {
-        "algorithm": "lthash16-v1+redactions-v1+resolution-inputs-v1",
+        "algorithm": "lthash16-blake3-v1+redactions-blake3-v1+resolution-inputs-blake3-v1",
         "expected_after": "uF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "received_after": "qF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
-        "expected_redactions_after": "IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
-        "received_redactions_after": "gQgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g",
+        "expected_redactions_after": "viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM",
+        "received_redactions_after": "gQqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM",
         "expected_resolution_inputs_before": "cF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ",
         "received_resolution_inputs_before": "bF3-HUgHBUgvN9WC_6J2ERF7V3-HNFMqWmN5vGZrIQQ"
       }
@@ -509,10 +514,11 @@ only specifies the backwards-compatible federation `/state_ids` validator.
 
 A server which has completely resolved the state and auth chain for the exact
 `event_id` requested by `GET /_matrix/federation/v1/state_ids/{roomId}` SHOULD
-include an entity-tag of the form `ETag: "lthash16-v1:<digest>"` on its `200 OK`
-response, where `<digest>` is the unpadded base64url-encoded collapse digest of
-that resolved state. The algorithm identifier is part of the opaque entity-tag;
-validators from different accumulator versions MUST NOT compare equal.
+include an entity-tag of the form `ETag: "lthash16-blake3-v1:<digest>"` on its
+`200 OK` response, where `<digest>` is the unpadded base64url-encoded collapse
+digest of that resolved state. The algorithm identifier is part of the opaque
+entity-tag; validators from different accumulator versions MUST NOT compare
+equal.
 
 Unlike an ordinary server-issued opaque ETag, this validator is globally
 derived: a requester MAY compute and send it without having received it from
@@ -527,7 +533,7 @@ validator that commits to both response sets instead.
 
 A responder advertising `tk.nutra.msc4500.redactions` MUST also include a
 redaction accumulation validator of the form
-`X-Matrix-MSC4500-Redactions: "lthash16-redactions-v1:<digest>"`, where
+`X-Matrix-MSC4500-Redactions: "lthash16-redactions-blake3-v1:<digest>"`, where
 `<digest>` is evaluated at the same requested `event_id`. This header is not a
 substitute for the entity-tag: the ETag validates the endpoint's ID-only JSON
 body, while the redaction header lets peers cheaply detect disagreement over
@@ -820,17 +826,20 @@ $2^{16}$; massive rooms are fully supported.
 ## Test vectors
 
 To assist implementers, the following test vectors are provided. They use
-`SHAKE256` element expansion, 16-bit little-endian wrapping lane
-addition/subtraction, and a `BLAKE2b-256` collapse digest encoded as unpadded
+`BLAKE3` element expansion, 16-bit little-endian wrapping lane
+addition/subtraction, and a `BLAKE3-256` collapse digest encoded as unpadded
 `base64url` (the wire form). Unless a vector specifies a sibling accumulator,
-the domain separation tag is `msc4500:lthash16:v1`.
+the domain separation tag is `msc4500:lthash16:blake3:v1`.
+
+The raw element encodings below are unchanged from the original `SHAKE256`
+profile — only the expansion, the collapse, and the tags differ.
 
 ### Empty state
 
 The starting lattice $S_0$ is 2048 bytes of all zeros.
 
 - Lattice $S_0$ prefix (first 16 bytes): `00000000000000000000000000000000`
-- Collapse digest: `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`
+- Collapse digest: `viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM`
 
 **This collapse digest is a reserved sentinel, not room-specific evidence.**
 Every room shares this exact value before its `m.room.create` event is applied —
@@ -844,25 +853,25 @@ free extra test vector for the `before` digest of any room's create event.
 ### Sibling accumulators
 
 The empty lattice for both sibling accumulators is also 2048 zero bytes and
-therefore collapses to `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`.
+therefore collapses to `viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM`.
 
 For the redaction accumulator, add the same Scenario 1 tuple with
-`msc4500:redactions:v1` tag:
+`msc4500:redactions:blake3:v1` tag:
 
 - Raw encoded element:
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
-- Expansion prefix (first 16 bytes): `658b7e927e6dfb1e005d256b8585f2de`
-- Collapse digest: `agc0p_Rz3alXKNeiOyH3AGl7eYADEyy51Ig3WWf5pfo`
+- Expansion prefix (first 16 bytes): `bd2b03d5ba8dd2761aa3a19d554d2325`
+- Collapse digest: `e6d1hbXoA5vELKAca0_90uqBj8EldNG6SyilwTVnXXM`
 
 For the resolution-input accumulator, use the one-node labelled record with
 event ID `$event_1`, type `m.room.member`, state key `@alice:example.com`, and
 empty `auth_events` and state-predecessor lists, under the
-`msc4500:resolution_inputs:v1` tag:
+`msc4500:resolution_inputs:blake3:v1` tag:
 
 - Raw encoded element:
   `0800246576656e745f310d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d0000000000000000`
-- Expansion prefix (first 16 bytes): `9b753e5e920f6efaf5c1d0d7a0901b59`
-- Collapse digest: `-Vh8cQGOWtRZu4YGNhWnswj_QuHJDuCCIuzCuGpX2zs`
+- Expansion prefix (first 16 bytes): `d709b7206a97941bb28176af43e362d8`
+- Collapse digest: `IGytaez3uh-Y5gPuZ7o2bZxlaufNhkXH558n-Unor_Y`
 
 ### Scenario 1: one element (addition)
 
@@ -872,10 +881,10 @@ Add event `m.room.member` with state key `@alice:example.com` and event ID
 - Raw encoded element:
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f31`
 - Element 1 expansion prefix (first 16 bytes of
-  $SHAKE256(\text{tag} \parallel \text{el}_1)$):
-  `dbcadc58c85d7be0efca00e478a66697`
-- Lattice $S_1$ prefix (first 16 bytes): `dbcadc58c85d7be0efca00e478a66697`
-- Collapse digest: `bX7ccIPg0lyRZyBYO_UZs5nC4iVitD62L6cJfL2iAiU`
+  $BLAKE3(\text{tag} \parallel \text{el}_1)$):
+  `c3b425b048d369230ec3b609c1f0c5a5`
+- Lattice $S_1$ prefix (first 16 bytes): `c3b425b048d369230ec3b609c1f0c5a5`
+- Collapse digest: `jkZrUIFtAvB1LEjCV0klBcoslgI_z-fy57tBaYhqy8g`
 
 ### Scenario 2: add-then-remove (element removal)
 
@@ -884,7 +893,7 @@ accumulator to the empty state.
 
 - Lattice $S_{\text{back}}$ prefix (first 16 bytes):
   `00000000000000000000000000000000`
-- Collapse digest: `IAgj5RWLN3TBG1xhhQradi-CZBRKm-vsPrrFoq3eZ7g`
+- Collapse digest: `viqN49z0bJTOhc3I4HrDCPTYqVSQ2VbDjXgP1hDbCBM`
 
 ### Scenario 3: two elements
 
@@ -893,10 +902,10 @@ ID `$event_2`.
 
 - Raw encoded element: `0b006d2e726f6f6d2e6e616d650000246576656e745f32`
 - Element 2 expansion prefix (first 16 bytes of
-  $SHAKE256(\text{tag} \parallel \text{el}_2)$):
-  `118e0b32fac730c01f1351378389793a`
-- Lattice $S_2$ prefix (first 16 bytes): `ec58e78ac225aba00ede511bfb2fdfd1`
-- Collapse digest: `uPdh4wkYWs0awGqFQmf3ieHSoFoMXFPwZmdqrwSPhkM`
+  $BLAKE3(\text{tag} \parallel \text{el}_2)$):
+  `a6f3137486864ae336ad338a068eae58`
+- Lattice $S_2$ prefix (first 16 bytes): `69a83824ce59b3064470e993c77e73fe`
+- Collapse digest: `0MOPtd797los_3q4fTJt4bKCjhRFZ12nwPEPshWDcEA`
 
 ### Scenario 4: instant replacement
 
@@ -907,10 +916,10 @@ event ID `$event_3`. This is performed by subtracting the expansion for
 - Raw encoded element for `$event_3`:
   `0d006d2e726f6f6d2e6d656d626572120040616c6963653a6578616d706c652e636f6d246576656e745f33`
 - Element 3 expansion prefix (first 16 bytes of
-  $SHAKE256(\text{tag} \parallel \text{el}_3)$):
-  `4f026432409d32757f83fd088659c6c6`
-- Lattice $S_3$ prefix (first 16 bytes): `60906f643a6562359e964e4009e33f01`
-- Collapse digest: `eqev6DfKxlhX6RocDu97tQghpBYRRQ9TfbGXiiQiSZA`
+  $BLAKE3(\text{tag} \parallel \text{el}_3)$):
+  `2092781e84ce05bfee33a69ed0b0205f`
+- Lattice $S_3$ prefix (first 16 bytes): `c6858b920a554fa224e1d928d63eceb7`
+- Collapse digest: `BHYsmq2zHFAQZgQGlXuFqaAG9w9o7vFY7NkRcUL_554`
 
 ## Backwards compatibility
 
@@ -932,12 +941,12 @@ This proposal is fully backwards-compatible:
 
 <!-- markdownlint-enable MD013 -->
 
-The `algorithm` value's `redactions-v1` and `resolution-inputs-v1` components
-(see [Algorithm specification](#algorithm-specification)) are not given separate
-`tk.nutra` development identifiers: they are dash-joined segments of an
-already-versioned composite value, not standalone namespaced keys or flags, and
-a version bump at stabilization is handled the same way any other `-v1`
-component would be.
+The `algorithm` value's `redactions-blake3-v1` and `resolution-inputs-blake3-v1`
+components (see [Algorithm specification](#algorithm-specification)) are not
+given separate `tk.nutra` development identifiers: they are dash-joined segments
+of an already-versioned composite value, not standalone namespaced keys or
+flags, and a version bump at stabilization is handled the same way any other
+`-v1` component would be.
 
 While unstable, implementations MUST send the `state_hashes` object under the
 `tk.nutra.msc4500.state_hashes` key instead of the unprefixed root-level name,
