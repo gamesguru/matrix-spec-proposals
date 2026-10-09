@@ -1,0 +1,9 @@
+\usepackage{seqsplit}
+
+\let\pandocTexttt\texttt
+\DeclareRobustCommand{\breakableTexttt}[1]{\pandocTexttt{\seqsplit{#1}}}
+\let\texttt\breakableTexttt
+
+\AtBeginDocument{%
+  \pdfstringdefDisableCommands{\def\texttt#1{#1}}%
+}

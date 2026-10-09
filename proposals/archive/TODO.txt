@@ -1,3 +1,10 @@
+2026-08-07 MSC4499 and general refactor
+
+
+We should clarify in 4499 that admin defined IDs are being effectively deprecated.
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 2026-07-15 live-doc inventory
 
 Active drafts:

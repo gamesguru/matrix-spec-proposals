@@ -40,44 +40,43 @@ Concretely:
 
 - The stamp travels inside the FN-DSA key object itself:
 
-    ```json
-    "verify_keys": {
-        "fn-dsa-512:<short_key_id>": {
-            "key": "<unpadded-base64-fn-dsa-512-pubkey>",
-            "pow": {
-                "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
-                "nonce": 8137226,
-                "solution": [123, 456, "..."]
-            }
-        }
-    }
-    ```
+  ```json
+  "verify_keys": {
+      "fn-dsa-512:<short_key_id>": {
+          "key": "<unpadded-base64-fn-dsa-512-pubkey>",
+          "pow": {
+              "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+              "nonce": 8137226,
+              "solution": [123, 456, "..."]
+          }
+      }
+  }
+  ```
 
-    This placement solves carriage completely: the stamp is inside the signed
-    object, so it is covered by both self-signatures (tamper-evident), included
-    in `server_key_package_sha256` deterministically (it never changes for a
-    given key, so package stability is unaffected), and preserved verbatim by
-    notary redistribution with no new rules.
+  This placement solves carriage completely: the stamp is inside the signed
+  object, so it is covered by both self-signatures (tamper-evident), included in
+  `server_key_package_sha256` deterministically (it never changes for a given
+  key, so package stability is unaffected), and preserved verbatim by notary
+  redistribution with no new rules.
 
 - The verifier _reconstructs_ the seed input rather than receiving a challenge:
 
-    ```text
-    stamp_object = {
-        "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
-        "resource": {
-            "action": "fn-dsa-key-publication",
-            "server_name": <server_name of the enclosing response>,
-            "key_id": <recomputed from the advertised key body>
-        }
-    }
-    graph_seed(nonce) = SHA-256(canonical_json(stamp_object) || uint64_le(nonce))
-    ```
+  ```text
+  stamp_object = {
+      "algorithm": "tk.nutra.msc45xx.pow.cuckoo-cycle-42-29-sha256",
+      "resource": {
+          "action": "fn-dsa-key-publication",
+          "server_name": <server_name of the enclosing response>,
+          "key_id": <recomputed from the advertised key body>
+      }
+  }
+  graph_seed(nonce) = SHA-256(canonical_json(stamp_object) || uint64_le(nonce))
+  ```
 
-    No `challenge`, no `expires_ts`, no issuer. The "issued by the verifier" and
-    expiry rules move out of the minting PoW entirely. Drop
-    `key_metadata_sha256` from the stamp binding: metadata can legitimately
-    change across refreshes without re-minting the key, and it is already
-    covered by both self-signatures.
+  No `challenge`, no `expires_ts`, no issuer. The "issued by the verifier" and
+  expiry rules move out of the minting PoW entirely. Drop `key_metadata_sha256`
+  from the stamp binding: metadata can legitimately change across refreshes
+  without re-minting the key, and it is already covered by both self-signatures.
 
 - Cost profile becomes sane: ~10–15 s once per key at generation time, zero per
   rotation of _other_ material, zero per `valid_until_ts` refresh, zero per
@@ -282,8 +281,8 @@ the proof:
 
 ```json
 {
-    "challenge_object": { "...": "the notary-signed challenge, verbatim" },
-    "proof": { "algorithm": "…", "nonce": 8137226, "solution": [123, "..."] }
+  "challenge_object": { "...": "the notary-signed challenge, verbatim" },
+  "proof": { "algorithm": "…", "nonce": 8137226, "solution": [123, "..."] }
 }
 ```
 

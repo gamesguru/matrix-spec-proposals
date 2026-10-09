@@ -4,6 +4,8 @@ check-filename = true
 [default.extend-identifiers]
 OTK = "OTK"
 OTKs = "OTKs"
+# hex bytes
+BA = "BA"
 
 [default.extend-words]
 OTK = "OTK"
