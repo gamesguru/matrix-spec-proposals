@@ -138,9 +138,9 @@ room versions that define it, `prev_state_events`. Room versions without
 deliberately not used as a fallback, because it would make $I(P)$ the entire
 causal past, which state resolution does not read and whose union at merges
 costs $O(\text{history})$. This commits the auth topology as well as node
-labels. A missing referenced event makes only the resolution-input assertion limited:
-the entry's `resolution_inputs_before` is JSON `null` and its other digests are
-unaffected. A gap is never represented by a synthetic placeholder.
+labels. A missing referenced event makes only the resolution-input assertion
+limited: the entry's `resolution_inputs_before` is JSON `null` and its other
+digests are unaffected. A gap is never represented by a synthetic placeholder.
 
 Each element of $I(P)$ is serialized as
 
@@ -239,8 +239,9 @@ redaction digest wherever this MSC requires `state_hashes` and on all resolvable
 `resolution_inputs_before` for every non-limited transaction assertion: the
 digest of the complete input closure, or JSON `null` when a referenced event is
 missing. Absence or `null` from an advertising server means no assertion was
-made; it MUST NOT be interpreted as an empty sentinel or as agreement. Servers that do not advertise
-these flags remain compatible with legacy federation behavior.
+made; it MUST NOT be interpreted as an empty sentinel or as agreement. Servers
+that do not advertise these flags remain compatible with legacy federation
+behavior.
 
 ### Transaction payload
 
@@ -314,12 +315,12 @@ digest at that DAG position.
   sender MUST emit all four digest fields for a non-limited entry. Under the
   resolution-input algorithm an entry also carries `resolution_inputs_before`,
   as a digest or JSON `null`; a receiver treats an omitted field as `null`, not
-  as malformed (see below). Omission of any
-  of the four is malformed, not an assertion that the redaction accumulator is
-  empty; the empty accumulator is represented by its defined sentinel digest. A
-  receiver that observed the sender advertise `tk.nutra.msc4500.redactions`
-  SHOULD report an omitted redaction digest as a protocol violation, while
-  continuing ordinary PDU processing.
+  as malformed (see below). Omission of any of the four is malformed, not an
+  assertion that the redaction accumulator is empty; the empty accumulator is
+  represented by its defined sentinel digest. A receiver that observed the
+  sender advertise `tk.nutra.msc4500.redactions` SHOULD report an omitted
+  redaction digest as a protocol violation, while continuing ordinary PDU
+  processing.
   - `before`: The 32-byte digest of the room state evaluated exactly at the
     given PDU's `prev_events`, excluding and preceding the given event. This is
     JSON `null` when `limited` is `true` and the sender cannot resolve that DAG
@@ -335,13 +336,13 @@ digest at that DAG position.
   - `resolution_inputs_before`: The 32-byte digest of the complete labelled
     input set handed to state resolution for the PDU's `prev_events`, as defined
     above. This field is meaningful only under the `resolution-inputs-blake3-v1`
-    algorithm. It is JSON `null` when `limited` is `true` and when a
-    referenced event is missing from the input closure. A sender that does not
-    advertise `tk.nutra.msc4500.resolution_input_digest` MAY omit it. A
-    receiver MUST treat an omitted or `null` value as "no assertion" for this
-    component only, and MUST NOT treat the omission as a
-    protocol violation or defer the entry's other digests. A server that
-    advertises `tk.nutra.msc4500.resolution_input_digest` MUST include
+    algorithm. It is JSON `null` when `limited` is `true` and when a referenced
+    event is missing from the input closure. A sender that does not advertise
+    `tk.nutra.msc4500.resolution_input_digest` MAY omit it. A receiver MUST
+    treat an omitted or `null` value as "no assertion" for this component only,
+    and MUST NOT treat the omission as a protocol violation or defer the entry's
+    other digests. A server that advertises
+    `tk.nutra.msc4500.resolution_input_digest` MUST include
     `expected_resolution_inputs_before` and `received_resolution_inputs_before`
     in every `state_hash_mismatch` reply under that algorithm, since that is the
     one place the labelled input set is needed to localize a divergence;
@@ -500,15 +501,15 @@ implementation detail.
 
 A redaction changes an event's content without changing its `event_id`, so it
 leaves the primary state digest untouched. A missed redaction of a selected
-state event therefore presents as a *primary match with a redaction-only
-mismatch*: the peers agree on which state event IDs are selected but disagree
+state event therefore presents as a _primary match with a redaction-only
+mismatch_: the peers agree on which state event IDs are selected but disagree
 about whether one of those selected events is effectively redacted. This
 combination is the dedicated diagnostic for a missing redaction or missing
 redaction-target ancestry; because the primary digest stays equal, no other
 signal in this MSC detects it.
 
-When a receiver observes this signature, the following recovery path applies.
-It is diagnostic and non-blocking: none of these steps authorize a state change,
+When a receiver observes this signature, the following recovery path applies. It
+is diagnostic and non-blocking: none of these steps authorize a state change,
 and PDU processing continues under standard federation rules throughout.
 
 1. **Identify the divergent target (MSC4521, optional).** The redaction
@@ -530,12 +531,12 @@ and PDU processing continues under standard federation rules throughout.
    a walk over the room history; a receiver SHOULD rate-limit any such fetch per
    room and per origin.
 
-3. **Verify before applying (mandatory).** Once the candidate
-   `m.room.redaction` PDU is located, the receiver MUST fetch the full event and
-   validate its `content`, reference hash, signatures, and authorization rules
-   before treating the target as redacted. The accumulator digests are detection
-   hints: they never authorize the receiver to apply a redaction, or any other
-   state change, without independently verifying the actual PDU. If verification
+3. **Verify before applying (mandatory).** Once the candidate `m.room.redaction`
+   PDU is located, the receiver MUST fetch the full event and validate its
+   `content`, reference hash, signatures, and authorization rules before
+   treating the target as redacted. The accumulator digests are detection hints:
+   they never authorize the receiver to apply a redaction, or any other state
+   change, without independently verifying the actual PDU. If verification
    fails, the divergence remains open and is logged.
 
 If retrieval cannot locate the redaction event — for example, the gap is deeper
@@ -543,10 +544,10 @@ than retained history — the receiver SHOULD fall back to an unconditional
 `/state_ids` comparison for the affected room, consistent with the rule that a
 peer-supplied `304` never suppresses recovery.
 
-This path applies only to redactions of *state* events selected in the resolved
-state at the asserted DAG point. Redacting an ordinary timeline event (such as an
-`m.room.message`) does not change the resolved state map, so it is invisible to
-both the primary and redaction accumulators and is out of scope for this MSC;
+This path applies only to redactions of _state_ events selected in the resolved
+state at the asserted DAG point. Redacting an ordinary timeline event (such as
+an `m.room.message`) does not change the resolved state map, so it is invisible
+to both the primary and redaction accumulators and is out of scope for this MSC;
 history-wide redaction gaps belong to framed MSC4521 reconciliation instead.
 
 ### Other affected endpoints

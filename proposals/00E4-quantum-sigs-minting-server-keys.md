@@ -17,7 +17,7 @@ accepted by implementations of this profile.
 The profile token is the opaque string `tk.nutra.msc45xx.serverkey.v1`.
 Implementations MUST compare it by exact string equality against a closed
 registry. They MUST NOT parse it to recover algorithm parameters. The registry
-entry fixes FN-DSA-512, SHA3-256, Matrix Canonical JSON, Cuckatoo
+entry fixes FN-DSA-512, SHA-256, Matrix Canonical JSON, Cuckatoo
 `edge_bits = 29`, `proof_size = 42`, the short-ID encoding, and the action tags
 below.
 
@@ -55,7 +55,7 @@ one key entry.
 
 The key name uses unpadded base64url encoding and the fixed algorithm token
 `fndsa512`. The short ID is the unpadded RFC 4648 §5 URL-safe base64 encoding of
-the first 16 bytes (128 bits) of the recomputed SHA3-256 key ID. Key names are
+the first 16 bytes (128 bits) of the recomputed SHA-256 key ID. Key names are
 compared by exact string equality and MUST NOT be base64-decoded during
 verification.
 
@@ -66,7 +66,7 @@ server name, and `K` the decoded public-key bytes. `base64_unpadded(K)` is the
 canonical public-key string in the object. The graph seed is:
 
 $$
-G = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+G = \operatorname{SHA-256}(\operatorname{canonical\_json}({
   "action": "tk.nutra.msc45xx.serverkey.v1.graph",
   "nonce": N,
   "profile": P,
@@ -100,7 +100,7 @@ NOT use the legacy SHA-256 graph function.
 The key ID is:
 
 $$
-I = \operatorname{SHA3\text{-}256}(\operatorname{canonical\_json}({
+I = \operatorname{SHA-256}(\operatorname{canonical\_json}({
   "action": "tk.nutra.msc45xx.serverkey.v1.keyid",
   "nonce": N,
   "profile": P,
@@ -291,7 +291,7 @@ An origin could include a top-level `trusted_notary_keys` array in its
 `/_matrix/key/v2/server` response. Each entry is a full content-addressed FN-DSA
 server-key identifier of the form `fndsa512:<short_key_id>`, where
 `<short_key_id>` is the registry-defined 22-character unpadded base64url
-encoding of the first 16 bytes of the SHA3-256 `key_id` defined in this MSC. The
+encoding of the first 16 bytes of the SHA-256 `key_id` defined in this MSC. The
 field is part of the Matrix signing object and therefore covered by the origin's
 server-key signatures. If present but empty, it explicitly authorizes no
 notary-supplied historical keys.
@@ -339,7 +339,7 @@ still required to be rejected per the requirement above.
 
 Unlike a plain hash of the public key, the key's identifier here is
 proof-of-work-bound. The Cuckoo graph is selected from the key body,
-`server_name`, and nonce. The final `key_id` is the SHA3-256 digest of the
+`server_name`, and nonce. The final `key_id` is the SHA-256 digest of the
 canonical minting object, which includes the key body, server name, proof
 algorithm, nonce, and validated proof solution. This forces key minting and
 proof-of-work to happen together: an attacker cannot cheaply scan nonces for a
@@ -351,14 +351,14 @@ is unknown until the proof solution is known.
 ```text
 minting_object = {
     "action": "fn-dsa-minting-object",
-    "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
+    "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha256-cogen",
     "nonce": nonce,
     "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "server_name": "example.com",
     "solution": [solution[0], ..., solution[41]]
 }
 
-key_id = SHA3-256(canonical_json(minting_object))
+key_id = SHA-256(canonical_json(minting_object))
 ```
 
 where `canonical_json` is Matrix Canonical JSON serialization, `solution` is the
@@ -368,12 +368,11 @@ object is reconstructed by the verifier from the enclosing key object and the
 validated `pow` fields; it is not transmitted as a separate object and does not
 include `short_key_id`, signatures, `valid_until_ts`, `claims`, notary metadata,
 or unknown future extension fields. `key_id` — the identity digest used
-throughout this MSC family to name a specific key body — is the SHA3-256 digest
+throughout this MSC family to name a specific key body — is the SHA-256 digest
 of this canonical minting object, not a plain hash of the public key and not the
 pre-solve Cuckatoo graph selector. `short_key_id` is the 22-character unpadded
 base64url encoding of the first 16 bytes (128 bits) of `key_id`; it is not a
-separate digest. `key_id` is a SHA3-256 output under this proof class, not a
-plain SHA-256 output — the two are distinct algorithms despite the similar name.
+separate digest. `key_id` is a SHA-256 output under this proof class.
 
 The 22-character `short_key_id` is a 128-bit prefix. This is not relied on as a
 standalone anti-grinding control: an attacker choosing public keys and nonces
@@ -388,7 +387,7 @@ candidates.
   "fndsa512:<short_key_id>": {
     "key": "<unpadded-base64-fn-dsa-512-pubkey>",
     "pow": {
-      "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
+      "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha256-cogen",
       "nonce": 110,
       "solution": [
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
@@ -413,7 +412,7 @@ iterates the nonce until the resulting graph is solvable. For each nonce,
 compute:
 
 ```text
-SHA3-256(
+SHA-256(
     canonical_json({
         "action": "tk.nutra.msc45xx.serverkey.v1.graph",
         "public_key": "<unpadded-base64-fn-dsa-512-pubkey>",
@@ -448,14 +447,14 @@ no timing acceptance bound. Implementations calibrating a different deployment's
 expected solve time were not permitted to do so by changing `edge_bits` without
 minting a new, explicitly identified algorithm profile (see
 [Compatibility and upgrade classes](#compatibility-and-upgrade-classes)) —
-`tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen` names one fixed
+`tk.nutra.msc45xx.pow.cuckatoo-42-29-sha256-cogen` names one fixed
 parameterization so that all conforming implementations impose the same cost.
 
 The proof response is:
 
 ```json
 {
-  "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen",
+  "algorithm": "tk.nutra.msc45xx.pow.cuckatoo-42-29-sha256-cogen",
   "nonce": 110,
   "solution": [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
@@ -495,7 +494,7 @@ the first failing step and performing no later step once a step has failed:
    and `pow` (an object containing `algorithm`, `nonce`, and `solution`). A
    missing or structurally malformed field fails validation here.
 2. **Algorithm identifier.** `pow.algorithm` was required to exactly equal
-   `tk.nutra.msc45xx.pow.cuckatoo-42-29-sha3-256-cogen`. Any other value fails
+   `tk.nutra.msc45xx.pow.cuckatoo-42-29-sha256-cogen`. Any other value fails
    validation here as unrecognized; do not fall back to treating it as the old
    plain-hash construction.
 3. **Solution and nonce shape.** `pow.solution` was required to contain exactly
@@ -930,14 +929,14 @@ therefore an attestation by default, with an optional embedded-proof upgrade:
       "short_key_id": "5FQ2xg4sWqj3Kp9N8mQhVA",
       "first": {
         "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
-        "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
+        "full_key_id": "<unpadded-base64url-sha256-key-id>",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848000000,
         "observed_via": "direct"
       },
       "conflicting": {
         "key_id": "fndsa512:5FQ2xg4sWqj3Kp9N8mQhVA",
-        "full_key_id": "<unpadded-base64url-sha3-256-key-id>",
+        "full_key_id": "<unpadded-base64url-sha256-key-id>",
         "server_key_package_sha256": "<unpadded-base64url-sha256>",
         "first_observed_ts": 1798848600000,
         "observed_via": "notary"
@@ -974,7 +973,7 @@ Field semantics:
   `key_id` in both `first` and `conflicting` entries equals
   `<algorithm>:<short_key_id>` and MUST reject any record where `key_id` does
   not match.
-- `full_key_id` in each observation is the unpadded base64url 32-byte SHA3-256
+- `full_key_id` in each observation is the unpadded base64url 32-byte SHA-256
   Key ID digest computed over that observation's key body, providing a unique
   full-digest identifier for collision proof and unordered deduplication.
 - `server_key_package_sha256` is the unpadded base64url-encoded SHA-256 digest

@@ -67,28 +67,28 @@ ensures that authorship proofs do not inadvertently leak the full MXID: a prover
 can disclose just the `sender_domain` to verify signature entitlement without
 exposing the localpart.
 
-The hash algorithm is `SHA3-256`. Each hash input is domain-separated:
+The hash algorithm is `SHA-256`. Each hash input is domain-separated:
 
 ```text
 leaf_hash =
-  SHA3-256("msc4511:leaf:v1" || field_name || "\x00" || canonical_value)
+  SHA-256("msc4511:leaf:v1" || field_name || "\x00" || canonical_value)
 
 inner_hash =
-  SHA3-256("msc4511:node:v1" || left_hash || right_hash)
+  SHA-256("msc4511:node:v1" || left_hash || right_hash)
 
 redacted_content_hash =
-  SHA3-256("msc4511:leaf:v1" || "redacted_content" || "\x00" ||
+  SHA-256("msc4511:leaf:v1" || "redacted_content" || "\x00" ||
            canonical_redacted_value)
 
 redactable_content_hash =
-  SHA3-256("msc4511:leaf:v1" || "redactable_content" || "\x00" ||
+  SHA-256("msc4511:leaf:v1" || "redactable_content" || "\x00" ||
            canonical_redactable_value)
 
 content_hash =
-  SHA3-256("msc4511:node:v1" || redacted_content_hash || redactable_content_hash)
+  SHA-256("msc4511:node:v1" || redacted_content_hash || redactable_content_hash)
 
 event_root =
-  SHA3-256("msc4511:root:v1" || prev_events_hash || auth_events_hash ||
+  SHA-256("msc4511:root:v1" || prev_events_hash || auth_events_hash ||
            state_predecessors_hash || event_header_root || content_hash ||
            other_signed_fields_hash)
 ```
@@ -147,7 +147,7 @@ The event signature covers the canonical signed envelope containing this root:
 {
   "room_id": "!room:example.org",
   "room_version": "<room_version>",
-  "event_root": "unpadded_base64url_sha3_256_hash"
+  "event_root": "unpadded_base64url_sha256_hash"
 }
 ```
 
@@ -197,10 +197,10 @@ hashes are:
 
 ```text
 causal_leaf(key) =
-  SHA3-256("msc4511:causal-leaf:v1" || key)
+  SHA-256("msc4511:causal-leaf:v1" || key)
 
 causal_node(depth, left_hash, left_count, right_hash, right_count) =
-  SHA3-256("msc4511:causal-node:v1" || u16be(depth) ||
+  SHA-256("msc4511:causal-node:v1" || u16be(depth) ||
            left_hash || u64be(left_count) ||
            right_hash || u64be(right_count))
 ```
@@ -209,7 +209,7 @@ causal_node(depth, left_hash, left_count, right_hash, right_count) =
 defined recursively from a distinguished empty leaf:
 
 ```text
-empty[256] = SHA3-256("msc4511:causal-empty-leaf:v1")
+empty[256] = SHA-256("msc4511:causal-empty-leaf:v1")
 empty[d] = causal_node(d, empty[d+1], 0, empty[d+1], 0)
 ```
 
@@ -223,7 +223,7 @@ The event carries:
 ```json
 "causal_set": {
   "algorithm": "msc4511.sparse_merkle_sum_v1",
-  "root": "unpadded_base64url_sha3_256_hash",
+  "root": "unpadded_base64url_sha256_hash",
   "count": 1234
 }
 ```
@@ -683,20 +683,20 @@ provides any required top-level component hashes needed to reconstruct
     "leaf_paths": {
       "prev_events": [],
       "sender_domain": [
-        { "side": "right", "hash": "base64url_sha3_256_hash" },
-        { "side": "right", "hash": "base64url_sha3_256_hash" },
-        { "side": "left", "hash": "base64url_sha3_256_hash" }
+        { "side": "right", "hash": "base64url_sha256_hash" },
+        { "side": "right", "hash": "base64url_sha256_hash" },
+        { "side": "left", "hash": "base64url_sha256_hash" }
       ],
       "origin_server_ts": [
-        { "side": "left", "hash": "base64url_sha3_256_hash" },
-        { "side": "right", "hash": "base64url_sha3_256_hash" },
-        { "side": "right", "hash": "base64url_sha3_256_hash" }
+        { "side": "left", "hash": "base64url_sha256_hash" },
+        { "side": "right", "hash": "base64url_sha256_hash" },
+        { "side": "right", "hash": "base64url_sha256_hash" }
       ]
     },
     "top_level_hashes": {
-      "auth_events_hash": "base64url_sha3_256_hash",
-      "content_hash": "base64url_sha3_256_hash",
-      "other_signed_fields_hash": "base64url_sha3_256_hash"
+      "auth_events_hash": "base64url_sha256_hash",
+      "content_hash": "base64url_sha256_hash",
+      "other_signed_fields_hash": "base64url_sha256_hash"
     },
     "signatures": {
       "example.org": {
